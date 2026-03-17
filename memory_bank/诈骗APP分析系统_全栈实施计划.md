@@ -32,6 +32,28 @@
 
 ---
 
+## 实施口径确认（V1）
+
+以下事项在本计划中**明确暂不实现**（如后续需要可另行补充迭代）：
+
+- 任务备注/描述字段（需求 F-02-07）
+- 审计日志、RBAC、HTTPS 强制
+- 设备心跳上报与离线告警机制
+- 下载文件命名规范（通过接口控制文件名）
+- 数据保留与清理策略（截图/流量/日志周期清理）
+- 审计日志专用数据表
+
+已确认的实现口径：
+
+- 动态溯源“操作序列”仅预留函数入口，先不做配置化
+- 设备调度采用数据库行锁避免并发抢占
+- 上传与下载路径需在**后端**做文件大小校验（超过 500MB 直接拒绝并返回明确错误）
+- WeasyPrint 运行依赖需在后端镜像中安装（不指定特定字体）
+- 动态溯源设备已 root，可直接使用 tcpdump
+- 静态分析以 androguard 为准（与需求文档中 Apktool/dex2jar 描述差异可接受）
+
+---
+
 ## 阶段一：环境与工程初始化
 
 ### 1.1 开发环境准备
@@ -169,6 +191,7 @@ frontend/src/
 
 - `api`、`worker`、`scheduler` 均依赖 `mysql`、`redis`、`minio`，配置 `depends_on`
 - 在 `backend/` 下创建 `Dockerfile`：基于 `python:3.11-slim`，安装系统依赖（`android-tools-adb`、`tshark`），复制代码，安装 Python 依赖，设置工作目录
+  - 同时安装 WeasyPrint 运行依赖（如 cairo/pango/gdk-pixbuf/libffi 等系统库），不指定特定字体
 - 在 `infra/` 下创建 `.env.example`，列出所有需要配置的环境变量名（不填真实值）
 
 ### 1.7 验证基础设施启动
@@ -406,6 +429,7 @@ frontend/src/
 
 - 在 `api/tasks.py` 中实现 `POST /api/tasks/upload`，接收 `files: list[UploadFile]`：
   - 对每个文件用 `python-magic` 校验 MIME 类型，非 APK 则跳过
+  - 后端校验单文件大小（> 500MB 直接拒绝并返回明确错误）
   - 计算 MD5，调用 `get_task_by_md5` 检查重复
   - 上传 APK 到 MinIO `BUCKET_APK`，object_name 使用 `{md5}.apk`
   - 调用 `create_task` 创建记录，状态设为 `static_analyzing`
@@ -457,7 +481,8 @@ frontend/src/
 在 `workers/scheduler.py` 中实现设备调度逻辑：
 
 - 以无限循环方式运行，每次循环间隔 10 秒
-- 查询 `waiting_device` 任务和 `online` 设备，按序配对，更新状态
+- 使用数据库行锁避免并发抢占（建议在事务内使用 `SELECT ... FOR UPDATE SKIP LOCKED` 锁定待分配任务与空闲设备）
+- 查询 `waiting_device` 任务和 `online` 设备，按序配对，更新任务与设备状态
 - 为每个配对成功的任务触发动态溯源 Task
 
 ### 6.3 错误重试策略
@@ -532,6 +557,7 @@ frontend/src/
 - 查询任务和设备信息，从 MinIO 下载 APK
 - 安装 APK，启动 tcpdump 采集流量
 - 执行模拟操作序列，每步截图并上传到 MinIO，写入 `dynamic_results` 表
+  - 预留操作序列入口（例如 `generate_actions()` 返回动作列表），暂不做配置化
 - 停止 tcpdump，拉取 PCAP，上传到 MinIO，更新 `tasks.pcap_path`
 - 调用 `pcap_parser.parse_pcap` 解析，批量写入 `traffic_logs` 表
 - 卸载 APK，清理设备临时文件
@@ -567,6 +593,7 @@ frontend/src/
   - 截图通过 MinIO SDK 直接读取二进制转 base64 内嵌 HTML
   - Jinja2 渲染模板，WeasyPrint 生成 PDF bytes
   - 上传到 MinIO `BUCKET_REPORTS`，返回存储路径
+  - 说明：WeasyPrint 依赖系统库，Dockerfile 中需提前安装（不指定字体）
 
 ### 9.3 报告生成 Celery Task
 
