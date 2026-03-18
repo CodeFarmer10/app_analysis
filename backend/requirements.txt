@@ -1,0 +1,17 @@
+fastapi==0.111.0
+uvicorn[standard]==0.30.1
+python-multipart==0.0.9
+pymysql==1.1.1
+cryptography==42.0.8
+dbutils==3.1.0
+celery==5.4.0
+redis==5.0.5
+minio==7.2.7
+androguard==4.1.2
+python-magic==0.4.27
+weasyprint==62.3
+jinja2==3.1.4
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+pydantic-settings==2.3.4
+httpx==0.27.0
