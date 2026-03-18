@@ -14,3 +14,14 @@
 - 安装开发环境工具：adb（android-platform-tools）与 tshark（wireshark CLI）
 
 说明：Docker 仅创建文件，未进行容器启动或依赖服务安装。
+
+已完成阶段二（数据库设计与初始化，按最新约定调整）：
+
+- 完成 `backend/migrations/v1_init.sql` 表结构：所有主键统一为 `VARCHAR(36)`（UUID），并同步外键字段类型
+- `tasks` 增加 `user_id` 与 `run_log_path` 字段，建立用户外键与索引
+- `dynamic_results` 增加 `action_time`、`screenshot_before`、`screenshot_after`、`is_success` 字段，移除旧 `screenshot_path`
+- `traffic_logs`、`static_results`、`devices` 等表字段类型统一为字符串 ID
+- 实现数据库连接层：`core/config.py`（读取 `backend/.env`）、`core/database.py`（PooledDB 连接池与基础查询）
+- 补充连接测试脚本 `backend/scripts/db_test.py` 并修复包导入路径
+- 依赖补齐 `python-dotenv`，确保 `.env` 生效
+- 已验证虚拟环境数据库连接，`db_test.py` 输出 MySQL 版本 `5.7.25`

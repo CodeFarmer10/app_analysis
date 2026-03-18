@@ -9,12 +9,19 @@
 - 分析引擎分为静态分析（androguard）与动态溯源（adb + tcpdump + tshark）。
 - 文件存储采用 MinIO 对象存储，数据库采用 MySQL，异步任务采用 Celery + Redis。
 
+## Architecture Insights
+
+- 数据库主键统一为字符串（UUID），便于跨服务生成、离线预分配与后续分库分表扩展。
+- 任务与用户建立关联（`tasks.user_id`），为权限控制、审计统计与多租户扩展预留基础。
+- 动态溯源结果采用“操作前/后截图 + 操作时间 + 成功标记”建模，保证可追溯与可解释性。
+- 任务运行日志路径独立字段（`tasks.run_log_path`），便于集中存储与问题追踪。
+
 ## Backend Structure
 
 - backend/main.py
   - FastAPI 入口，注册中间件与路由，提供健康检查与启动钩子。
 - backend/core/config.py
-  - 环境变量与配置集中读取（pydantic-settings）。
+  - 环境变量与配置集中读取（pydantic-settings），从 `backend/.env` 加载。
 - backend/core/database.py
   - MySQL 连接池与基础查询封装。
 - backend/core/security.py
@@ -55,13 +62,17 @@
 - backend/templates/report.html
   - PDF 报告模板。
 - backend/migrations/v1_init.sql
-  - 数据库初始化脚本。
+  - 数据库初始化脚本（字符串主键、任务-用户关联、动态溯源结果扩展字段）。
 - backend/requirements.txt
   - 后端依赖清单。
 - backend/Dockerfile
   - 后端容器构建文件（仅用于后续一键部署）。
 - backend/.env.example
   - 环境变量示例清单。
+- backend/.env
+  - 本地开发环境配置（不应提交到版本控制）。
+- backend/scripts/db_test.py
+  - 数据库连接测试脚本。
 
 ## Frontend Structure
 

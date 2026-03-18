@@ -210,7 +210,7 @@ frontend/src/
 
 在 `migrations/v1_init.sql` 中定义 `users` 表，字段包含：
 
-- `id`：主键，自增整型
+- `id`：主键，字符串类型（UUID）
 - `username`：VARCHAR(64)，唯一索引，不可为空
 - `password_hash`：VARCHAR(255)，存储 bcrypt 哈希，不可为空
 - `created_at`：DATETIME，默认当前时间
@@ -219,14 +219,14 @@ frontend/src/
 
 在 `v1_init.sql` 中定义 `devices` 表，字段包含：
 
-- `id`：主键，自增整型
+- `id`：主键，字符串类型（UUID）
 - `name`：VARCHAR(128)，设备自定义名称
 - `serial`：VARCHAR(128)，ADB 连接地址或序列号，唯一索引，不可为空
 - `android_version`：VARCHAR(32)
 - `model`：VARCHAR(128)，品牌型号
 - `resolution`：VARCHAR(32)，屏幕分辨率
 - `status`：ENUM(`online`, `offline`, `busy`)，默认 `online`，建立索引
-- `current_task_id`：INT，外键关联 tasks 表，可为空
+- `current_task_id`：VARCHAR(36)，外键关联 tasks 表，可为空
 - `last_heartbeat_at`：DATETIME
 - `created_at`：DATETIME，默认当前时间
 
@@ -234,9 +234,10 @@ frontend/src/
 
 在 `v1_init.sql` 中定义 `tasks` 表，字段包含：
 
-- `id`：主键，自增整型
+- `id`：主键，字符串类型（UUID）
 - `source_type`：ENUM(`apk_upload`, `url_download`)，不可为空
 - `source_name`：VARCHAR(512)，APK 原始文件名或下载 URL
+- `user_id`：VARCHAR(36)，外键关联 users 表，可为空
 - `file_md5`：VARCHAR(32)，建立索引，可为空（下载完成前为空）
 - `file_size`：BIGINT，文件字节大小，可为空
 - `status`：ENUM(`downloading`, `download_failed`, `static_analyzing`, `static_failed`, `waiting_device`, `dynamic_tracing`, `dynamic_failed`, `completed`)，建立索引
@@ -244,7 +245,8 @@ frontend/src/
 - `apk_path`：VARCHAR(512)，MinIO 中的 APK 对象路径，可为空
 - `pcap_path`：VARCHAR(512)，MinIO 中的 PCAP 对象路径，可为空
 - `report_path`：VARCHAR(512)，MinIO 中的 PDF 报告对象路径，可为空
-- `device_id`：INT，分配的设备 ID，可为空
+- `run_log_path`：VARCHAR(512)，任务运行日志路径，可为空
+- `device_id`：VARCHAR(36)，分配的设备 ID，可为空
 - `created_at`：DATETIME，默认当前时间，建立索引
 - `updated_at`：DATETIME，每次更新自动刷新
 
@@ -252,7 +254,7 @@ frontend/src/
 
 在 `v1_init.sql` 中定义 `static_results` 表，与 tasks 表一对一关联：
 
-- `task_id`：主键，同时作为外键关联 tasks 表
+- `task_id`：主键（VARCHAR(36)），同时作为外键关联 tasks 表
 - `app_name`：VARCHAR(256)
 - `package_name`：VARCHAR(256)，建立索引
 - `version_name`：VARCHAR(64)
@@ -269,19 +271,22 @@ frontend/src/
 
 在 `v1_init.sql` 中定义 `dynamic_results` 表，存储逐步操作记录：
 
-- `id`：主键，自增整型
-- `task_id`：INT，外键关联 tasks，建立索引
+- `id`：主键，字符串类型（UUID）
+- `task_id`：VARCHAR(36)，外键关联 tasks，建立索引
 - `seq`：INT，操作序号，与 task_id 组合唯一
 - `action`：VARCHAR(256)，操作描述
 - `action_result`：VARCHAR(512)，操作结果
-- `screenshot_path`：VARCHAR(512)，截图 MinIO 路径，可为空
+- `action_time`：DATETIME，操作时间，可为空
+- `screenshot_before`：VARCHAR(512)，操作前截图 MinIO 路径，可为空
+- `screenshot_after`：VARCHAR(512)，操作后截图 MinIO 路径，可为空
+- `is_success`：TINYINT(1)，操作是否成功，默认 1
 
 ### 2.6 设计 traffic_logs 表
 
 在 `v1_init.sql` 中定义 `traffic_logs` 表：
 
-- `id`：主键，自增整型
-- `task_id`：INT，外键关联 tasks，建立索引
+- `id`：主键，字符串类型（UUID）
+- `task_id`：VARCHAR(36)，外键关联 tasks，建立索引
 - `seq`：INT，流量记录序号
 - `src_ip`：VARCHAR(45)（兼容 IPv6）
 - `dst_ip`：VARCHAR(45)
