@@ -325,7 +325,8 @@ frontend/src/
   - 数据库：`DB_HOST`、`DB_PORT`、`DB_USER`、`DB_PASSWORD`、`DB_NAME`
   - Redis：`REDIS_URL`
   - MinIO：`MINIO_ENDPOINT`、`MINIO_ACCESS_KEY`、`MINIO_SECRET_KEY`、`MINIO_SECURE`
-  - MinIO Bucket 名称：`BUCKET_APK`、`BUCKET_ICONS`、`BUCKET_SCREENSHOTS`、`BUCKET_PCAP`、`BUCKET_REPORTS`
+  - MinIO Bucket 名称：`BUCKET_TASK_FILES`（单一 Bucket）
+  - 对象路径约定：`{task_id}/{file_type}/{file_name}`（每任务一个目录前缀，图标/截图/PCAP/报告/运行日志统一存储）
   - JWT：`JWT_SECRET_KEY`、`JWT_ALGORITHM`、`JWT_EXPIRE_MINUTES`
   - CORS：`ALLOWED_ORIGINS`
 - 创建单例 `settings = Settings()`，全项目统一通过 `from core.config import settings` 使用
@@ -352,10 +353,12 @@ frontend/src/
 ### 3.4 MinIO 存储服务初始化
 
 - 在 `services/storage_service.py` 中创建 `StorageService` 类，`__init__` 方法中初始化 MinIO 客户端
-- 实现 `ensure_buckets()`：检查并创建所有必要的 Bucket（`BUCKET_APK`、`BUCKET_ICONS`、`BUCKET_SCREENSHOTS`、`BUCKET_PCAP`、`BUCKET_REPORTS`），若已存在则跳过
-- 实现 `upload_file(bucket, object_name, file_path)`、`upload_bytes(bucket, object_name, data, content_type)`、`get_presigned_url(bucket, object_name, expires_seconds=3600)`、`download_to_temp(bucket, object_name)`
+- 实现 `ensure_buckets()`：仅检查并创建 `BUCKET_TASK_FILES`，若已存在则跳过
+- 实现 `build_task_object_name(task_id, file_type, file_name)`，统一生成对象路径
+- 实现 `upload_file(object_name, file_path)`、`upload_bytes(object_name, data, content_type)`、`get_presigned_url(object_name, expires_seconds=3600)`、`download_to_temp(object_name)`（默认使用 `BUCKET_TASK_FILES`）
+- 可选实现任务级辅助方法：`upload_task_file(task_id, file_type, file_path)`、`upload_task_bytes(task_id, file_type, file_name, data, content_type)`
 - 在 `main.py` 的 `startup` 事件中调用 `ensure_buckets()`
-- 登录 MinIO Console 确认 5 个 Bucket 均已创建
+- 登录 MinIO Console 确认 `BUCKET_TASK_FILES` 已创建
 
 ### 3.5 Celery 初始化
 
@@ -368,7 +371,7 @@ frontend/src/
 
 - 访问 `GET /health`，确认返回正常
 - 访问 `GET /docs`，确认四个路由分组全部显示
-- 查看 MinIO Console，确认五个 Bucket 存在
+- 查看 MinIO Console，确认单一 Bucket（`BUCKET_TASK_FILES`）存在
 - 查看 Celery Worker 日志，确认监听三个队列
 
 ---
@@ -436,8 +439,8 @@ frontend/src/
   - 对每个文件用 `python-magic` 校验 MIME 类型，非 APK 则跳过
   - 后端校验单文件大小（> 500MB 直接拒绝并返回明确错误）
   - 计算 MD5，调用 `get_task_by_md5` 检查重复
-  - 上传 APK 到 MinIO `BUCKET_APK`，object_name 使用 `{md5}.apk`
   - 调用 `create_task` 创建记录，状态设为 `static_analyzing`
+  - 上传 APK 到 MinIO `BUCKET_TASK_FILES`，对象路径使用 `{task_id}/apk/{md5}.apk`
   - 触发 Celery 静态分析 Task
   - 返回每个文件的处理结果列表
 
@@ -521,7 +524,7 @@ frontend/src/
 
 - 从数据库查询 `apk_path`，从 MinIO 下载 APK 到临时目录
 - 调用 `apk_parser.parse_apk` 解析
-- 将图标上传到 MinIO `BUCKET_ICONS`，获取 `icon_path`
+- 将图标上传到 MinIO `BUCKET_TASK_FILES`，对象路径使用 `{task_id}/icon/{file_name}`，获取 `icon_path`
 - 将解析结果（含 icon_path）写入 `static_results` 表
 - 更新任务状态为 `waiting_device`
 - 异常时更新状态为 `static_failed`，记录 error_message，清理临时文件
@@ -561,9 +564,9 @@ frontend/src/
 
 - 查询任务和设备信息，从 MinIO 下载 APK
 - 安装 APK，启动 tcpdump 采集流量
-- 执行模拟操作序列，每步截图并上传到 MinIO，写入 `dynamic_results` 表
+- 执行模拟操作序列，每步截图并上传到 MinIO `BUCKET_TASK_FILES`（路径 `{task_id}/screenshots/...`），写入 `dynamic_results` 表
   - 预留操作序列入口（例如 `generate_actions()` 返回动作列表），暂不做配置化
-- 停止 tcpdump，拉取 PCAP，上传到 MinIO，更新 `tasks.pcap_path`
+- 停止 tcpdump，拉取 PCAP，上传到 MinIO `BUCKET_TASK_FILES`（路径 `{task_id}/pcap/...`），更新 `tasks.pcap_path`
 - 调用 `pcap_parser.parse_pcap` 解析，批量写入 `traffic_logs` 表
 - 卸载 APK，清理设备临时文件
 - 更新设备状态为 `online`，更新任务状态为 `completed`
@@ -579,7 +582,7 @@ frontend/src/
 ### 8.5 验证动态溯源模块
 
 - 上传 APK，等待调度器分配设备，确认动态溯源执行
-- MinIO 中 screenshots 和 pcap Bucket 均有文件
+- MinIO `BUCKET_TASK_FILES` 中对应任务目录下存在 screenshots 与 pcap 文件
 - 调用动态结果接口，确认操作记录和流量日志数据正确
 
 ---
@@ -597,7 +600,7 @@ frontend/src/
   - 从数据库查询所有所需数据
   - 截图通过 MinIO SDK 直接读取二进制转 base64 内嵌 HTML
   - Jinja2 渲染模板，WeasyPrint 生成 PDF bytes
-  - 上传到 MinIO `BUCKET_REPORTS`，返回存储路径
+  - 上传到 MinIO `BUCKET_TASK_FILES`，对象路径使用 `{task_id}/report/{file_name}`，返回存储路径
   - 说明：WeasyPrint 依赖系统库，Dockerfile 中需提前安装（不指定字体）
 
 ### 9.3 报告生成 Celery Task
@@ -864,7 +867,7 @@ frontend/src/
 - 全新环境按 `README.md` 从零启动，确认文档步骤完整
 - 执行阶段十六全链路通测
 - Swagger UI 所有接口有清晰文档
-- 确认各 MinIO Bucket 权限正确，文件通过预签名 URL 访问
+- 确认 MinIO 单一 Bucket（`BUCKET_TASK_FILES`）权限正确，文件通过预签名 URL 访问
 
 ---
 

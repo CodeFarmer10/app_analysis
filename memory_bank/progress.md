@@ -25,3 +25,21 @@
 - 补充连接测试脚本 `backend/scripts/db_test.py` 并修复包导入路径
 - 依赖补齐 `python-dotenv`，确保 `.env` 生效
 - 已验证虚拟环境数据库连接，`db_test.py` 输出 MySQL 版本 `5.7.25`
+
+已完成阶段三（后端框架搭建，已通过验证）：
+
+- 完成 `core/config.py` 配置项补全：DB、Redis、MinIO、JWT、CORS，并提供 `settings` 单例
+- 新增 `core/response.py`，统一 `success_response` 返回结构
+- 完成 `main.py`：FastAPI 实例、CORS 中间件、全局异常处理、`GET /health`、路由统一注册、启动时存储初始化
+- 完成 `api/auth.py`、`api/tasks.py`、`api/devices.py`、`api/dashboard.py` 路由分组骨架（便于 `/docs` 分组验证）
+- 完成 `services/storage_service.py`：MinIO 客户端、Bucket 初始化、上传/下载、预签名 URL、任务级对象路径封装
+- 完成 `workers/celery_app.py`：Celery 初始化、JSON 序列化、3 个队列（`queue_download`、`queue_static`、`queue_dynamic`）与路由映射
+- 存储策略调整为单一 Bucket：`BUCKET_TASK_FILES`；对象路径统一为 `{task_id}/{file_type}/{file_name}`，同一任务下集中存放 APK、图标、截图、PCAP、报告、运行日志
+- 已同步更新 `backend/.env` 与 `backend/.env.example`
+- 已同步更新实施计划文档中 MinIO 相关内容，清理旧多 Bucket 口径
+
+阶段三验证结果（2026-03-18）：
+
+- FastAPI 启动成功，`GET /health` 返回 `{"status":"ok"}`，`/docs` 返回 `200`
+- Celery worker 启动并确认监听 3 个队列：`queue_download`、`queue_static`、`queue_dynamic`
+- 说明：Docker 相关仅创建文件用于未来一键部署，未执行容器启动
