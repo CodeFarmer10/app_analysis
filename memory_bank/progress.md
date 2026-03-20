@@ -93,3 +93,41 @@
   - 增加管理员接口、改密接口、`users.role` 字段、验证项与交付物描述
 
 说明：本轮未开始阶段五实现。Docker 相关仍保持“仅创建文件用于未来一键部署，不执行容器操作”。
+
+已完成阶段五（任务管理模块）并通过接口验证：
+
+- 完成 `backend/schemas/task.py`：
+  - 新增 `UrlSubmitRequest`、`TaskStatusResponse`、`TaskListItem`、`TaskListResponse`
+- 完成 `backend/repositories/task_repo.py`：
+  - 新增 `create_task`、`get_task_by_id`、`get_task_by_md5`、`update_task`、`list_tasks`
+  - 新增详情接口所需查询：`get_static_result`、`list_dynamic_results`、`list_traffic_logs`
+- 完成 `backend/services/task_service.py`：
+  - 实现 APK 批量上传流程：大小限制（500MB）、MIME 校验、MD5 计算、重复检测、MinIO 上传、任务创建与更新
+  - 实现 URL 批量提交流程：URL 校验、任务创建、异步下载触发
+  - 实现任务列表过滤、任务详情聚合、任务状态查询
+  - 增加 `python-magic` 不可用时的 MIME 检测回退逻辑（避免运行环境缺少 `libmagic` 时服务启动失败）
+- 完成 `backend/api/tasks.py` 阶段五接口：
+  - `POST /api/tasks/upload`
+  - `POST /api/tasks/url`
+  - `GET /api/tasks`
+  - `GET /api/tasks/{task_id}`
+  - `GET /api/tasks/{task_id}/status`
+- 更新队列入口占位（不进入阶段六实现）：
+  - `backend/workers/download.py` 新增 `download_apk` Celery Task 占位
+  - `backend/workers/static_analysis.py` 新增 `analyze_apk` Celery Task 占位
+
+阶段五验证结果（2026-03-20）：
+
+- URL 提交验证通过：
+  - `http://1u79p9.syhold.com.cn/pub/tFe9Vngi4ggq.apk`
+  - `http://1u79p9.syhold.com.cn/pub/qgcqbngimdf9.apk`
+  - 接口返回 2 个任务 ID，状态均为 `downloading`
+- 文件上传验证通过（使用项目内测试文件 `backend/tmp/test_1.apk`、`backend/tmp/test_2.apk`）：
+  - 上传接口返回 `200`，创建 2 个任务，状态均为 `static_analyzing`
+  - 数据库回查确认 `file_md5`、`file_size`、`apk_path` 均正确落库
+  - `apk_path` 符合规则：`{task_id}/apk/{md5}.apk`
+
+说明：
+
+- 本轮严格停在阶段五，未开始阶段六下载执行、重试策略与调度器实现。
+- Docker 相关仍仅创建/更新文件用于后续一键部署，未执行容器运行操作。

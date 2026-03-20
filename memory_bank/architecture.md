@@ -17,6 +17,10 @@
 - 动态结果采用“操作前/后截图 + 操作时间 + 成功标记”结构，保证可追溯性。
 - 密码存储采用 bcrypt 哈希，禁止明文；登录、改密、管理员建用户均复用同一哈希策略。
 - 鉴权依赖按职责拆分：`get_current_user` 负责身份校验，`get_current_admin` 负责角色授权，减少路由重复判断。
+- 任务管理采用“API 薄层 + Service 编排 + Repository 持久化”的三层职责，便于后续将阶段六/七异步执行逻辑无缝接入。
+- 任务 ID 实际实现统一为 UUID 字符串（`VARCHAR(36)`），与数据库现状保持一致，避免历史 `int task_id` 口径引发不兼容。
+- 上传链路采用“先建任务后存文件再回写路径”的方式，确保对象存储路径天然带任务前缀，降低后续查询与清理复杂度。
+- 为兼容开发机环境差异，MIME 检测增加了 `python-magic` 不可用时的回退策略，避免 `libmagic` 缺失导致服务整体不可用。
 - 文件存储采用单一 Bucket（`BUCKET_TASK_FILES`）策略，按任务目录前缀组织：
   - `{task_id}/apk/...`
   - `{task_id}/icon/...`
@@ -43,7 +47,7 @@
 - `backend/api/users.py`
   - 用户管理路由：管理员查看用户列表、新增用户、删除用户。
 - `backend/api/tasks.py`
-  - 任务路由分组（当前 `ping` 已接入登录鉴权，后续承载任务管理主接口）。
+  - 任务路由：`/upload`（APK 批量上传）、`/url`（URL 批量提交）、`/api/tasks`（列表检索）、`/{task_id}`（详情）、`/{task_id}/status`（状态查询），均受登录鉴权保护。
 - `backend/api/devices.py`
   - 设备路由分组（当前 `ping` 已接入登录鉴权，后续承载设备管理接口）。
 - `backend/api/dashboard.py`
@@ -53,13 +57,13 @@
 - `backend/schemas/user.py`
   - 用户管理模型：新增用户请求、用户列表项结构。
 - `backend/schemas/task.py`
-  - 任务请求/响应模型预留。
+  - 任务模型：URL 批量提交请求、任务列表项与分页响应、任务状态响应。
 - `backend/schemas/device.py`
   - 设备请求/响应模型预留。
 - `backend/repositories/user_repo.py`
   - 用户数据访问层：用户查询、列表、创建、删除、改密、管理员数量统计。
 - `backend/repositories/task_repo.py`
-  - 任务数据访问层预留。
+  - 任务数据访问层：任务创建、按 ID/MD5 查询、动态字段更新、多条件分页查询；并提供静态结果/动态结果/流量日志查询。
 - `backend/repositories/device_repo.py`
   - 设备数据访问层预留。
 - `backend/repositories/dashboard_repo.py`
@@ -67,7 +71,7 @@
 - `backend/services/storage_service.py`
   - MinIO 服务封装：单 Bucket 初始化、对象上传下载、预签名 URL、任务路径构建。
 - `backend/services/task_service.py`
-  - 任务业务逻辑层预留。
+  - 任务业务编排：APK 上传校验与入库、URL 提交入库与异步触发、列表过滤、详情组装、状态读取；包含 500MB 限制、MD5 去重与 MIME 检测回退。
 - `backend/services/device_service.py`
   - 设备业务逻辑层预留。
 - `backend/services/report_service.py`
@@ -75,9 +79,9 @@
 - `backend/workers/celery_app.py`
   - Celery 应用初始化，配置 Redis broker/backend 与 3 个业务队列。
 - `backend/workers/download.py`
-  - URL 下载异步任务预留。
+  - URL 下载任务入口占位（阶段五仅用于队列触发点，具体下载实现在阶段六落地）。
 - `backend/workers/static_analysis.py`
-  - 静态分析异步任务预留。
+  - 静态分析任务入口占位（阶段五仅用于队列触发点，具体静态分析实现在阶段七落地）。
 - `backend/workers/dynamic_trace.py`
   - 动态溯源异步任务预留。
 - `backend/workers/report.py`
