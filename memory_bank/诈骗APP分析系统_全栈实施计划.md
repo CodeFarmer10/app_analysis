@@ -15,7 +15,7 @@
 | 一 | 环境与工程初始化 | 开发环境、目录结构、Docker 基础设施 | 无 |
 | 二 | 数据库设计与初始化 | 表结构设计、迁移脚本、连接层 | 阶段一 |
 | 三 | 后端框架搭建 | FastAPI 骨架、配置管理、公共层 | 阶段一 |
-| 四 | 认证模块 | 登录、JWT、鉴权依赖 | 阶段二、三 |
+| 四 | 认证模块 | 登录、JWT、鉴权依赖、用户管理与改密 | 阶段二、三 |
 | 五 | 任务管理模块 | 上传、URL提交、任务列表、搜索、状态查询 | 阶段四 |
 | 六 | Celery 任务队列 | 队列初始化、下载任务、调度器 | 阶段五 |
 | 七 | 静态分析模块 | APK 解析、结果写库、状态流转 | 阶段六 |
@@ -392,10 +392,15 @@ frontend/src/
 ### 4.3 用户 Repository
 
 - 在 `repositories/user_repo.py` 中实现 `get_user_by_username(username: str) -> dict | None`
+- 实现 `get_user_by_id(user_id: str) -> dict | None`（鉴权依赖查库）
+- 实现 `list_users()`、`create_user()`、`delete_user()`、`update_password()`、`count_admin_users()`
+- `users` 表新增 `role` 字段（`admin`/`user`，默认 `user`），并在 `v1_init.sql` 中提供幂等补字段逻辑
 
 ### 4.4 Schemas 定义
 
 - 在 `schemas/auth.py` 中定义 `LoginRequest`（username、password）和 `LoginResponse`（token、username）
+- 在 `schemas/auth.py` 中新增 `ChangePasswordRequest`（old_password、new_password）
+- 新增 `schemas/user.py`，定义管理员新增用户请求模型（username、password、role）
 
 ### 4.5 登录接口
 
@@ -405,15 +410,35 @@ frontend/src/
 
 - 在 `api/auth.py` 中实现 `POST /api/auth/logout`，无状态 JWT，仅返回成功响应
 
-### 4.7 鉴权依赖
+### 4.7 修改密码接口
+
+- 在 `api/auth.py` 中实现 `POST /api/auth/change-password`
+- 仅登录用户可访问，校验旧密码正确后更新密码哈希
+- 新密码与旧密码相同则拒绝
+
+### 4.8 管理员用户管理接口
+
+- 新增 `api/users.py` 路由模块，提供：
+  - `GET /api/users`（管理员查看用户列表）
+  - `POST /api/users`（管理员新增用户，支持创建管理员）
+  - `DELETE /api/users/{user_id}`（管理员删除用户）
+- 删除用户约束：
+  - 不允许删除当前登录管理员
+  - 至少保留一个管理员账户
+
+### 4.9 鉴权依赖
 
 - 在 `core/security.py` 中实现 `get_current_user` 依赖函数：从 Token 提取 user_id，查库确认用户存在，返回用户字典
+- 在 `core/security.py` 中实现 `get_current_admin` 依赖函数：校验 `role == admin`
 - 后续所有需要登录的路由注入此依赖
 
-### 4.8 验证认证模块
+### 4.10 验证认证模块
 
 - 正确凭据登录确认返回 Token，错误密码返回 401
 - 不携带 Token 访问受保护接口确认返回 401
+- 普通用户调用 `/api/users` 确认返回 403
+- 管理员可新增/删除用户，删除自身或删除最后一个管理员均被拒绝
+- 登录用户修改密码后，旧密码失效、新密码可登录
 
 ---
 
@@ -878,7 +903,7 @@ frontend/src/
 | 一 | Git 仓库骨架、docker-compose.yml、Dockerfile、requirements.txt、package.json、.env.example |
 | 二 | v1_init.sql（6张表）、database.py 连接层 |
 | 三 | main.py、core/ 配置与公共层、Celery 初始化、MinIO Bucket 初始化、健康检查接口 |
-| 四 | security.py、user_repo.py、登录/退出接口、鉴权 Depends |
+| 四 | security.py、user_repo.py、auth/users 接口、管理员鉴权 Depends、改密接口 |
 | 五 | task_repo.py、schemas/task.py、5个任务相关接口 |
 | 六 | workers/download.py、workers/scheduler.py、错误重试配置 |
 | 七 | analyzers/apk_parser.py、workers/static_analysis.py、静态结果接口 |

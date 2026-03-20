@@ -12,8 +12,11 @@
 ## Architecture Insights
 
 - 数据库主键统一为字符串 UUID，便于跨模块生成和后续扩展。
+- 用户模型新增 `role`（`admin` / `user`），认证与授权从“仅登录态”升级为“登录 + 角色权限”双层控制。
 - 任务与用户通过 `tasks.user_id` 关联，为权限和审计扩展预留空间。
 - 动态结果采用“操作前/后截图 + 操作时间 + 成功标记”结构，保证可追溯性。
+- 密码存储采用 bcrypt 哈希，禁止明文；登录、改密、管理员建用户均复用同一哈希策略。
+- 鉴权依赖按职责拆分：`get_current_user` 负责身份校验，`get_current_admin` 负责角色授权，减少路由重复判断。
 - 文件存储采用单一 Bucket（`BUCKET_TASK_FILES`）策略，按任务目录前缀组织：
   - `{task_id}/apk/...`
   - `{task_id}/icon/...`
@@ -34,23 +37,27 @@
 - `backend/core/response.py`
   - 统一成功响应结构函数 `success_response`。
 - `backend/core/security.py`
-  - 认证与安全能力预留文件（阶段四实现核心逻辑）。
+  - 认证与安全核心模块：bcrypt 密码哈希/校验、JWT 签发与解码、登录用户依赖、管理员依赖。
 - `backend/api/auth.py`
-  - 认证路由分组（`/api/auth`）入口骨架。
+  - 认证路由：`/login`、`/logout`、`/change-password`。
+- `backend/api/users.py`
+  - 用户管理路由：管理员查看用户列表、新增用户、删除用户。
 - `backend/api/tasks.py`
-  - 任务相关路由分组（`/api/tasks`）入口骨架。
+  - 任务路由分组（当前 `ping` 已接入登录鉴权，后续承载任务管理主接口）。
 - `backend/api/devices.py`
-  - 设备相关路由分组（`/api/devices`）入口骨架。
+  - 设备路由分组（当前 `ping` 已接入登录鉴权，后续承载设备管理接口）。
 - `backend/api/dashboard.py`
-  - 看板相关路由分组（`/api/dashboard`）入口骨架。
+  - 看板路由分组（当前 `ping` 已接入登录鉴权，后续承载统计接口）。
 - `backend/schemas/auth.py`
-  - 认证请求/响应模型预留。
+  - 认证模型：登录请求/响应、修改密码请求。
+- `backend/schemas/user.py`
+  - 用户管理模型：新增用户请求、用户列表项结构。
 - `backend/schemas/task.py`
   - 任务请求/响应模型预留。
 - `backend/schemas/device.py`
   - 设备请求/响应模型预留。
 - `backend/repositories/user_repo.py`
-  - 用户数据访问层预留。
+  - 用户数据访问层：用户查询、列表、创建、删除、改密、管理员数量统计。
 - `backend/repositories/task_repo.py`
   - 任务数据访问层预留。
 - `backend/repositories/device_repo.py`
@@ -84,7 +91,7 @@
 - `backend/analyzers/pcap_parser.py`
   - PCAP 解析组件预留。
 - `backend/migrations/v1_init.sql`
-  - 数据库初始化脚本（核心业务表结构与索引）。
+  - 数据库初始化脚本（核心业务表结构与索引，含 `users.role` 字段和幂等升级逻辑）。
 - `backend/templates/report.html`
   - PDF 报告模板预留。
 - `backend/scripts/db_test.py`

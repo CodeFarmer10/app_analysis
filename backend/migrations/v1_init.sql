@@ -8,8 +8,10 @@ CREATE TABLE IF NOT EXISTS users (
   id VARCHAR(36) PRIMARY KEY,
   username VARCHAR(64) NOT NULL,
   password_hash VARCHAR(255) NOT NULL,
+  role ENUM('admin', 'user') NOT NULL DEFAULT 'user',
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE KEY uk_users_username (username)
+  UNIQUE KEY uk_users_username (username),
+  KEY idx_users_role (role)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS tasks (
@@ -162,5 +164,36 @@ SET @sql_devices_task := IF(
 PREPARE stmt_devices_task FROM @sql_devices_task;
 EXECUTE stmt_devices_task;
 DEALLOCATE PREPARE stmt_devices_task;
+
+-- Backward-compatible users.role upgrade for existing tables.
+SET @users_role_col := (
+  SELECT COUNT(*) FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'users'
+    AND column_name = 'role'
+);
+SET @sql_users_role_col := IF(
+  @users_role_col = 0,
+  'ALTER TABLE users ADD COLUMN role ENUM(''admin'', ''user'') NOT NULL DEFAULT ''user'' AFTER password_hash',
+  'SELECT 1'
+);
+PREPARE stmt_users_role_col FROM @sql_users_role_col;
+EXECUTE stmt_users_role_col;
+DEALLOCATE PREPARE stmt_users_role_col;
+
+SET @users_role_idx := (
+  SELECT COUNT(*) FROM information_schema.statistics
+  WHERE table_schema = DATABASE()
+    AND table_name = 'users'
+    AND index_name = 'idx_users_role'
+);
+SET @sql_users_role_idx := IF(
+  @users_role_idx = 0,
+  'ALTER TABLE users ADD KEY idx_users_role (role)',
+  'SELECT 1'
+);
+PREPARE stmt_users_role_idx FROM @sql_users_role_idx;
+EXECUTE stmt_users_role_idx;
+DEALLOCATE PREPARE stmt_users_role_idx;
 
 SET FOREIGN_KEY_CHECKS = 1;

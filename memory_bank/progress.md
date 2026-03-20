@@ -43,3 +43,53 @@
 - FastAPI 启动成功，`GET /health` 返回 `{"status":"ok"}`，`/docs` 返回 `200`
 - Celery worker 启动并确认监听 3 个队列：`queue_download`、`queue_static`、`queue_dynamic`
 - 说明：Docker 相关仅创建文件用于未来一键部署，未执行容器启动
+
+## 2026-03-20
+
+已完成阶段四（认证模块）并通过联调验证：
+
+- 完成 `backend/core/security.py`：
+  - 实现密码哈希与校验、JWT 签发与解码、`get_current_user` 鉴权依赖
+  - 新增 `get_current_admin` 管理员鉴权依赖
+  - 兼容本地运行环境，密码算法实现由 `passlib` 调整为直接使用 `bcrypt`，消除登录 500 问题
+- 完成 `backend/repositories/user_repo.py`：
+  - `get_user_by_username`、`get_user_by_id`
+  - `list_users`、`create_user`、`delete_user`、`update_password`、`count_admin_users`
+- 完成 `backend/schemas/auth.py`：
+  - `LoginRequest`、`LoginResponse`
+  - `ChangePasswordRequest`
+- 新增 `backend/schemas/user.py`：
+  - `UserCreateRequest`、`UserListItem`
+- 完成 `backend/api/auth.py`：
+  - `POST /api/auth/login`
+  - `POST /api/auth/logout`
+  - `POST /api/auth/change-password`（旧密码校验 + 新旧密码不可相同）
+- 新增 `backend/api/users.py`（管理员用户管理）：
+  - `GET /api/users`
+  - `POST /api/users`
+  - `DELETE /api/users/{user_id}`
+  - 删除约束：不可删除当前登录管理员、至少保留一个管理员
+- 完成 `backend/main.py` 路由注册：新增 `users_router`
+- 更新 `backend/migrations/v1_init.sql`：
+  - `users` 表新增 `role ENUM('admin','user') DEFAULT 'user'`
+  - 增加幂等补字段/补索引逻辑，兼容已存在数据库
+- 更新受保护占位接口：
+  - `backend/api/tasks.py`、`backend/api/devices.py`、`backend/api/dashboard.py` 的 `ping` 路由注入登录鉴权依赖
+
+认证与权限实测结果（2026-03-20）：
+
+- `POST /api/auth/login`（admin）返回 `200` 并成功获取 token
+- 带 token 访问 `GET /api/tasks/ping` 返回 `200`
+- 不带 token 访问 `GET /api/tasks/ping` 返回 `401`
+- 带 admin token 访问 `GET /api/users` 返回 `200` 并正确返回用户列表
+
+文档同步更新：
+
+- 已更新 `memory_bank/诈骗APP分析系统_需求文档说明书.md`：
+  - 增加管理员新增/删除用户、普通用户修改密码需求
+  - 增加 `/api/auth/change-password` 与 `/api/users` 相关接口说明
+- 已更新 `memory_bank/诈骗APP分析系统_全栈实施计划.md`：
+  - 阶段四扩展为“登录、JWT、鉴权依赖、用户管理与改密”
+  - 增加管理员接口、改密接口、`users.role` 字段、验证项与交付物描述
+
+说明：本轮未开始阶段五实现。Docker 相关仍保持“仅创建文件用于未来一键部署，不执行容器操作”。
