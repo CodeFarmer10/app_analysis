@@ -131,3 +131,39 @@
 
 - 本轮严格停在阶段五，未开始阶段六下载执行、重试策略与调度器实现。
 - Docker 相关仍仅创建/更新文件用于后续一键部署，未执行容器运行操作。
+
+## 2026-03-23
+
+已完成阶段六（Celery 任务队列）并通过联调验证（第六步验证通过）：
+
+- 完成 `backend/workers/download.py` 下载任务实现：
+  - 实现 `download_apk`：`httpx` 流式下载、超时控制、500MB 大小限制
+  - 下载后执行 MIME 校验与 MD5 去重
+  - 成功时上传 MinIO，并回写 `tasks.apk_path`、`file_md5`、`file_size`
+  - 成功流转为 `static_analyzing` 并触发静态分析任务；失败流转为 `download_failed`
+  - 增加网络异常自动重试（最多 3 次，指数退避）与 `on_failure` 最终失败落库
+- 完成 `backend/workers/scheduler.py` 调度器实现：
+  - 10 秒轮询 `waiting_device` 任务与空闲设备
+  - 使用事务 + `FOR UPDATE` 行锁执行任务/设备配对
+  - 配对成功后更新任务状态为 `dynamic_tracing`、设备状态为 `busy`，并触发动态溯源任务
+  - 动态任务分发异常时回滚配对，恢复任务到 `waiting_device`、设备到 `online`
+- 队列运行口径补充：
+  - Worker 启动时需确保加载任务模块（如 `workers.download`），否则任务不会注册到 Celery 消费端
+
+阶段六验证结果（2026-03-23）：
+
+- Redis 连通性验证通过：`redis://10.12.130.100:6379/0`，`PING=True`
+- 失败路径验证通过（URL 不可用场景）：
+  - `http://z51sb1.chelushi.com.cn/pub/yru0nngKicMf.apk`
+  - 任务 `9116d58e-1c3c-42bb-95d7-9b700310e365` 从 `downloading` 流转为 `download_failed`
+  - `error_message` 正确记录 `404 Not Found`
+- 成功路径验证通过（URL 可用场景）：
+  - `http://10.128.5.44:1241/app-down/7b738c1b48e917609b7b6c85de60de06.apk`
+  - 任务 `7f387a73-d99b-41c5-a05c-1b2e0c375f9b` 从 `downloading` 流转为 `static_analyzing`
+  - `file_md5=7b738c1b48e917609b7b6c85de60de06`
+  - `file_size=87287495`
+  - `apk_path=7f387a73-d99b-41c5-a05c-1b2e0c375f9b/apk/7b738c1b48e917609b7b6c85de60de06.apk`
+
+说明：
+
+- 阶段六仅覆盖队列下载与调度能力；静态分析主体逻辑仍按计划在阶段七继续实现。

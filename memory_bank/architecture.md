@@ -17,10 +17,14 @@
 - 动态结果采用“操作前/后截图 + 操作时间 + 成功标记”结构，保证可追溯性。
 - 密码存储采用 bcrypt 哈希，禁止明文；登录、改密、管理员建用户均复用同一哈希策略。
 - 鉴权依赖按职责拆分：`get_current_user` 负责身份校验，`get_current_admin` 负责角色授权，减少路由重复判断。
-- 任务管理采用“API 薄层 + Service 编排 + Repository 持久化”的三层职责，便于后续将阶段六/七异步执行逻辑无缝接入。
+- 任务管理采用“API 薄层 + Service 编排 + Repository 持久化”的三层职责，阶段六已在该分层下接入 URL 下载异步执行。
 - 任务 ID 实际实现统一为 UUID 字符串（`VARCHAR(36)`），与数据库现状保持一致，避免历史 `int task_id` 口径引发不兼容。
 - 上传链路采用“先建任务后存文件再回写路径”的方式，确保对象存储路径天然带任务前缀，降低后续查询与清理复杂度。
 - 为兼容开发机环境差异，MIME 检测增加了 `python-magic` 不可用时的回退策略，避免 `libmagic` 缺失导致服务整体不可用。
+- 阶段六将“下载失败原因”统一写入 `tasks.error_message`，将任务状态作为前后端协同的单一事实来源，便于列表轮询与故障排查。
+- 下载任务采用 Celery 自动重试（网络异常最多 3 次 + 指数退避）+ `on_failure` 兜底落库，避免重试耗尽后状态悬空。
+- 设备调度采用“短事务 + 行锁（`FOR UPDATE`）”完成任务与设备配对，降低并发抢占导致的重复分配风险。
+- Celery Worker 侧需要显式保证任务模块被加载（如 include 或导入），否则任务不会注册到消费端。
 - 文件存储采用单一 Bucket（`BUCKET_TASK_FILES`）策略，按任务目录前缀组织：
   - `{task_id}/apk/...`
   - `{task_id}/icon/...`
@@ -71,15 +75,15 @@
 - `backend/services/storage_service.py`
   - MinIO 服务封装：单 Bucket 初始化、对象上传下载、预签名 URL、任务路径构建。
 - `backend/services/task_service.py`
-  - 任务业务编排：APK 上传校验与入库、URL 提交入库与异步触发、列表过滤、详情组装、状态读取；包含 500MB 限制、MD5 去重与 MIME 检测回退。
+  - 任务业务编排：APK 上传校验与入库、URL 提交入库并异步触发 `download_apk`、列表过滤、详情组装、状态读取；包含 500MB 限制、MD5 去重与 MIME 检测回退。
 - `backend/services/device_service.py`
   - 设备业务逻辑层预留。
 - `backend/services/report_service.py`
   - 报告生成业务层预留。
 - `backend/workers/celery_app.py`
-  - Celery 应用初始化，配置 Redis broker/backend 与 3 个业务队列。
+  - Celery 应用初始化，配置 Redis broker/backend、3 个业务队列与任务路由。
 - `backend/workers/download.py`
-  - URL 下载任务入口占位（阶段五仅用于队列触发点，具体下载实现在阶段六落地）。
+  - URL 下载任务实现：流式下载、MIME 校验、MD5 去重、MinIO 上传、状态流转、重试与失败回写。
 - `backend/workers/static_analysis.py`
   - 静态分析任务入口占位（阶段五仅用于队列触发点，具体静态分析实现在阶段七落地）。
 - `backend/workers/dynamic_trace.py`
@@ -87,7 +91,7 @@
 - `backend/workers/report.py`
   - 报告生成异步任务预留。
 - `backend/workers/scheduler.py`
-  - 设备调度进程预留。
+  - 设备调度进程实现：轮询待分配任务与空闲设备，事务配对并触发动态溯源任务。
 - `backend/analyzers/apk_parser.py`
   - APK 静态解析组件预留。
 - `backend/analyzers/adb_controller.py`
