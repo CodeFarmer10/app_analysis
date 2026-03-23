@@ -292,6 +292,39 @@ def get_task_status(task_id: str) -> dict[str, Any]:
     }
 
 
+def get_task_static_result(task_id: str) -> dict[str, Any]:
+    task = get_task_by_id(task_id)
+    if not task:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="任务不存在",
+        )
+
+    static_result = get_static_result(task_id)
+    if not static_result:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="静态分析结果不存在",
+        )
+
+    icon_path = static_result.get("icon_path")
+    icon_url = None
+    if icon_path:
+        try:
+            icon_url = storage_service.get_presigned_url(icon_path)
+        except Exception as exc:  # pragma: no cover - depends on storage runtime
+            logger.warning("build icon url failed for task_id=%s: %s", task_id, exc)
+
+    return {
+        "task_id": task_id,
+        "status": task["status"],
+        "static_result": {
+            **static_result,
+            "icon_url": icon_url,
+        },
+    }
+
+
 def parse_datetime_filter(value: str | None, field_name: str) -> datetime | None:
     if not value:
         return None

@@ -167,3 +167,34 @@
 说明：
 
 - 阶段六仅覆盖队列下载与调度能力；静态分析主体逻辑仍按计划在阶段七继续实现。
+
+已完成阶段七（静态分析模块）并通过验证：
+
+- 完成 `backend/analyzers/apk_parser.py`：
+  - 实现 `parse_apk(apk_path)`，使用 androguard 提取 `app_name`、`package_name`、`version_name`、`version_code`
+  - 提取证书摘要 `cert_md5`、`cert_sha1`、`cert_sha256`
+  - 提取并结构化 `permissions`（含 `is_dangerous`）、`activities`（含 `is_launcher`）、`services`、`providers`、`so_files`
+  - 提取图标二进制 `icon_bytes` 与图标资源名，补充证书/图标提取失败容错
+- 完成 `backend/workers/static_analysis.py`：
+  - 实现 `analyze_apk(task_id)`：从 MinIO 下载 APK、调用解析器、上传图标到 `{task_id}/icon/...`
+  - 新增静态结果写库与任务状态流转：成功更新为 `waiting_device`，失败更新为 `static_failed` 并写入 `error_message`
+  - 增加本地临时文件与临时目录清理，避免残留
+- 完成 `backend/repositories/task_repo.py`：
+  - 新增 `upsert_static_result(task_id, data)`，用于静态结果入库/更新
+  - 增强 `get_static_result(task_id)`，对 JSON 字段进行反序列化返回
+- 完成 `backend/services/task_service.py`：
+  - 新增 `get_task_static_result(task_id)`，统一组装静态结果并为 `icon_path` 生成预签名 URL
+- 完成 `backend/api/tasks.py`：
+  - 新增 `GET /api/tasks/{task_id}/static` 静态结果接口（登录态鉴权）
+
+阶段七验证结果（2026-03-23）：
+
+- 使用 `backend/tmp/test_1.apk`、`backend/tmp/test_2.apk` 验证：
+  - 静态解析成功，应用名/包名/版本/权限/组件/SO/图标/证书摘要均可提取
+- 通过截断样本构造损坏 APK 验证失败路径：
+  - 解析异常可正确触发失败分支（用于支撑 `static_failed` 错误落库逻辑）
+- 用户回归验证结论：**验证通过**
+
+说明：
+
+- 本阶段仅创建/修改代码与文档，未执行任何 Docker 容器运行操作。

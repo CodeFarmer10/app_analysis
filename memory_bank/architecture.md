@@ -25,6 +25,9 @@
 - 下载任务采用 Celery 自动重试（网络异常最多 3 次 + 指数退避）+ `on_failure` 兜底落库，避免重试耗尽后状态悬空。
 - 设备调度采用“短事务 + 行锁（`FOR UPDATE`）”完成任务与设备配对，降低并发抢占导致的重复分配风险。
 - Celery Worker 侧需要显式保证任务模块被加载（如 include 或导入），否则任务不会注册到消费端。
+- 阶段七将静态分析落地为“下载 APK -> 解析 -> 图标上传 -> 结果入库 -> 状态流转”的完整链路，`tasks.status` 从 `static_analyzing` 流转到 `waiting_device`/`static_failed`。
+- 静态结果 JSON 字段在 Repository 层统一做序列化/反序列化，降低 Service/API 层重复转换逻辑。
+- 静态结果接口对 `icon_path` 统一生成预签名 URL，前端无需直连对象存储鉴权。
 - 文件存储采用单一 Bucket（`BUCKET_TASK_FILES`）策略，按任务目录前缀组织：
   - `{task_id}/apk/...`
   - `{task_id}/icon/...`
@@ -51,7 +54,7 @@
 - `backend/api/users.py`
   - 用户管理路由：管理员查看用户列表、新增用户、删除用户。
 - `backend/api/tasks.py`
-  - 任务路由：`/upload`（APK 批量上传）、`/url`（URL 批量提交）、`/api/tasks`（列表检索）、`/{task_id}`（详情）、`/{task_id}/status`（状态查询），均受登录鉴权保护。
+  - 任务路由：`/upload`（APK 批量上传）、`/url`（URL 批量提交）、`/api/tasks`（列表检索）、`/{task_id}`（详情）、`/{task_id}/status`（状态查询）、`/{task_id}/static`（静态结果查询），均受登录鉴权保护。
 - `backend/api/devices.py`
   - 设备路由分组（当前 `ping` 已接入登录鉴权，后续承载设备管理接口）。
 - `backend/api/dashboard.py`
@@ -67,7 +70,7 @@
 - `backend/repositories/user_repo.py`
   - 用户数据访问层：用户查询、列表、创建、删除、改密、管理员数量统计。
 - `backend/repositories/task_repo.py`
-  - 任务数据访问层：任务创建、按 ID/MD5 查询、动态字段更新、多条件分页查询；并提供静态结果/动态结果/流量日志查询。
+  - 任务数据访问层：任务创建、按 ID/MD5 查询、动态字段更新、多条件分页查询；提供静态结果查询（JSON 反序列化）、静态结果 `upsert`、动态结果/流量日志查询。
 - `backend/repositories/device_repo.py`
   - 设备数据访问层预留。
 - `backend/repositories/dashboard_repo.py`
@@ -75,7 +78,7 @@
 - `backend/services/storage_service.py`
   - MinIO 服务封装：单 Bucket 初始化、对象上传下载、预签名 URL、任务路径构建。
 - `backend/services/task_service.py`
-  - 任务业务编排：APK 上传校验与入库、URL 提交入库并异步触发 `download_apk`、列表过滤、详情组装、状态读取；包含 500MB 限制、MD5 去重与 MIME 检测回退。
+  - 任务业务编排：APK 上传校验与入库、URL 提交入库并异步触发 `download_apk`、列表过滤、详情组装、状态读取、静态结果查询与图标预签名 URL 生成；包含 500MB 限制、MD5 去重与 MIME 检测回退。
 - `backend/services/device_service.py`
   - 设备业务逻辑层预留。
 - `backend/services/report_service.py`
@@ -85,7 +88,7 @@
 - `backend/workers/download.py`
   - URL 下载任务实现：流式下载、MIME 校验、MD5 去重、MinIO 上传、状态流转、重试与失败回写。
 - `backend/workers/static_analysis.py`
-  - 静态分析任务入口占位（阶段五仅用于队列触发点，具体静态分析实现在阶段七落地）。
+  - 静态分析任务实现：从 MinIO 下载 APK、调用 `apk_parser` 提取特征、上传图标、写入 `static_results`、更新任务状态到 `waiting_device`，异常回写 `static_failed`。
 - `backend/workers/dynamic_trace.py`
   - 动态溯源异步任务预留。
 - `backend/workers/report.py`
@@ -93,7 +96,7 @@
 - `backend/workers/scheduler.py`
   - 设备调度进程实现：轮询待分配任务与空闲设备，事务配对并触发动态溯源任务。
 - `backend/analyzers/apk_parser.py`
-  - APK 静态解析组件预留。
+  - APK 静态解析组件：提取基础信息、证书摘要、权限与危险权限标记、组件列表、SO 文件列表、图标二进制。
 - `backend/analyzers/adb_controller.py`
   - ADB 操作封装预留。
 - `backend/analyzers/pcap_parser.py`

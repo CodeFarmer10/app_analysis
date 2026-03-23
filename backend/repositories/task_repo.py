@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from core.database import execute, fetch_all, fetch_one
@@ -201,7 +202,74 @@ def get_static_result(task_id: str) -> dict | None:
         WHERE task_id = %s
         LIMIT 1
     """
-    return fetch_one(sql, (task_id,))
+    row = fetch_one(sql, (task_id,))
+    if not row:
+        return None
+
+    for field in ("permissions", "activities", "services", "providers", "so_files"):
+        value = row.get(field)
+        if isinstance(value, str):
+            try:
+                row[field] = json.loads(value)
+            except json.JSONDecodeError:
+                row[field] = value
+    return row
+
+
+def upsert_static_result(task_id: str, data: dict[str, Any]) -> int:
+    sql = """
+        INSERT INTO static_results (
+            task_id,
+            app_name,
+            package_name,
+            version_name,
+            version_code,
+            icon_path,
+            cert_md5,
+            cert_sha1,
+            cert_sha256,
+            permissions,
+            activities,
+            services,
+            providers,
+            so_files
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        ON DUPLICATE KEY UPDATE
+            app_name = VALUES(app_name),
+            package_name = VALUES(package_name),
+            version_name = VALUES(version_name),
+            version_code = VALUES(version_code),
+            icon_path = VALUES(icon_path),
+            cert_md5 = VALUES(cert_md5),
+            cert_sha1 = VALUES(cert_sha1),
+            cert_sha256 = VALUES(cert_sha256),
+            permissions = VALUES(permissions),
+            activities = VALUES(activities),
+            services = VALUES(services),
+            providers = VALUES(providers),
+            so_files = VALUES(so_files)
+    """
+    rows, _ = execute(
+        sql,
+        (
+            task_id,
+            data.get("app_name"),
+            data.get("package_name"),
+            data.get("version_name"),
+            data.get("version_code"),
+            data.get("icon_path"),
+            data.get("cert_md5"),
+            data.get("cert_sha1"),
+            data.get("cert_sha256"),
+            json.dumps(data.get("permissions") or [], ensure_ascii=False),
+            json.dumps(data.get("activities") or [], ensure_ascii=False),
+            json.dumps(data.get("services") or [], ensure_ascii=False),
+            json.dumps(data.get("providers") or [], ensure_ascii=False),
+            json.dumps(data.get("so_files") or [], ensure_ascii=False),
+        ),
+    )
+    return rows
 
 
 def list_dynamic_results(task_id: str) -> list[dict]:

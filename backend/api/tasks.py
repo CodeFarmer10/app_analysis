@@ -8,6 +8,7 @@ from services.task_service import (
     create_url_tasks,
     get_task_detail,
     get_task_list,
+    get_task_static_result,
     get_task_status,
     parse_datetime_filter,
 )
@@ -83,3 +84,9 @@ async def get_task_current_status(task_id: str, current_user: dict = Depends(get
     _ = current_user
     data = TaskStatusResponse(**get_task_status(task_id)).model_dump()
     return success_response(data)
+
+
+@router.get("/{task_id}/static")
+async def get_task_static(task_id: str, current_user: dict = Depends(get_current_user)):
+    _ = current_user
+    return success_response(get_task_static_result(task_id))
