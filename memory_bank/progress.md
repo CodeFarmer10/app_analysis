@@ -269,6 +269,33 @@
 
 - 本阶段仅创建/修改代码与文档，未执行任何 Docker 容器运行操作。
 
+已完成阶段十三（前端任务模块）并通过用户验证：
+
+- 完成 `frontend/src/components/TaskStatusTag.vue`：
+  - 实现 8 种任务状态到中文标签与颜色映射（`Tag` 展示）
+- 完成 `frontend/src/components/TaskUploadModal.vue`：
+  - 实现双 Tab 提交（APK 批量上传 / URL 批量提交）
+  - 提交成功后触发 `success` 事件，驱动父页面刷新任务列表
+- 完成 `frontend/src/stores/task.js`：
+  - 完善任务状态管理：`tasks`、`total`、`page`、`size`、`filters`、`loading`
+  - 新增 `fetchTasks`、`setFilters`、`setPage`、`refreshTaskStatus` 动作
+- 完成 `frontend/src/views/TaskList.vue`：
+  - 实现搜索区：MD5、名称、包名、状态、时间范围
+  - 接入“上传/提交分析”弹窗（`TaskUploadModal`）
+  - 实现任务表格列：图标、APP名称/包名、来源、MD5、提交时间、状态、分配设备、操作
+  - 操作列实现：“查看”常驻，`completed` 状态显示“下载APK/下载报告/下载PCAP”
+  - 接入轮询：非终态任务自动轮询刷新，终态后自动停止轮询
+- 本地校验通过：
+  - `npm run build` 构建成功
+
+阶段十三验证结果（2026-03-24）：
+
+- 用户联调验证结论：**验证通过**
+
+说明：
+
+- 本阶段仅创建/修改代码与文档，未执行任何 Docker 容器运行操作。
+
 ## 2026-03-24
 
 已完成阶段八关键实现（动态溯源链路重构 + 8.4 动态结果接口）：

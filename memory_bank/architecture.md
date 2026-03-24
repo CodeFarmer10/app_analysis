@@ -45,6 +45,9 @@
 - 阶段十二完成“登录页 + 全局布局”闭环：登录提交、登录态持久化、登录后回跳、退出登录返回登录页均已打通。
 - 前端路由结构升级为“受保护父路由 + 业务子路由”，将布局容器与页面内容解耦，便于后续扩展菜单与权限控制。
 - 登录跳转职责集中到 `auth` Store，页面仅负责表单交互，减少视图层对路由细节的耦合。
+- 阶段十三完成任务模块首版闭环：任务查询筛选、批量提交、列表展示、终态文件下载入口与状态轮询已联动。
+- 任务轮询采用“页面级自动启停”策略：存在非终态任务时开启轮询，全部终态后自动停止，降低无效请求。
+- 任务提交弹窗采用统一组件承载 APK/URL 两种入口，并通过 `success` 事件回传触发列表刷新，减少页面与提交流程耦合。
 - 文件存储采用单一 Bucket（`BUCKET_TASK_FILES`）策略，按任务目录前缀组织：
   - `{task_id}/apk/...`
   - `{task_id}/icon/...`
@@ -146,7 +149,7 @@
 - `frontend/src/stores/auth.js`
   - 登录态管理：维护 `token`/`username` 本地持久化，提供登录/退出动作并在登录成功后执行回跳路由。
 - `frontend/src/stores/task.js`
-  - 任务模块基础状态：任务列表分页、筛选条件与加载态。
+  - 任务模块状态与动作：管理任务列表/分页/筛选/加载态，提供列表查询与单任务状态刷新能力。
 - `frontend/src/stores/device.js`
   - 设备模块基础状态：设备列表、总数与加载态。
 - `frontend/src/stores/dashboard.js`
@@ -166,7 +169,7 @@
 - `frontend/src/views/Dashboard.vue`
   - 看板页占位组件（阶段十五实现统计卡片与趋势图）。
 - `frontend/src/views/TaskList.vue`
-  - 任务列表页占位组件（阶段十三实现搜索、列表、上传入口与轮询）。
+  - 任务列表页：实现多条件筛选、任务表格展示、上传提交弹窗入口、完成态下载操作与自动轮询刷新。
 - `frontend/src/views/TaskDetail.vue`
   - 任务详情页占位组件（阶段十四实现静态/动态结果展示与下载操作）。
 - `frontend/src/views/DeviceList.vue`
@@ -174,9 +177,9 @@
 - `frontend/src/components/AppLayout.vue`
   - 全局布局组件：侧边导航、顶部用户信息与退出按钮、子路由内容容器，以及菜单高亮联动。
 - `frontend/src/components/TaskStatusTag.vue`
-  - 任务状态标签组件预留。
+  - 任务状态标签组件：映射 8 种任务状态的中文文案与颜色。
 - `frontend/src/components/TaskUploadModal.vue`
-  - 任务提交弹窗组件预留。
+  - 任务提交弹窗组件：支持 APK 批量上传和 URL 批量提交，成功后通知父页面刷新列表。
 - `frontend/src/components/StaticResult.vue`
   - 静态结果展示组件预留。
 - `frontend/src/components/DynamicResult.vue`
