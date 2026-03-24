@@ -19,10 +19,10 @@ from phone_agent.model import ModelConfig
 from repositories.task_repo import get_static_result, get_task_by_id, update_task
 from services.storage_service import storage_service
 from workers.celery_app import celery_app
+from workers.report import generate_report
 
 
 logger = logging.getLogger(__name__)
-REPORT_TASK_NAME = "workers.report.generate_report"
 
 
 def _format_dynamic_error(exc: Exception) -> str:
@@ -439,18 +439,6 @@ def _extract_trace_context(task_id: str, task: dict, device_id: str) -> tuple[st
     return package_name, apk_object_path, adb_device_id
 
 
-def _trigger_report_task(task_id: str) -> None:
-    """触发报告生成异步任务。"""
-    try:
-        celery_app.send_task(
-            REPORT_TASK_NAME,
-            args=[task_id],
-            queue="queue_report",
-        )
-    except Exception as exc:  # pragma: no cover - runtime dependent
-        raise RuntimeError(f"报告任务触发失败: {exc}") from exc
-
-
 @celery_app.task(name="workers.dynamic_trace.trace_task")
 def trace_task(task_id: str, device_id: str):
     """动态溯源主任务：执行、解析、入库、触发报告。"""
@@ -493,7 +481,10 @@ def trace_task(task_id: str, device_id: str):
             dynamic_rows=dynamic_rows,
             traffic_rows=traffic_rows,
         )
-        _trigger_report_task(task_id)
+        try:
+            generate_report.delay(task_id)
+        except Exception as exc:  # pragma: no cover - runtime dependent
+            raise RuntimeError(f"报告任务触发失败: {exc}") from exc
 
         return {
             "task_id": task_id,
