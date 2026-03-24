@@ -24,7 +24,7 @@ if sys.platform == "win32":
 from phone_agent import PlanAgent, PlanAgentConfig
 from phone_agent.model import ModelConfig
 from phone_agent.agent import AgentConfig
-from main import check_system_requirements
+# from main import check_system_requirements
 
 
 class Logger:
@@ -246,8 +246,8 @@ Examples:
     )
     
     # Check system requirements
-    if not check_system_requirements():
-        sys.exit(1)
+    #if not check_system_requirements():
+    #    sys.exit(1)
     
     # Setup logger
     logger = Logger(f"{args.result_dir}/run.log")
