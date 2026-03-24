@@ -9,6 +9,60 @@ from workers.dynamic_trace import trace_task
 
 logger = logging.getLogger(__name__)
 SCHEDULER_INTERVAL_SECONDS = 10
+STALE_DYNAMIC_TRACE_MINUTES = 30
+
+
+def _recover_stale_dynamic_tracing_tasks() -> int:
+    recovered_count = 0
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            try:
+                conn.begin()
+                cursor.execute(
+                    """
+                    SELECT id, device_id
+                    FROM tasks
+                    WHERE status = 'dynamic_tracing'
+                      AND updated_at < DATE_SUB(NOW(), INTERVAL %s MINUTE)
+                    FOR UPDATE
+                    """,
+                    (STALE_DYNAMIC_TRACE_MINUTES,),
+                )
+                rows = cursor.fetchall() or []
+                for row in rows:
+                    task_id = str(row["id"])
+                    device_id = str(row["device_id"] or "").strip()
+                    cursor.execute(
+                        """
+                        UPDATE tasks
+                        SET status = 'dynamic_failed',
+                            error_message = %s
+                        WHERE id = %s
+                          AND status = 'dynamic_tracing'
+                        """,
+                        (
+                            f"动态任务超时回收：超过{STALE_DYNAMIC_TRACE_MINUTES}分钟未完成，系统自动回收",
+                            task_id,
+                        ),
+                    )
+                    recovered_count += 1
+                    if device_id:
+                        cursor.execute(
+                            """
+                            UPDATE devices
+                            SET status = 'online',
+                                current_task_id = NULL
+                            WHERE id = %s
+                              AND current_task_id = %s
+                            """,
+                            (device_id, task_id),
+                        )
+
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+    return recovered_count
 
 
 def _allocate_one_task_device_pair() -> tuple[str, str] | None:
@@ -107,6 +161,10 @@ def run_scheduler_forever() -> None:
     logger.info("device scheduler started, poll interval=%ss", SCHEDULER_INTERVAL_SECONDS)
     while True:
         try:
+            recovered = _recover_stale_dynamic_tracing_tasks()
+            if recovered > 0:
+                logger.warning("recovered stale dynamic task-device pairs count=%s", recovered)
+
             allocated = _allocate_one_task_device_pair()
             if not allocated:
                 time.sleep(SCHEDULER_INTERVAL_SECONDS)

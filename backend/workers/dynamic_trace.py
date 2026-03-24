@@ -484,7 +484,7 @@ def trace_task(task_id: str, device_id: str):
         try:
             generate_report.delay(task_id)
         except Exception as exc:  # pragma: no cover - runtime dependent
-            raise RuntimeError(f"报告任务触发失败: {exc}") from exc
+            logger.exception("dispatch report task failed task_id=%s err=%s", task_id, exc)
 
         return {
             "task_id": task_id,
