@@ -42,6 +42,9 @@
 - 前端请求层采用统一响应解包（`code/message/data`）策略，401 在请求层集中处理（清理登录态 + 跳转登录），降低页面重复错误处理成本。
 - 路由守卫采用“受保护路由 + redirect 回跳”机制，确保登录后可回到原目标页面。
 - 轮询终态常量集中在 `utils/polling.js`，避免页面各自维护状态枚举导致口径不一致。
+- 阶段十二完成“登录页 + 全局布局”闭环：登录提交、登录态持久化、登录后回跳、退出登录返回登录页均已打通。
+- 前端路由结构升级为“受保护父路由 + 业务子路由”，将布局容器与页面内容解耦，便于后续扩展菜单与权限控制。
+- 登录跳转职责集中到 `auth` Store，页面仅负责表单交互，减少视图层对路由细节的耦合。
 - 文件存储采用单一 Bucket（`BUCKET_TASK_FILES`）策略，按任务目录前缀组织：
   - `{task_id}/apk/...`
   - `{task_id}/icon/...`
@@ -139,9 +142,9 @@
 - `frontend/src/style.css`
   - 全局基础样式：统一盒模型、页面默认字体与背景、应用根节点最小高度。
 - `frontend/src/router/index.js`
-  - 路由定义与全局前置守卫：未登录访问受保护页面时跳转 `/login` 并附带 `redirect` 参数。
+  - 路由定义与全局前置守卫：以 `AppLayout` 作为受保护父路由，未登录访问时跳转 `/login` 并附带 `redirect` 参数。
 - `frontend/src/stores/auth.js`
-  - 登录态管理：维护 `token`/`username`，支持本地持久化与 `login`/`logout` 动作。
+  - 登录态管理：维护 `token`/`username` 本地持久化，提供登录/退出动作并在登录成功后执行回跳路由。
 - `frontend/src/stores/task.js`
   - 任务模块基础状态：任务列表分页、筛选条件与加载态。
 - `frontend/src/stores/device.js`
@@ -159,7 +162,7 @@
 - `frontend/src/api/dashboard.js`
   - 看板接口封装：统计数据与趋势数据查询。
 - `frontend/src/views/Login.vue`
-  - 登录页占位组件（阶段十二实现业务表单与登录流程）。
+  - 登录页：账号密码表单、必填校验、提交 loading、错误提示；提交后调用 `authStore.login` 完成认证。
 - `frontend/src/views/Dashboard.vue`
   - 看板页占位组件（阶段十五实现统计卡片与趋势图）。
 - `frontend/src/views/TaskList.vue`
@@ -169,7 +172,7 @@
 - `frontend/src/views/DeviceList.vue`
   - 设备管理页占位组件（阶段十五实现设备 CRUD 与状态展示）。
 - `frontend/src/components/AppLayout.vue`
-  - 全局布局组件预留。
+  - 全局布局组件：侧边导航、顶部用户信息与退出按钮、子路由内容容器，以及菜单高亮联动。
 - `frontend/src/components/TaskStatusTag.vue`
   - 任务状态标签组件预留。
 - `frontend/src/components/TaskUploadModal.vue`

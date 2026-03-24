@@ -14,15 +14,20 @@ export const useAuthStore = defineStore('auth', {
   },
 
   actions: {
-    async login(payload) {
-      const { login } = await import('../api/auth')
-      const data = await login(payload)
+    async login(payload, redirect = '/dashboard') {
+      const { login: loginApi } = await import('../api/auth')
+      const data = await loginApi(payload)
 
       this.token = data?.token || ''
       this.username = data?.username || payload?.username || ''
 
       localStorage.setItem(TOKEN_STORAGE_KEY, this.token)
       localStorage.setItem(USERNAME_STORAGE_KEY, this.username)
+
+      const safeRedirect =
+        typeof redirect === 'string' && redirect.startsWith('/') ? redirect : '/dashboard'
+      const { default: router } = await import('../router')
+      await router.replace(safeRedirect)
 
       return data
     },

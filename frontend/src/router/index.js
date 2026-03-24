@@ -4,37 +4,40 @@ import { useAuthStore } from '../stores/auth'
 
 const routes = [
   {
-    path: '/',
-    redirect: '/dashboard',
-  },
-  {
     path: '/login',
     name: 'login',
     component: () => import('../views/Login.vue'),
   },
   {
-    path: '/dashboard',
-    name: 'dashboard',
-    component: () => import('../views/Dashboard.vue'),
+    path: '/',
+    component: () => import('../components/AppLayout.vue'),
     meta: { requiresAuth: true },
-  },
-  {
-    path: '/tasks',
-    name: 'tasks',
-    component: () => import('../views/TaskList.vue'),
-    meta: { requiresAuth: true },
-  },
-  {
-    path: '/tasks/:taskId',
-    name: 'task-detail',
-    component: () => import('../views/TaskDetail.vue'),
-    meta: { requiresAuth: true },
-  },
-  {
-    path: '/devices',
-    name: 'devices',
-    component: () => import('../views/DeviceList.vue'),
-    meta: { requiresAuth: true },
+    children: [
+      {
+        path: '',
+        redirect: '/dashboard',
+      },
+      {
+        path: 'dashboard',
+        name: 'dashboard',
+        component: () => import('../views/Dashboard.vue'),
+      },
+      {
+        path: 'tasks',
+        name: 'tasks',
+        component: () => import('../views/TaskList.vue'),
+      },
+      {
+        path: 'tasks/:taskId',
+        name: 'task-detail',
+        component: () => import('../views/TaskDetail.vue'),
+      },
+      {
+        path: 'devices',
+        name: 'devices',
+        component: () => import('../views/DeviceList.vue'),
+      },
+    ],
   },
   {
     path: '/:pathMatch(.*)*',

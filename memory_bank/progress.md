@@ -243,6 +243,32 @@
 
 - 本阶段仅创建/修改代码与文档，未执行任何 Docker 容器运行操作。
 
+已完成阶段十二（前端认证与全局布局）并通过用户验证：
+
+- 完成 `frontend/src/views/Login.vue`：
+  - 实现登录表单（用户名/密码必填校验）
+  - 增加提交 `loading` 状态与错误提示区域（`Alert`）
+  - 通过 `@finish` 调用 Store 登录动作，页面自身不处理跳转逻辑
+- 完成 `frontend/src/stores/auth.js`：
+  - 扩展 `login(payload, redirect)`，登录成功后由 Store 负责路由跳转
+  - 增加 `redirect` 安全校验（仅允许站内相对路径，默认 `/dashboard`）
+- 完成 `frontend/src/components/AppLayout.vue`：
+  - 落地全局布局：左侧导航（看板/任务管理/设备管理）+ 顶部用户区（用户名、退出按钮）
+  - 实现菜单高亮跟随当前路由（含 `/tasks/:taskId` 归并高亮）
+  - 实现退出登录动作（清理登录态并跳转 `/login`）
+- 完成 `frontend/src/router/index.js`：
+  - 路由改为以 `AppLayout` 为受保护父路由，`dashboard/tasks/devices` 作为子路由懒加载
+  - 保留登录守卫：未登录访问受保护页面跳转 `/login?redirect=...`
+- 本地校验通过：
+  - `npm run build` 构建成功
+- 用户联调验证结论：
+  - 登录后可进入受保护页面，布局与导航正常，退出后可返回登录页
+  - **验证通过**
+
+说明：
+
+- 本阶段仅创建/修改代码与文档，未执行任何 Docker 容器运行操作。
+
 ## 2026-03-24
 
 已完成阶段八关键实现（动态溯源链路重构 + 8.4 动态结果接口）：
