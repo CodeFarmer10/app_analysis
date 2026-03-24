@@ -28,10 +28,13 @@
 - 阶段七将静态分析落地为“下载 APK -> 解析 -> 图标上传 -> 结果入库 -> 状态流转”的完整链路，`tasks.status` 从 `static_analyzing` 流转到 `waiting_device`/`static_failed`。
 - 静态结果 JSON 字段在 Repository 层统一做序列化/反序列化，降低 Service/API 层重复转换逻辑。
 - 静态结果接口对 `icon_path` 统一生成预签名 URL，前端无需直连对象存储鉴权。
+- 阶段八动态溯源链路已落地：APK 下载到本地、安装执行、结果解析、截图/PCAP/日志上传、动态结果/流量日志入库、设备状态恢复与报告任务触发。
+- 动态数据写入采用事务一致性策略：`dynamic_results` + `traffic_logs` + `tasks` 状态在单事务内提交，避免任务状态与结果明细不一致。
+- 动态截图统一按 `file_type=screenshot` 上传至对象存储，接口侧统一下发预签名 URL 或重定向 URL。
 - 文件存储采用单一 Bucket（`BUCKET_TASK_FILES`）策略，按任务目录前缀组织：
   - `{task_id}/apk/...`
   - `{task_id}/icon/...`
-  - `{task_id}/screenshots/...`
+  - `{task_id}/screenshot/...`
   - `{task_id}/pcap/...`
   - `{task_id}/report/...`
   - `{task_id}/run_logs/...`
@@ -54,7 +57,7 @@
 - `backend/api/users.py`
   - 用户管理路由：管理员查看用户列表、新增用户、删除用户。
 - `backend/api/tasks.py`
-  - 任务路由：`/upload`（APK 批量上传）、`/url`（URL 批量提交）、`/api/tasks`（列表检索）、`/{task_id}`（详情）、`/{task_id}/status`（状态查询）、`/{task_id}/static`（静态结果查询），均受登录鉴权保护。
+  - 任务路由：`/upload`（APK 批量上传）、`/url`（URL 批量提交）、`/api/tasks`（列表检索）、`/{task_id}`（详情）、`/{task_id}/status`（状态查询）、`/{task_id}/static`（静态结果查询）、`/{task_id}/dynamic`（动态结果分页查询）、`/{task_id}/screenshots/{seq}`（截图预签名重定向），均受登录鉴权保护。
 - `backend/api/devices.py`
   - 设备路由分组（当前 `ping` 已接入登录鉴权，后续承载设备管理接口）。
 - `backend/api/dashboard.py`
@@ -70,7 +73,7 @@
 - `backend/repositories/user_repo.py`
   - 用户数据访问层：用户查询、列表、创建、删除、改密、管理员数量统计。
 - `backend/repositories/task_repo.py`
-  - 任务数据访问层：任务创建、按 ID/MD5 查询、动态字段更新、多条件分页查询；提供静态结果查询（JSON 反序列化）、静态结果 `upsert`、动态结果/流量日志查询。
+  - 任务数据访问层：任务创建、按 ID/MD5 查询、动态字段更新、多条件分页查询；提供静态结果查询（JSON 反序列化）、静态结果 `upsert`、动态结果/流量日志分页查询（`get_dynamic_results`、`get_traffic_logs`）与按步骤截图查询（`get_dynamic_result_by_seq`）。
 - `backend/repositories/device_repo.py`
   - 设备数据访问层预留。
 - `backend/repositories/dashboard_repo.py`
@@ -78,7 +81,7 @@
 - `backend/services/storage_service.py`
   - MinIO 服务封装：单 Bucket 初始化、对象上传下载、预签名 URL、任务路径构建。
 - `backend/services/task_service.py`
-  - 任务业务编排：APK 上传校验与入库、URL 提交入库并异步触发 `download_apk`、列表过滤、详情组装、状态读取、静态结果查询与图标预签名 URL 生成；包含 500MB 限制、MD5 去重与 MIME 检测回退。
+  - 任务业务编排：APK 上传校验与入库、URL 提交入库并异步触发 `download_apk`、列表过滤、详情组装、状态读取、静态结果查询与图标预签名 URL 生成；并提供动态结果分页聚合（含截图预签名 URL）与截图跳转 URL 生成；包含 500MB 限制、MD5 去重与 MIME 检测回退。
 - `backend/services/device_service.py`
   - 设备业务逻辑层预留。
 - `backend/services/report_service.py`
@@ -90,7 +93,7 @@
 - `backend/workers/static_analysis.py`
   - 静态分析任务实现：从 MinIO 下载 APK、调用 `apk_parser` 提取特征、上传图标、写入 `static_results`、更新任务状态到 `waiting_device`，异常回写 `static_failed`。
 - `backend/workers/dynamic_trace.py`
-  - 动态溯源异步任务预留。
+  - 动态溯源异步任务实现：任务/设备上下文读取、APK 安装执行、操作结果与流量解析、截图/PCAP/日志上传、动态结果与流量日志事务写库、异常回滚与设备恢复、报告任务触发。
 - `backend/workers/report.py`
   - 报告生成异步任务预留。
 - `backend/workers/scheduler.py`

@@ -1,13 +1,16 @@
 from fastapi import APIRouter, Depends, File, Query, UploadFile
+from fastapi.responses import RedirectResponse
 
 from core.response import success_response
 from core.security import get_current_user
 from schemas.task import TaskListResponse, TaskStatusResponse, UrlSubmitRequest
 from services.task_service import (
     create_upload_tasks,
+    get_task_dynamic_result,
     create_url_tasks,
     get_task_detail,
     get_task_list,
+    get_task_screenshot_redirect_url,
     get_task_static_result,
     get_task_status,
     parse_datetime_filter,
@@ -84,6 +87,38 @@ async def get_task_current_status(task_id: str, current_user: dict = Depends(get
     _ = current_user
     data = TaskStatusResponse(**get_task_status(task_id)).model_dump()
     return success_response(data)
+
+
+@router.get("/{task_id}/dynamic")
+async def get_task_dynamic(
+    task_id: str,
+    dynamic_page: int = Query(default=1, ge=1),
+    dynamic_size: int = Query(default=20, ge=1, le=200),
+    traffic_page: int = Query(default=1, ge=1),
+    traffic_size: int = Query(default=50, ge=1, le=500),
+    current_user: dict = Depends(get_current_user),
+):
+    _ = current_user
+    return success_response(
+        get_task_dynamic_result(
+            task_id=task_id,
+            dynamic_page=dynamic_page,
+            dynamic_size=dynamic_size,
+            traffic_page=traffic_page,
+            traffic_size=traffic_size,
+        )
+    )
+
+
+@router.get("/{task_id}/screenshots/{seq}")
+async def redirect_task_screenshot(
+    task_id: str,
+    seq: int,
+    current_user: dict = Depends(get_current_user),
+):
+    _ = current_user
+    url = get_task_screenshot_redirect_url(task_id, seq)
+    return RedirectResponse(url=url, status_code=302)
 
 
 @router.get("/{task_id}/static")

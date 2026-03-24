@@ -19,21 +19,6 @@ def _allocate_one_task_device_pair() -> tuple[str, str] | None:
                 cursor.execute(
                     """
                     SELECT id
-                    FROM tasks
-                    WHERE status = 'waiting_device'
-                    ORDER BY created_at ASC
-                    LIMIT 1
-                    FOR UPDATE
-                    """
-                )
-                task = cursor.fetchone()
-                if not task:
-                    conn.commit()
-                    return None
-
-                cursor.execute(
-                    """
-                    SELECT id
                     FROM devices
                     WHERE status = 'online'
                       AND current_task_id IS NULL
@@ -49,14 +34,19 @@ def _allocate_one_task_device_pair() -> tuple[str, str] | None:
 
                 cursor.execute(
                     """
-                    UPDATE tasks
-                    SET status = 'dynamic_tracing',
-                        device_id = %s,
-                        error_message = NULL
-                    WHERE id = %s
-                    """,
-                    (device["id"], task["id"]),
+                    SELECT id
+                    FROM tasks
+                    WHERE status = 'waiting_device'
+                    ORDER BY created_at ASC
+                    LIMIT 1
+                    FOR UPDATE
+                    """
                 )
+                task = cursor.fetchone()
+                if not task:
+                    conn.commit()
+                    return None
+
                 cursor.execute(
                     """
                     UPDATE devices
@@ -65,6 +55,16 @@ def _allocate_one_task_device_pair() -> tuple[str, str] | None:
                     WHERE id = %s
                     """,
                     (task["id"], device["id"]),
+                )
+                cursor.execute(
+                    """
+                    UPDATE tasks
+                    SET status = 'dynamic_tracing',
+                        device_id = %s,
+                        error_message = NULL
+                    WHERE id = %s
+                    """,
+                    (device["id"], task["id"]),
                 )
                 conn.commit()
                 return task["id"], device["id"]

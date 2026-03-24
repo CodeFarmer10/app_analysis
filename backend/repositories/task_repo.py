@@ -272,7 +272,12 @@ def upsert_static_result(task_id: str, data: dict[str, Any]) -> int:
     return rows
 
 
-def list_dynamic_results(task_id: str) -> list[dict]:
+def get_dynamic_results(task_id: str, page: int, size: int) -> tuple[list[dict], int]:
+    offset = (max(page, 1) - 1) * max(size, 1)
+    total_sql = "SELECT COUNT(*) AS total FROM dynamic_results WHERE task_id = %s"
+    total_row = fetch_one(total_sql, (task_id,))
+    total = int(total_row["total"]) if total_row else 0
+
     sql = """
         SELECT
             id,
@@ -287,11 +292,18 @@ def list_dynamic_results(task_id: str) -> list[dict]:
         FROM dynamic_results
         WHERE task_id = %s
         ORDER BY seq ASC
+        LIMIT %s OFFSET %s
     """
-    return fetch_all(sql, (task_id,))
+    items = fetch_all(sql, (task_id, max(size, 1), offset))
+    return items, total
 
 
-def list_traffic_logs(task_id: str) -> list[dict]:
+def get_traffic_logs(task_id: str, page: int, size: int) -> tuple[list[dict], int]:
+    offset = (max(page, 1) - 1) * max(size, 1)
+    total_sql = "SELECT COUNT(*) AS total FROM traffic_logs WHERE task_id = %s"
+    total_row = fetch_one(total_sql, (task_id,))
+    total = int(total_row["total"]) if total_row else 0
+
     sql = """
         SELECT
             id,
@@ -308,5 +320,37 @@ def list_traffic_logs(task_id: str) -> list[dict]:
         FROM traffic_logs
         WHERE task_id = %s
         ORDER BY seq ASC
+        LIMIT %s OFFSET %s
     """
-    return fetch_all(sql, (task_id,))
+    items = fetch_all(sql, (task_id, max(size, 1), offset))
+    return items, total
+
+
+def get_dynamic_result_by_seq(task_id: str, seq: int) -> dict | None:
+    sql = """
+        SELECT
+            id,
+            task_id,
+            seq,
+            action,
+            action_result,
+            action_time,
+            screenshot_before,
+            screenshot_after,
+            is_success
+        FROM dynamic_results
+        WHERE task_id = %s
+          AND seq = %s
+        LIMIT 1
+    """
+    return fetch_one(sql, (task_id, seq))
+
+
+def list_dynamic_results(task_id: str) -> list[dict]:
+    items, _ = get_dynamic_results(task_id, page=1, size=10_000)
+    return items
+
+
+def list_traffic_logs(task_id: str) -> list[dict]:
+    items, _ = get_traffic_logs(task_id, page=1, size=50_000)
+    return items

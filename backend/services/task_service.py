@@ -18,9 +18,12 @@ except ImportError:  # pragma: no cover - depends on runtime system library
 
 from repositories.task_repo import (
     create_task,
+    get_dynamic_result_by_seq,
+    get_dynamic_results,
     get_static_result,
     get_task_by_id,
     get_task_by_md5,
+    get_traffic_logs,
     list_dynamic_results,
     list_tasks,
     list_traffic_logs,
@@ -323,6 +326,103 @@ def get_task_static_result(task_id: str) -> dict[str, Any]:
             "icon_url": icon_url,
         },
     }
+
+
+def get_task_dynamic_result(
+    task_id: str,
+    dynamic_page: int,
+    dynamic_size: int,
+    traffic_page: int,
+    traffic_size: int,
+) -> dict[str, Any]:
+    task = get_task_by_id(task_id)
+    if not task:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="任务不存在",
+        )
+
+    normalized_dynamic_page = max(dynamic_page, 1)
+    normalized_dynamic_size = min(max(dynamic_size, 1), 200)
+    normalized_traffic_page = max(traffic_page, 1)
+    normalized_traffic_size = min(max(traffic_size, 1), 500)
+
+    dynamic_items, dynamic_total = get_dynamic_results(
+        task_id,
+        normalized_dynamic_page,
+        normalized_dynamic_size,
+    )
+    traffic_items, traffic_total = get_traffic_logs(
+        task_id,
+        normalized_traffic_page,
+        normalized_traffic_size,
+    )
+
+    for item in dynamic_items:
+        before_path = item.get("screenshot_before")
+        after_path = item.get("screenshot_after")
+        try:
+            item["screenshot_before_url"] = (
+                storage_service.get_presigned_url(before_path) if before_path else None
+            )
+        except Exception as exc:  # pragma: no cover - depends on storage runtime
+            logger.warning("build screenshot_before url failed task_id=%s seq=%s: %s", task_id, item.get("seq"), exc)
+            item["screenshot_before_url"] = None
+        try:
+            item["screenshot_after_url"] = (
+                storage_service.get_presigned_url(after_path) if after_path else None
+            )
+        except Exception as exc:  # pragma: no cover - depends on storage runtime
+            logger.warning("build screenshot_after url failed task_id=%s seq=%s: %s", task_id, item.get("seq"), exc)
+            item["screenshot_after_url"] = None
+
+    return {
+        "task_id": task_id,
+        "status": task["status"],
+        "dynamic_results": {
+            "items": dynamic_items,
+            "total": dynamic_total,
+            "page": normalized_dynamic_page,
+            "size": normalized_dynamic_size,
+        },
+        "traffic_logs": {
+            "items": traffic_items,
+            "total": traffic_total,
+            "page": normalized_traffic_page,
+            "size": normalized_traffic_size,
+        },
+    }
+
+
+def get_task_screenshot_redirect_url(task_id: str, seq: int) -> str:
+    task = get_task_by_id(task_id)
+    if not task:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="任务不存在",
+        )
+
+    row = get_dynamic_result_by_seq(task_id, seq)
+    if not row:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="动态步骤不存在",
+        )
+
+    screenshot_path = row.get("screenshot_after") or row.get("screenshot_before")
+    if not screenshot_path:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="截图不存在",
+        )
+    try:
+        return storage_service.get_presigned_url(screenshot_path)
+    except Exception as exc:  # pragma: no cover - depends on storage runtime
+        logger.warning("build screenshot redirect url failed task_id=%s seq=%s: %s", task_id, seq, exc)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="截图不存在",
+        ) from exc
 
 
 def parse_datetime_filter(value: str | None, field_name: str) -> datetime | None:

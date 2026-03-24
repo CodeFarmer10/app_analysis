@@ -198,3 +198,26 @@
 说明：
 
 - 本阶段仅创建/修改代码与文档，未执行任何 Docker 容器运行操作。
+
+## 2026-03-24
+
+已完成阶段八关键实现（动态溯源链路重构 + 8.4 动态结果接口）：
+
+- 重构 `backend/workers/dynamic_trace.py`：
+  - 优化函数命名与职责拆分，统一异常处理与失败落库
+  - 精简重复校验分支，收敛上下文提取逻辑
+  - 为每个函数补充中文注释
+  - 动态过程截图统一通过 `_upload_result_file(task_id, "screenshot", file_path)` 上传
+  - 动态结果写库改为事务化：`tasks`、`dynamic_results`、`traffic_logs` 在同事务内更新，保证关联一致性
+- 调整调度器 `backend/workers/scheduler.py`：
+  - 分配顺序调整为“先查空闲设备，再取等待任务”
+  - 状态更新顺序调整为“先设备 busy，再任务 dynamic_tracing，再派发”
+- 完成实施计划 8.4（动态溯源结果接口）：
+  - `repositories/task_repo.py` 新增分页查询：`get_dynamic_results`、`get_traffic_logs`，并新增 `get_dynamic_result_by_seq`
+  - `services/task_service.py` 新增动态结果聚合服务与截图重定向 URL 服务
+  - `api/tasks.py` 新增：
+    - `GET /api/tasks/{task_id}/dynamic`（动态记录与流量日志分页，截图预签名 URL）
+    - `GET /api/tasks/{task_id}/screenshots/{seq}`（302 重定向到截图预签名 URL）
+- 本地校验通过：
+  - `python3 -m compileall backend/workers/dynamic_trace.py`
+  - `python3 -m compileall backend/repositories/task_repo.py backend/services/task_service.py backend/api/tasks.py`
