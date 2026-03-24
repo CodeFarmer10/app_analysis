@@ -199,6 +199,50 @@
 
 - 本阶段仅创建/修改代码与文档，未执行任何 Docker 容器运行操作。
 
+已完成阶段十一（前端工程初始化）并通过用户验证：
+
+- 完成 `frontend/vite.config.js`：
+  - 配置 `/api` 代理到 `http://localhost:8000`，用于前后端联调
+- 完成 `frontend/src/main.js`：
+  - 按顺序注册 Pinia、Vue Router、Ant Design Vue 并挂载应用
+  - 引入 `ant-design-vue/dist/reset.css` 与全局样式
+- 新增 `frontend/src/style.css`：
+  - 补充基础全局样式（`box-sizing`、`body`、`#app`）
+- 完成 `frontend/src/api/request.js`：
+  - 创建 axios 实例（`baseURL=/api`）
+  - 请求拦截器自动注入 `Authorization: Bearer {token}`
+  - 响应拦截器统一解包 `response.data.data`
+  - 401 场景统一清理登录态并跳转 `/login?redirect=...`
+  - 非 401 错误统一使用 Ant Design `message.error` 提示
+- 完成 `frontend/src/api/` 基础模块：
+  - `auth.js`：登录/登出/改密
+  - `tasks.js`：上传、URL 提交、列表、详情、状态、静态/动态结果、截图、APK/报告/PCAP 下载
+  - `devices.js`：设备 CRUD
+  - `dashboard.js`：统计与趋势
+- 完成 `frontend/src/router/index.js`：
+  - 定义登录、看板、任务列表、任务详情、设备管理路由（懒加载）
+  - 实现全局前置守卫：受保护路由未登录跳转 `/login` 并携带 `redirect`
+- 完成 `frontend/src/stores/` 初始化：
+  - `auth.js`：`token`/`username` 本地持久化、`login`/`logout` actions
+  - `task.js`、`device.js`、`dashboard.js`：按阶段计划建立基础 state/actions
+- 完成 `frontend/src/utils/` 工具函数：
+  - `polling.js`：`usePolling(fetchFn, intervalMs)` 与终态常量
+  - `format.js`：`formatFileSize(bytes)`、`formatDateTime(isoString)`
+- 完成 `frontend/src/views/` 占位页面：
+  - `Login.vue`、`Dashboard.vue`、`TaskList.vue`、`TaskDetail.vue`、`DeviceList.vue`
+  - 保证路由懒加载目标组件可用，后续阶段逐步填充业务 UI
+- 本地校验通过：
+  - `npm run build` 构建成功
+  - `npm run dev` 启动成功，访问受保护页面可重定向到 `/login?redirect=/dashboard`
+
+阶段十一验证结果（2026-03-24）：
+
+- 用户联调验证结论：**验证通过**
+
+说明：
+
+- 本阶段仅创建/修改代码与文档，未执行任何 Docker 容器运行操作。
+
 ## 2026-03-24
 
 已完成阶段八关键实现（动态溯源链路重构 + 8.4 动态结果接口）：

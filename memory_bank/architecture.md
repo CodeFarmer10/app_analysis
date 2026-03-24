@@ -38,6 +38,10 @@
 - 设备删除采用双重保护：检查 `devices.current_task_id` 与任务表中 `dynamic_tracing` 记录，避免运行中设备被误删。
 - 看板趋势统计在 Repository 层按天补齐空缺日期（submitted/completed 置 0），降低前端图表对齐复杂度。
 - 看板趋势接口在 API 层限制 `days` 仅支持 `7` 或 `30`，统一前后端口径并减少无效查询。
+- 阶段十一已完成前端工程初始化：`main.js`、`router`、`stores`、`api`、`utils` 形成可运行骨架，后续阶段按业务模块增量填充 UI 与交互。
+- 前端请求层采用统一响应解包（`code/message/data`）策略，401 在请求层集中处理（清理登录态 + 跳转登录），降低页面重复错误处理成本。
+- 路由守卫采用“受保护路由 + redirect 回跳”机制，确保登录后可回到原目标页面。
+- 轮询终态常量集中在 `utils/polling.js`，避免页面各自维护状态枚举导致口径不一致。
 - 文件存储采用单一 Bucket（`BUCKET_TASK_FILES`）策略，按任务目录前缀组织：
   - `{task_id}/apk/...`
   - `{task_id}/icon/...`
@@ -129,39 +133,41 @@
 ## Frontend Files
 
 - `frontend/src/main.js`
-  - 前端应用入口，注册路由、状态管理与 UI 组件库。
+  - 前端应用入口：创建 Vue 实例并注册 Pinia、Vue Router、Ant Design Vue 后挂载到 `#app`。
 - `frontend/src/App.vue`
   - 根组件，承载 `router-view`。
+- `frontend/src/style.css`
+  - 全局基础样式：统一盒模型、页面默认字体与背景、应用根节点最小高度。
 - `frontend/src/router/index.js`
-  - 路由定义与守卫预留。
+  - 路由定义与全局前置守卫：未登录访问受保护页面时跳转 `/login` 并附带 `redirect` 参数。
 - `frontend/src/stores/auth.js`
-  - 登录态与 Token 状态管理预留。
+  - 登录态管理：维护 `token`/`username`，支持本地持久化与 `login`/`logout` 动作。
 - `frontend/src/stores/task.js`
-  - 任务状态管理预留。
+  - 任务模块基础状态：任务列表分页、筛选条件与加载态。
 - `frontend/src/stores/device.js`
-  - 设备状态管理预留。
+  - 设备模块基础状态：设备列表、总数与加载态。
 - `frontend/src/stores/dashboard.js`
-  - 看板状态管理预留。
+  - 看板模块基础状态：统计卡片、趋势维度与加载态。
 - `frontend/src/api/request.js`
-  - axios 实例与拦截器预留。
+  - axios 统一请求层：鉴权头注入、响应解包、401 跳转登录、通用错误提示。
 - `frontend/src/api/auth.js`
-  - 认证接口封装预留。
+  - 认证接口封装：登录、登出、修改密码。
 - `frontend/src/api/tasks.js`
-  - 任务接口封装预留。
+  - 任务接口封装：上传、URL 提交、列表/详情/状态、静态/动态结果、截图、文件下载。
 - `frontend/src/api/devices.js`
-  - 设备接口封装预留。
+  - 设备接口封装：设备列表、详情、新增、更新、删除。
 - `frontend/src/api/dashboard.js`
-  - 看板接口封装预留。
+  - 看板接口封装：统计数据与趋势数据查询。
 - `frontend/src/views/Login.vue`
-  - 登录页预留。
+  - 登录页占位组件（阶段十二实现业务表单与登录流程）。
 - `frontend/src/views/Dashboard.vue`
-  - 看板页预留。
+  - 看板页占位组件（阶段十五实现统计卡片与趋势图）。
 - `frontend/src/views/TaskList.vue`
-  - 任务列表页预留。
+  - 任务列表页占位组件（阶段十三实现搜索、列表、上传入口与轮询）。
 - `frontend/src/views/TaskDetail.vue`
-  - 任务详情页预留。
+  - 任务详情页占位组件（阶段十四实现静态/动态结果展示与下载操作）。
 - `frontend/src/views/DeviceList.vue`
-  - 设备管理页预留。
+  - 设备管理页占位组件（阶段十五实现设备 CRUD 与状态展示）。
 - `frontend/src/components/AppLayout.vue`
   - 全局布局组件预留。
 - `frontend/src/components/TaskStatusTag.vue`
@@ -177,9 +183,9 @@
 - `frontend/src/components/ScreenshotViewer.vue`
   - 截图查看组件预留。
 - `frontend/src/utils/polling.js`
-  - 轮询工具预留。
+  - 轮询工具：提供 `usePolling(fetchFn, intervalMs)` 启停能力与任务终态常量。
 - `frontend/src/utils/format.js`
-  - 格式化工具预留。
+  - 格式化工具：文件大小格式化与时间格式化。
 
 ## Infra And Docs
 
