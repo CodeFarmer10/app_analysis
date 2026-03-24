@@ -312,6 +312,113 @@ def launch_app_by_package(
     time.sleep(delay)
     return True
 
+
+def install_apk(
+    apk_path: str,
+    device_id: str | None = None,
+    replace_existing: bool = True,
+    grant_runtime_permissions: bool = False,
+    allow_downgrade: bool = False,
+    timeout: int = 300,
+) -> Tuple[bool, str]:
+    """
+    Install APK to Android device.
+
+    Args:
+        apk_path: Local APK file path.
+        device_id: Optional ADB device ID.
+        replace_existing: Whether to replace existing app (-r).
+        grant_runtime_permissions: Whether to grant runtime permissions (-g).
+        allow_downgrade: Whether to allow version downgrade (-d).
+        timeout: Command timeout in seconds.
+
+    Returns:
+        A tuple of (success, message).
+    """
+    if not apk_path or not os.path.isfile(apk_path):
+        return False, f"APK file not found: {apk_path}"
+
+    adb_prefix = _get_adb_prefix(device_id)
+    command = adb_prefix + ["install"]
+
+    if replace_existing:
+        command.append("-r")
+    if grant_runtime_permissions:
+        command.append("-g")
+    if allow_downgrade:
+        command.append("-d")
+
+    command.append(os.path.abspath(apk_path))
+
+    try:
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=timeout,
+            check=False,
+        )
+        output = f"{result.stdout}\n{result.stderr}".strip()
+        if result.returncode == 0:
+            return True, output or "Success"
+        return False, output or f"adb install failed with exit code {result.returncode}"
+    except subprocess.TimeoutExpired:
+        return False, f"adb install timeout after {timeout}s"
+    except FileNotFoundError:
+        return False, "adb command not found"
+    except Exception as exc:
+        return False, f"adb install error: {exc}"
+
+
+def uninstall_apk(
+    package_name: str,
+    device_id: str | None = None,
+    keep_data: bool = False,
+    timeout: int = 120,
+) -> Tuple[bool, str]:
+    """
+    Uninstall app by package name.
+
+    Args:
+        package_name: Android package name.
+        device_id: Optional ADB device ID.
+        keep_data: Whether to keep app data/cache (-k).
+        timeout: Command timeout in seconds.
+
+    Returns:
+        A tuple of (success, message).
+    """
+    if not package_name or not package_name.strip():
+        return False, "Package name is required"
+
+    adb_prefix = _get_adb_prefix(device_id)
+    command = adb_prefix + ["uninstall"]
+    if keep_data:
+        command.append("-k")
+    command.append(package_name.strip())
+
+    try:
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=timeout,
+            check=False,
+        )
+        output = f"{result.stdout}\n{result.stderr}".strip()
+        if result.returncode == 0:
+            return True, output or "Success"
+        return False, output or f"adb uninstall failed with exit code {result.returncode}"
+    except subprocess.TimeoutExpired:
+        return False, f"adb uninstall timeout after {timeout}s"
+    except FileNotFoundError:
+        return False, "adb command not found"
+    except Exception as exc:
+        return False, f"adb uninstall error: {exc}"
+
+
 def _get_adb_prefix(device_id: str | None) -> list:
     """Get ADB command prefix with optional device specifier."""
     if device_id:
