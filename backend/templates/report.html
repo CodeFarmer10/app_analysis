@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8" />
+    <title>诈骗APP分析报告</title>
+    <style>
+        body {
+            font-family: "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
+            font-size: 12px;
+            color: #1f2937;
+            margin: 0;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        .cover {
+            border: 1px solid #d1d5db;
+            border-radius: 8px;
+            padding: 24px;
+            margin-bottom: 24px;
+        }
+        .cover h1 {
+            margin: 0 0 16px;
+            font-size: 24px;
+        }
+        .meta-row {
+            margin: 6px 0;
+        }
+        .section {
+            margin-top: 24px;
+        }
+        .section h2 {
+            margin: 0 0 12px;
+            font-size: 18px;
+            border-left: 4px solid #2563eb;
+            padding-left: 8px;
+        }
+        .item {
+            margin: 4px 0;
+        }
+        .card {
+            border: 1px solid #e5e7eb;
+            border-radius: 6px;
+            padding: 12px;
+            margin-bottom: 12px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed;
+            word-break: break-all;
+        }
+        th, td {
+            border: 1px solid #d1d5db;
+            padding: 6px 8px;
+            text-align: left;
+            vertical-align: top;
+        }
+        th {
+            background: #f3f4f6;
+        }
+        .img-box {
+            margin-top: 8px;
+        }
+        .img-box img {
+            max-width: 280px;
+            max-height: 360px;
+            border: 1px solid #d1d5db;
+            border-radius: 4px;
+        }
+        .muted {
+            color: #6b7280;
+        }
+        .list-inline {
+            margin: 0;
+            padding-left: 18px;
+        }
+    </style>
+</head>
+<body>
+    <div class="cover">
+        <h1>诈骗APP分析报告</h1>
+        <div class="meta-row"><strong>任务ID：</strong>{{ task_id }}</div>
+        <div class="meta-row"><strong>样本MD5：</strong>{{ file_md5 }}</div>
+        <div class="meta-row"><strong>分析时间：</strong>{{ analysis_time }}</div>
+        <div class="meta-row"><strong>报告生成时间：</strong>{{ generated_at }}</div>
+    </div>
+
+    <div class="section">
+        <h2>静态分析摘要</h2>
+        <div class="item"><strong>APP名称：</strong>{{ static_result.app_name or "-" }}</div>
+        <div class="item"><strong>包名：</strong>{{ static_result.package_name or "-" }}</div>
+        <div class="item"><strong>版本：</strong>{{ static_result.version_name or "-" }} ({{ static_result.version_code or "-" }})</div>
+        <div class="item"><strong>证书MD5：</strong>{{ static_result.cert_md5 or "-" }}</div>
+        <div class="item"><strong>证书SHA1：</strong>{{ static_result.cert_sha1 or "-" }}</div>
+        <div class="item"><strong>证书SHA256：</strong>{{ static_result.cert_sha256 or "-" }}</div>
+
+        <div class="item"><strong>权限列表：</strong></div>
+        {% if static_result.permissions %}
+        <ul class="list-inline">
+            {% for item in static_result.permissions %}
+            <li>{{ item.name or "-" }}{% if item.is_dangerous %}（危险）{% endif %}</li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <div class="muted">无</div>
+        {% endif %}
+    </div>
+
+    <div class="section">
+        <h2>动态溯源记录</h2>
+        {% if dynamic_results %}
+            {% for item in dynamic_results %}
+            <div class="card">
+                <div><strong>步骤：</strong>{{ item.seq }}</div>
+                <div><strong>操作：</strong>{{ item.action or "-" }}</div>
+                <div><strong>结果：</strong>{{ item.action_result or "-" }}</div>
+                <div><strong>时间：</strong>{{ item.action_time_text }}</div>
+                <div><strong>执行状态：</strong>{% if item.is_success %}成功{% else %}失败{% endif %}</div>
+
+                {% if item.screenshot_before_data_uri %}
+                <div class="img-box">
+                    <div><strong>操作前截图：</strong></div>
+                    <img src="{{ item.screenshot_before_data_uri }}" alt="before" />
+                </div>
+                {% endif %}
+
+                {% if item.screenshot_after_data_uri %}
+                <div class="img-box">
+                    <div><strong>操作后截图：</strong></div>
+                    <img src="{{ item.screenshot_after_data_uri }}" alt="after" />
+                </div>
+                {% endif %}
+            </div>
+            {% endfor %}
+        {% else %}
+            <div class="muted">无动态溯源记录</div>
+        {% endif %}
+    </div>
+
+    <div class="section">
+        <h2>流量日志汇总</h2>
+        {% if traffic_logs %}
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 6%;">序号</th>
+                    <th style="width: 10%;">源IP</th>
+                    <th style="width: 10%;">目的IP</th>
+                    <th style="width: 7%;">源端口</th>
+                    <th style="width: 7%;">目的端口</th>
+                    <th style="width: 8%;">协议</th>
+                    <th style="width: 14%;">域名</th>
+                    <th style="width: 28%;">URL</th>
+                    <th style="width: 10%;">解析IP</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in traffic_logs %}
+                <tr>
+                    <td>{{ item.seq }}</td>
+                    <td>{{ item.src_ip or "-" }}</td>
+                    <td>{{ item.dst_ip or "-" }}</td>
+                    <td>{{ item.src_port or "-" }}</td>
+                    <td>{{ item.dst_port or "-" }}</td>
+                    <td>{{ item.protocol or "-" }}</td>
+                    <td>{{ item.domain or "-" }}</td>
+                    <td>{{ item.url or "-" }}</td>
+                    <td>{{ item.resolved_ip or "-" }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="muted">无流量日志记录</div>
+        {% endif %}
+    </div>
+</body>
+</html>

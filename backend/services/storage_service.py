@@ -73,6 +73,15 @@ class StorageService:
         self.client.fget_object(target_bucket, object_name, target_path)
         return target_path
 
+    def get_object_bytes(self, object_name: str, bucket: Optional[str] = None) -> bytes:
+        target_bucket = bucket or self.bucket_name
+        response = self.client.get_object(target_bucket, object_name)
+        try:
+            return response.read()
+        finally:
+            response.close()
+            response.release_conn()
+
     def upload_task_file(self, task_id: str, file_type: str, file_path: str) -> str:
         object_name = self.build_task_object_name(task_id, file_type, os.path.basename(file_path))
         self.upload_file(object_name=object_name, file_path=file_path)

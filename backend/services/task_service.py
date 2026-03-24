@@ -39,6 +39,11 @@ logger = logging.getLogger(__name__)
 MAX_APK_SIZE = 500 * 1024 * 1024
 STATIC_READY_STATUSES = {"waiting_device", "dynamic_tracing", "dynamic_failed", "completed"}
 DYNAMIC_READY_STATUSES = {"dynamic_tracing", "dynamic_failed", "completed"}
+DOWNLOAD_FIELD_MAP = {
+    "apk": "apk_path",
+    "report": "report_path",
+    "pcap": "pcap_path",
+}
 
 
 def _is_valid_url(url: str) -> bool:
@@ -423,6 +428,46 @@ def get_task_screenshot_redirect_url(task_id: str, seq: int) -> str:
             status_code=status.HTTP_404_NOT_FOUND,
             detail="截图不存在",
         ) from exc
+
+
+def get_task_file_download_url(task_id: str, file_type: str) -> dict[str, Any]:
+    task = get_task_by_id(task_id)
+    if not task:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="任务不存在",
+        )
+
+    target_type = file_type.strip().lower()
+    field_name = DOWNLOAD_FIELD_MAP.get(target_type)
+    if not field_name:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="不支持的文件类型",
+        )
+
+    object_path = task.get(field_name)
+    if not object_path:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"{target_type.upper()}文件不存在",
+        )
+
+    try:
+        download_url = storage_service.get_presigned_url(object_path)
+    except Exception as exc:  # pragma: no cover - depends on storage runtime
+        logger.warning("build %s download url failed task_id=%s: %s", target_type, task_id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"{target_type.upper()}文件不存在",
+        ) from exc
+
+    return {
+        "task_id": task_id,
+        "file_type": target_type,
+        "file_path": object_path,
+        "download_url": download_url,
+    }
 
 
 def parse_datetime_filter(value: str | None, field_name: str) -> datetime | None:

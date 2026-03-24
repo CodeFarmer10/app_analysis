@@ -7,6 +7,7 @@ from schemas.task import TaskListResponse, TaskStatusResponse, UrlSubmitRequest
 from services.task_service import (
     create_upload_tasks,
     get_task_dynamic_result,
+    get_task_file_download_url,
     create_url_tasks,
     get_task_detail,
     get_task_list,
@@ -125,3 +126,21 @@ async def redirect_task_screenshot(
 async def get_task_static(task_id: str, current_user: dict = Depends(get_current_user)):
     _ = current_user
     return success_response(get_task_static_result(task_id))
+
+
+@router.get("/{task_id}/apk")
+async def get_task_apk_download(task_id: str, current_user: dict = Depends(get_current_user)):
+    _ = current_user
+    return success_response(get_task_file_download_url(task_id, "apk"))
+
+
+@router.get("/{task_id}/report")
+async def get_task_report_download(task_id: str, current_user: dict = Depends(get_current_user)):
+    _ = current_user
+    return success_response(get_task_file_download_url(task_id, "report"))
+
+
+@router.get("/{task_id}/pcap")
+async def get_task_pcap_download(task_id: str, current_user: dict = Depends(get_current_user)):
+    _ = current_user
+    return success_response(get_task_file_download_url(task_id, "pcap"))

@@ -42,7 +42,6 @@ class Settings(BaseSettings):
 
     DYNAMIC_TRACE_TASK_TEXT: str = "模拟操作探索APP功能"
     DYNAMIC_TRACE_RESULT_DIR: str = str(BASE_DIR / "data" / "dynamic_trace")
-    DYNAMIC_TRACE_REPORT_TASK_NAME: str = "workers.report.generate_report"
 
     model_config = SettingsConfigDict(
         env_file=str(BASE_DIR / ".env"),

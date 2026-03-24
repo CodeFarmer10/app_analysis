@@ -221,3 +221,41 @@
 - 本地校验通过：
   - `python3 -m compileall backend/workers/dynamic_trace.py`
   - `python3 -m compileall backend/repositories/task_repo.py backend/services/task_service.py backend/api/tasks.py`
+
+已完成阶段九（文件下载与报告模块）代码实现（按用户要求跳过本轮验证）：
+
+- 完成 `backend/templates/report.html`：
+  - 基于 Jinja2 的 PDF 报告模板落地，含封面（任务ID、MD5、分析时间、报告生成时间）
+  - 输出静态分析摘要、动态溯源步骤（含前后截图）、流量日志汇总表
+  - 样式采用内联 CSS，兼容 WeasyPrint 渲染
+- 完成 `backend/services/report_service.py`：
+  - 实现 `generate_pdf(task_id: str) -> str`
+  - 聚合任务、静态结果、动态结果、流量日志数据
+  - 通过 MinIO 读取截图二进制并转 base64 内嵌 HTML，避免外链失效
+  - 渲染 HTML 并使用 WeasyPrint 生成 PDF bytes，上传至 `{task_id}/report/{task_id}.pdf`
+- 完成 `backend/workers/report.py`：
+  - 实现 Celery 任务 `workers.report.generate_report`
+  - 生成成功后回写 `tasks.report_path`，失败时回写 `error_message`
+- 完成 `backend/workers/celery_app.py`：
+  - 新增 `queue_report`
+  - 新增 `workers.report.*` 任务路由
+  - 显式导入 `workers.report`，确保 worker 启动即注册任务
+- 完成 `backend/workers/dynamic_trace.py`：
+  - 报告触发改为常量任务名 `workers.report.generate_report`
+  - `_trigger_report_task` 显式指定 `queue="queue_report"` 投递
+- 完成 `backend/services/storage_service.py`：
+  - 新增 `get_object_bytes(object_name)`，支持报告服务直接读取对象二进制
+- 完成 `backend/services/task_service.py`：
+  - 新增 `get_task_file_download_url(task_id, file_type)`
+  - 统一处理 APK/REPORT/PCAP 文件存在性校验与预签名 URL 生成
+- 完成 `backend/api/tasks.py`：
+  - 新增 `GET /api/tasks/{task_id}/apk`
+  - 新增 `GET /api/tasks/{task_id}/report`
+  - 新增 `GET /api/tasks/{task_id}/pcap`
+- 调整 `backend/core/config.py`：
+  - 移除 `DYNAMIC_TRACE_REPORT_TASK_NAME` 配置项，报告任务名不再依赖环境变量
+
+说明：
+
+- 按用户要求，本轮跳过接口联调与下载/报告打开验证；待后续回归测试确认。
+- 本轮仅创建/修改代码与文档，未执行任何 Docker 容器运行操作。

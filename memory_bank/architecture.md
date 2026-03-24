@@ -31,13 +31,16 @@
 - 阶段八动态溯源链路已落地：APK 下载到本地、安装执行、结果解析、截图/PCAP/日志上传、动态结果/流量日志入库、设备状态恢复与报告任务触发。
 - 动态数据写入采用事务一致性策略：`dynamic_results` + `traffic_logs` + `tasks` 状态在单事务内提交，避免任务状态与结果明细不一致。
 - 动态截图统一按 `file_type=screenshot` 上传至对象存储，接口侧统一下发预签名 URL 或重定向 URL。
+- 阶段九已打通“报告生成 + 文件下载”链路：动态任务完成后异步触发报告任务，报告路径落库并通过下载接口统一下发预签名 URL。
+- 报告服务采用“对象存储二进制读取 + base64 内嵌截图”策略，避免 PDF 渲染时依赖临时预签名 URL 导致内容缺失。
+- 报告任务名在代码内固定为 `workers.report.generate_report`，避免环境配置漂移导致触发失败。
 - 文件存储采用单一 Bucket（`BUCKET_TASK_FILES`）策略，按任务目录前缀组织：
   - `{task_id}/apk/...`
   - `{task_id}/icon/...`
   - `{task_id}/screenshot/...`
   - `{task_id}/pcap/...`
   - `{task_id}/report/...`
-  - `{task_id}/run_logs/...`
+  - `{task_id}/log/...`
 - Docker 文件仅用于后续一键部署准备，当前开发阶段不依赖容器运行。
 
 ## Backend Files
@@ -45,7 +48,7 @@
 - `backend/main.py`
   - FastAPI 入口；注册 CORS、全局异常处理、健康检查、路由；启动时初始化存储。
 - `backend/core/config.py`
-  - 环境配置读取（`.env`）；集中定义 DB/Redis/MinIO/JWT/CORS 配置项。
+  - 环境配置读取（`.env`）；集中定义 DB/Redis/MinIO/JWT/CORS 与动态溯源运行参数配置项。
 - `backend/core/database.py`
   - MySQL 连接池与基础 SQL 执行封装（`execute`、`fetch_one`、`fetch_all`）。
 - `backend/core/response.py`
@@ -57,7 +60,7 @@
 - `backend/api/users.py`
   - 用户管理路由：管理员查看用户列表、新增用户、删除用户。
 - `backend/api/tasks.py`
-  - 任务路由：`/upload`（APK 批量上传）、`/url`（URL 批量提交）、`/api/tasks`（列表检索）、`/{task_id}`（详情）、`/{task_id}/status`（状态查询）、`/{task_id}/static`（静态结果查询）、`/{task_id}/dynamic`（动态结果分页查询）、`/{task_id}/screenshots/{seq}`（截图预签名重定向），均受登录鉴权保护。
+  - 任务路由：`/upload`（APK 批量上传）、`/url`（URL 批量提交）、`/api/tasks`（列表检索）、`/{task_id}`（详情）、`/{task_id}/status`（状态查询）、`/{task_id}/static`（静态结果查询）、`/{task_id}/dynamic`（动态结果分页查询）、`/{task_id}/screenshots/{seq}`（截图预签名重定向）、`/{task_id}/apk`、`/{task_id}/report`、`/{task_id}/pcap`（下载预签名 URL），均受登录鉴权保护。
 - `backend/api/devices.py`
   - 设备路由分组（当前 `ping` 已接入登录鉴权，后续承载设备管理接口）。
 - `backend/api/dashboard.py`
@@ -79,23 +82,23 @@
 - `backend/repositories/dashboard_repo.py`
   - 看板统计数据访问层预留。
 - `backend/services/storage_service.py`
-  - MinIO 服务封装：单 Bucket 初始化、对象上传下载、预签名 URL、任务路径构建。
+  - MinIO 服务封装：单 Bucket 初始化、对象上传下载、对象二进制读取（`get_object_bytes`）、预签名 URL、任务路径构建。
 - `backend/services/task_service.py`
-  - 任务业务编排：APK 上传校验与入库、URL 提交入库并异步触发 `download_apk`、列表过滤、详情组装、状态读取、静态结果查询与图标预签名 URL 生成；并提供动态结果分页聚合（含截图预签名 URL）与截图跳转 URL 生成；包含 500MB 限制、MD5 去重与 MIME 检测回退。
+  - 任务业务编排：APK 上传校验与入库、URL 提交入库并异步触发 `download_apk`、列表过滤、详情组装、状态读取、静态结果查询与图标预签名 URL 生成；提供动态结果分页聚合（含截图预签名 URL）与截图跳转 URL；并提供 APK/报告/PCAP 下载 URL 统一生成能力；包含 500MB 限制、MD5 去重与 MIME 检测回退。
 - `backend/services/device_service.py`
   - 设备业务逻辑层预留。
 - `backend/services/report_service.py`
-  - 报告生成业务层预留。
+  - 报告生成业务层：聚合任务静动态数据、读取截图对象并转 base64、Jinja2 渲染 HTML、WeasyPrint 生成 PDF、上传 MinIO 并返回 `report_path`。
 - `backend/workers/celery_app.py`
-  - Celery 应用初始化，配置 Redis broker/backend、3 个业务队列与任务路由。
+  - Celery 应用初始化，配置 Redis broker/backend、4 个业务队列（含 `queue_report`）与任务路由，并显式导入任务模块保证注册。
 - `backend/workers/download.py`
   - URL 下载任务实现：流式下载、MIME 校验、MD5 去重、MinIO 上传、状态流转、重试与失败回写。
 - `backend/workers/static_analysis.py`
   - 静态分析任务实现：从 MinIO 下载 APK、调用 `apk_parser` 提取特征、上传图标、写入 `static_results`、更新任务状态到 `waiting_device`，异常回写 `static_failed`。
 - `backend/workers/dynamic_trace.py`
-  - 动态溯源异步任务实现：任务/设备上下文读取、APK 安装执行、操作结果与流量解析、截图/PCAP/日志上传、动态结果与流量日志事务写库、异常回滚与设备恢复、报告任务触发。
+  - 动态溯源异步任务实现：任务/设备上下文读取、APK 安装执行、操作结果与流量解析、截图/PCAP/日志上传、动态结果与流量日志事务写库、异常回滚与设备恢复；完成后将报告任务投递至 `queue_report`。
 - `backend/workers/report.py`
-  - 报告生成异步任务预留。
+  - 报告生成异步任务：执行 `generate_pdf` 并回写 `tasks.report_path`，失败时记录错误信息。
 - `backend/workers/scheduler.py`
   - 设备调度进程实现：轮询待分配任务与空闲设备，事务配对并触发动态溯源任务。
 - `backend/analyzers/apk_parser.py`
@@ -107,7 +110,7 @@
 - `backend/migrations/v1_init.sql`
   - 数据库初始化脚本（核心业务表结构与索引，含 `users.role` 字段和幂等升级逻辑）。
 - `backend/templates/report.html`
-  - PDF 报告模板预留。
+  - PDF 报告模板：包含封面、静态分析摘要、动态溯源记录（内嵌截图）与流量日志表格。
 - `backend/scripts/db_test.py`
   - 数据库连接自检脚本。
 - `backend/requirements.txt`

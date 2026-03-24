@@ -22,6 +22,7 @@ from workers.celery_app import celery_app
 
 
 logger = logging.getLogger(__name__)
+REPORT_TASK_NAME = "workers.report.generate_report"
 
 
 def _format_dynamic_error(exc: Exception) -> str:
@@ -441,7 +442,11 @@ def _extract_trace_context(task_id: str, task: dict, device_id: str) -> tuple[st
 def _trigger_report_task(task_id: str) -> None:
     """触发报告生成异步任务。"""
     try:
-        celery_app.send_task(settings.DYNAMIC_TRACE_REPORT_TASK_NAME, args=[task_id])
+        celery_app.send_task(
+            REPORT_TASK_NAME,
+            args=[task_id],
+            queue="queue_report",
+        )
     except Exception as exc:  # pragma: no cover - runtime dependent
         raise RuntimeError(f"报告任务触发失败: {exc}") from exc
 
