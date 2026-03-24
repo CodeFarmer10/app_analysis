@@ -259,3 +259,38 @@
 
 - 按用户要求，本轮跳过接口联调与下载/报告打开验证；待后续回归测试确认。
 - 本轮仅创建/修改代码与文档，未执行任何 Docker 容器运行操作。
+
+已完成阶段十（设备管理与看板模块）并通过用户验证：
+
+- 完成 `backend/repositories/device_repo.py`：
+  - 实现 `create_device`、`get_device_by_id`、`get_device_by_serial`、`list_devices`、`update_device`、`delete_device`、`get_available_devices`
+  - 新增 `count_in_progress_tasks`，用于删除设备前进行中任务校验
+- 完成 `backend/services/device_service.py`：
+  - 实现设备管理业务编排：列表、详情、新增、改名、删除
+  - 新增设备可达性校验：`adb connect`（IP:Port 场景）+ `adb -s <serial> get-state`
+  - 新增设备基础信息采集：`getprop` 获取型号/系统版本、`wm size` 获取分辨率
+  - 删除设备前增加保护：若设备存在 `current_task_id` 或进行中动态任务则拒绝删除
+- 完成 `backend/schemas/device.py`：
+  - 新增 `DeviceCreateRequest`、`DeviceUpdateRequest`、`DeviceItem`
+- 完成 `backend/api/devices.py`：
+  - 新增 `GET /api/devices`
+  - 新增 `GET /api/devices/{device_id}`
+  - 新增 `POST /api/devices`
+  - 新增 `PUT /api/devices/{device_id}`
+  - 新增 `DELETE /api/devices/{device_id}`
+- 完成 `backend/repositories/dashboard_repo.py`：
+  - 新增 `get_stats()`，输出总任务数、今日提交、今日完成、分析中数量、在线设备数、成功率
+  - 新增 `get_trend(days)`，输出近 N 天提交/完成趋势并按日期补齐空缺天
+- 完成 `backend/api/dashboard.py`：
+  - 新增 `GET /api/dashboard/stats`
+  - 新增 `GET /api/dashboard/trend?days=7|30`（限制仅允许 7 或 30）
+- 本地代码自检通过：
+  - `python3 -m compileall backend/repositories/device_repo.py backend/services/device_service.py backend/schemas/device.py backend/repositories/dashboard_repo.py backend/api/devices.py backend/api/dashboard.py`
+
+阶段十验证结果（2026-03-24）：
+
+- 用户联调验证结论：**验证通过**
+
+说明：
+
+- 本阶段仅创建/修改代码与文档，未执行任何 Docker 容器运行操作。

@@ -34,6 +34,10 @@
 - 阶段九已打通“报告生成 + 文件下载”链路：动态任务完成后异步触发报告任务，报告路径落库并通过下载接口统一下发预签名 URL。
 - 报告服务采用“对象存储二进制读取 + base64 内嵌截图”策略，避免 PDF 渲染时依赖临时预签名 URL 导致内容缺失。
 - 报告任务名在代码内固定为 `workers.report.generate_report`，避免环境配置漂移导致触发失败。
+- 阶段十已完成设备管理与看板模块：设备侧形成“可达性校验（ADB）-> 信息采集 -> 入库”的闭环，并提供完整 CRUD 与删除保护。
+- 设备删除采用双重保护：检查 `devices.current_task_id` 与任务表中 `dynamic_tracing` 记录，避免运行中设备被误删。
+- 看板趋势统计在 Repository 层按天补齐空缺日期（submitted/completed 置 0），降低前端图表对齐复杂度。
+- 看板趋势接口在 API 层限制 `days` 仅支持 `7` 或 `30`，统一前后端口径并减少无效查询。
 - 文件存储采用单一 Bucket（`BUCKET_TASK_FILES`）策略，按任务目录前缀组织：
   - `{task_id}/apk/...`
   - `{task_id}/icon/...`
@@ -62,9 +66,9 @@
 - `backend/api/tasks.py`
   - 任务路由：`/upload`（APK 批量上传）、`/url`（URL 批量提交）、`/api/tasks`（列表检索）、`/{task_id}`（详情）、`/{task_id}/status`（状态查询）、`/{task_id}/static`（静态结果查询）、`/{task_id}/dynamic`（动态结果分页查询）、`/{task_id}/screenshots/{seq}`（截图预签名重定向）、`/{task_id}/apk`、`/{task_id}/report`、`/{task_id}/pcap`（下载预签名 URL），均受登录鉴权保护。
 - `backend/api/devices.py`
-  - 设备路由分组（当前 `ping` 已接入登录鉴权，后续承载设备管理接口）。
+  - 设备管理路由：`/ping`、设备列表、设备详情、新增设备、更新设备名、删除设备；统一接入登录鉴权并调用 `device_service` 完成业务校验。
 - `backend/api/dashboard.py`
-  - 看板路由分组（当前 `ping` 已接入登录鉴权，后续承载统计接口）。
+  - 看板路由：`/ping`、`/stats`、`/trend`；`trend` 限制参数 `days in {7,30}`，统一输出统计与趋势结构。
 - `backend/schemas/auth.py`
   - 认证模型：登录请求/响应、修改密码请求。
 - `backend/schemas/user.py`
@@ -72,21 +76,21 @@
 - `backend/schemas/task.py`
   - 任务模型：URL 批量提交请求、任务列表项与分页响应、任务状态响应。
 - `backend/schemas/device.py`
-  - 设备请求/响应模型预留。
+  - 设备模型定义：新增设备请求、更新设备请求、设备列表/详情响应项（含当前任务与心跳字段）。
 - `backend/repositories/user_repo.py`
   - 用户数据访问层：用户查询、列表、创建、删除、改密、管理员数量统计。
 - `backend/repositories/task_repo.py`
   - 任务数据访问层：任务创建、按 ID/MD5 查询、动态字段更新、多条件分页查询；提供静态结果查询（JSON 反序列化）、静态结果 `upsert`、动态结果/流量日志分页查询（`get_dynamic_results`、`get_traffic_logs`）与按步骤截图查询（`get_dynamic_result_by_seq`）。
 - `backend/repositories/device_repo.py`
-  - 设备数据访问层预留。
+  - 设备数据访问层：设备增删改查、按序列号查询、可用设备查询、设备进行中任务数量统计。
 - `backend/repositories/dashboard_repo.py`
-  - 看板统计数据访问层预留。
+  - 看板统计数据访问层：聚合总览指标（总任务/今日提交/今日完成/分析中/在线设备/成功率）与近 N 天趋势数据（按天补齐）。
 - `backend/services/storage_service.py`
   - MinIO 服务封装：单 Bucket 初始化、对象上传下载、对象二进制读取（`get_object_bytes`）、预签名 URL、任务路径构建。
 - `backend/services/task_service.py`
   - 任务业务编排：APK 上传校验与入库、URL 提交入库并异步触发 `download_apk`、列表过滤、详情组装、状态读取、静态结果查询与图标预签名 URL 生成；提供动态结果分页聚合（含截图预签名 URL）与截图跳转 URL；并提供 APK/报告/PCAP 下载 URL 统一生成能力；包含 500MB 限制、MD5 去重与 MIME 检测回退。
 - `backend/services/device_service.py`
-  - 设备业务逻辑层预留。
+  - 设备业务逻辑层：ADB 可达性验证、设备信息采集（型号/系统版本/分辨率）、设备新增/改名/删除编排与删除前任务保护校验。
 - `backend/services/report_service.py`
   - 报告生成业务层：聚合任务静动态数据、读取截图对象并转 base64、Jinja2 渲染 HTML、WeasyPrint 生成 PDF、上传 MinIO 并返回 `report_path`。
 - `backend/workers/celery_app.py`
