@@ -76,13 +76,18 @@ async function handleSubmit(values) {
   align-items: center;
   justify-content: center;
   padding: 24px;
-  background: linear-gradient(135deg, #f0f5ff 0%, #f7f9fc 100%);
+  background:
+    radial-gradient(circle at 20% 20%, rgba(111, 145, 255, 0.14) 0%, rgba(111, 145, 255, 0) 45%),
+    radial-gradient(circle at 80% 80%, rgba(76, 175, 255, 0.12) 0%, rgba(76, 175, 255, 0) 42%),
+    linear-gradient(135deg, #eef3ff 0%, #f6f9ff 50%, #f8fafc 100%);
 }
 
 .login-card {
   width: 420px;
   border-radius: 12px;
-  box-shadow: 0 8px 24px rgba(31, 45, 61, 0.08);
+  border: 1px solid #e6ecf7;
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 14px 36px rgba(31, 45, 61, 0.1);
 }
 
 .title {

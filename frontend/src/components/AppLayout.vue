@@ -49,6 +49,7 @@ async function handleLogout() {
       <div class="logo">诈骗APP分析系统</div>
       <a-menu
         mode="inline"
+        theme="dark"
         :selected-keys="[selectedMenuKey]"
         :items="menuItems"
         @click="handleMenuClick"
@@ -76,8 +77,9 @@ async function handleLogout() {
 }
 
 .app-sider {
-  background: #fff;
-  border-right: 1px solid #f0f0f0;
+  background: linear-gradient(180deg, #1f56bb 0%, #245ec6 55%, #2a64c8 100%);
+  border-right: 1px solid #4b7fd4;
+  box-shadow: inset -1px 0 0 rgba(140, 179, 245, 0.48);
 }
 
 .logo {
@@ -86,8 +88,9 @@ async function handleLogout() {
   padding: 0 16px;
   font-size: 16px;
   font-weight: 600;
-  color: #1f2d3d;
-  border-bottom: 1px solid #f0f0f0;
+  color: #f4f8ff;
+  border-bottom: 1px solid #4b7fd4;
+  background: rgba(188, 214, 255, 0.18);
 }
 
 .app-header {
@@ -95,8 +98,8 @@ async function handleLogout() {
   justify-content: flex-end;
   align-items: center;
   padding: 0 20px;
-  background: #fff;
-  border-bottom: 1px solid #f0f0f0;
+  background: #f9fbff;
+  border-bottom: 1px solid #e8edf7;
 }
 
 .header-right {
@@ -111,5 +114,32 @@ async function handleLogout() {
 
 .app-content {
   padding: 16px;
+}
+
+.app-sider :deep(.ant-layout-sider-children) {
+  display: flex;
+  flex-direction: column;
+}
+
+.app-sider :deep(.ant-menu) {
+  background: transparent;
+  border-inline-end: none;
+  padding: 10px 10px 0;
+}
+
+.app-sider :deep(.ant-menu-item) {
+  margin: 6px 0;
+  border-radius: 8px;
+  color: #edf4ff;
+}
+
+.app-sider :deep(.ant-menu-item:hover) {
+  color: #ffffff;
+  background: rgba(179, 209, 255, 0.3);
+}
+
+.app-sider :deep(.ant-menu-item-selected) {
+  background: rgba(168, 202, 255, 0.48);
+  color: #ffffff;
 }
 </style>

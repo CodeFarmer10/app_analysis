@@ -101,13 +101,15 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="dashboard-page">
-    <a-row :gutter="[16, 16]">
-      <a-col v-for="card in statCards" :key="card.key" :xs="24" :sm="12" :lg="8">
-        <a-card :bordered="false" class="stat-card" :loading="dashboardStore.loadingStats">
-          <a-statistic :title="card.title" :value="card.value" />
-        </a-card>
-      </a-col>
-    </a-row>
+    <div class="stats-panel">
+      <a-row :gutter="[16, 16]">
+        <a-col v-for="card in statCards" :key="card.key" :xs="24" :sm="12" :lg="8">
+          <a-card :bordered="false" class="stat-card" :loading="dashboardStore.loadingStats">
+            <a-statistic :title="card.title" :value="card.value" />
+          </a-card>
+        </a-col>
+      </a-row>
+    </div>
 
     <a-card :bordered="false" class="trend-card">
       <template #title>
@@ -141,9 +143,19 @@ onBeforeUnmount(() => {
   gap: 16px;
 }
 
+.stats-panel {
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid #e8eef8;
+  background: linear-gradient(180deg, #f8fbff 0%, #f5f8ff 100%);
+}
+
 .stat-card,
 .trend-card {
   border-radius: 8px;
+  border: 1px solid #e9eef7;
+  background: #fff;
+  box-shadow: 0 6px 18px rgba(38, 58, 99, 0.05);
 }
 
 .trend-header {
