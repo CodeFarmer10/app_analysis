@@ -26,6 +26,7 @@ const editForm = reactive({
 })
 
 const columns = [
+  { title: '序号', key: 'index', width: 70 },
   { title: '设备名称', dataIndex: 'name', key: 'name', width: 180 },
   { title: '连接地址/序列号', dataIndex: 'serial', key: 'serial', width: 220 },
   { title: '型号', dataIndex: 'model', key: 'model', width: 180 },
@@ -181,10 +182,13 @@ onBeforeUnmount(() => {
         :data-source="deviceList"
         :loading="deviceStore.loading"
         :pagination="false"
-        :scroll="{ x: 1500 }"
+        :scroll="{ x: 1570 }"
       >
-        <template #bodyCell="{ column, record, text }">
-          <template v-if="column.key === 'status'">
+        <template #bodyCell="{ column, record, text, index }">
+          <template v-if="column.key === 'index'">
+            {{ index + 1 }}
+          </template>
+          <template v-else-if="column.key === 'status'">
             <a-badge :status="getStatusMeta(record.status).status" :text="getStatusMeta(record.status).text" />
           </template>
           <template v-else-if="column.key === 'current_task_id'">

@@ -11,7 +11,7 @@ const authStore = useAuthStore()
 const logoutLoading = ref(false)
 
 const menuItems = [
-  { key: '/dashboard', label: '看板' },
+  { key: '/dashboard', label: '主页' },
   { key: '/tasks', label: '任务管理' },
   { key: '/devices', label: '设备管理' },
 ]

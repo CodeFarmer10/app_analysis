@@ -35,14 +35,16 @@ const STATUS_OPTIONS = [
 ]
 
 const TABLE_COLUMNS = [
+  { title: '序号', key: 'index', width: 70, fixed: 'left' },
   { title: '图标', key: 'icon', width: 70 },
-  { title: 'APP名称/包名', key: 'app', width: 220 },
-  { title: '来源', key: 'source', width: 260 },
-  { title: '文件MD5', key: 'file_md5', dataIndex: 'file_md5', width: 240 },
-  { title: '提交时间', key: 'created_at', dataIndex: 'created_at', width: 180 },
+  { title: 'APP名称/包名', key: 'app', width: 170 },
+  { title: '来源类型', key: 'source_type', dataIndex: 'source_type', width: 100 },
+  { title: '来源', key: 'source', width: 180 },
+  { title: '文件MD5', key: 'file_md5', dataIndex: 'file_md5', width: 180 },
   { title: '状态', key: 'status', dataIndex: 'status', width: 140 },
+  { title: '提交时间', key: 'created_at', dataIndex: 'created_at', width: 160 },
   { title: '分配设备', key: 'device_id', dataIndex: 'device_id', width: 180 },
-  { title: '操作', key: 'actions', fixed: 'right', width: 280 },
+  { title: '操作', key: 'actions', fixed: 'right', width: 160 },
 ]
 
 const TERMINAL_SET = new Set(TASK_TERMINAL_STATUSES)
@@ -72,10 +74,17 @@ function getAppInitial(appName) {
 }
 
 function getSourceText(record) {
-  if (record.source_type === 'apk_upload') {
-    return `APK：${record.source_name}`
+  return record.source_name || '--'
+}
+
+function getSourceTypeMeta(sourceType) {
+  if (sourceType === 'apk_upload') {
+    return { text: 'APK', color: 'blue' }
   }
-  return `URL：${record.source_name}`
+  if (sourceType === 'url_download') {
+    return { text: 'URL', color: 'purple' }
+  }
+  return { text: sourceType || '--', color: 'default' }
 }
 
 function buildFilterPayload() {
@@ -183,34 +192,37 @@ onBeforeUnmount(() => {
 <template>
   <div class="task-list-page">
     <a-card class="search-card" :bordered="false">
-      <a-form layout="inline">
-        <a-form-item label="MD5">
-          <a-input v-model:value="searchForm.md5" placeholder="输入 MD5" allow-clear />
-        </a-form-item>
-        <a-form-item label="名称">
-          <a-input v-model:value="searchForm.name" placeholder="输入 APP 名称" allow-clear />
-        </a-form-item>
-        <a-form-item label="包名">
-          <a-input v-model:value="searchForm.package" placeholder="输入包名" allow-clear />
-        </a-form-item>
-        <a-form-item label="状态">
-          <a-select
-            v-model:value="searchForm.status"
-            :options="STATUS_OPTIONS"
-            allow-clear
-            placeholder="选择状态"
-            style="width: 170px"
-          />
-        </a-form-item>
-        <a-form-item label="时间范围">
-          <a-range-picker v-model:value="searchForm.timeRange" />
-        </a-form-item>
-        <a-form-item>
-          <a-space>
-            <a-button type="primary" @click="handleSearch">查询</a-button>
-            <a-button @click="handleReset">重置</a-button>
-          </a-space>
-        </a-form-item>
+      <a-form layout="inline" class="search-form">
+        <div class="search-row-top">
+          <a-form-item label="MD5" class="search-item">
+            <a-input v-model:value="searchForm.md5" placeholder="输入 MD5" allow-clear />
+          </a-form-item>
+          <a-form-item label="名称" class="search-item">
+            <a-input v-model:value="searchForm.name" placeholder="输入 APP 名称" allow-clear />
+          </a-form-item>
+          <a-form-item label="包名" class="search-item">
+            <a-input v-model:value="searchForm.package" placeholder="输入包名" allow-clear />
+          </a-form-item>
+          <a-form-item label="状态" class="search-item">
+            <a-select
+              v-model:value="searchForm.status"
+              :options="STATUS_OPTIONS"
+              allow-clear
+              placeholder="选择状态"
+            />
+          </a-form-item>
+        </div>
+        <div class="search-row-bottom">
+          <a-form-item label="时间范围" class="search-item range-item">
+            <a-range-picker v-model:value="searchForm.timeRange" style="width: 100%" />
+          </a-form-item>
+          <div class="search-form-right">
+            <a-space>
+              <a-button type="primary" @click="handleSearch">查询</a-button>
+              <a-button @click="handleReset">重置</a-button>
+            </a-space>
+          </div>
+        </div>
       </a-form>
     </a-card>
 
@@ -231,25 +243,47 @@ onBeforeUnmount(() => {
         :data-source="taskStore.tasks"
         :loading="taskStore.loading"
         :pagination="pagination"
-        :scroll="{ x: 1450 }"
+        :scroll="{ x: 1410 }"
         @change="handleTableChange"
       >
-        <template #bodyCell="{ column, record }">
-          <template v-if="column.key === 'icon'">
+        <template #bodyCell="{ column, record, index }">
+          <template v-if="column.key === 'index'">
+            {{ (taskStore.page - 1) * taskStore.size + index + 1 }}
+          </template>
+          <template v-else-if="column.key === 'icon'">
             <a-avatar shape="square" class="task-icon">{{ getAppInitial(record.app_name) }}</a-avatar>
           </template>
 
           <template v-else-if="column.key === 'app'">
             <div class="app-cell">
-              <div class="app-name">{{ record.app_name || '分析中' }}</div>
-              <div class="app-package">{{ record.package_name || '--' }}</div>
+              <a-typography-text class="app-name" :ellipsis="{ tooltip: record.app_name || '分析中' }">
+                {{ record.app_name || '分析中' }}
+              </a-typography-text>
+              <a-typography-text
+                class="app-package"
+                :ellipsis="{ tooltip: record.package_name || '--' }"
+              >
+                {{ record.package_name || '--' }}
+              </a-typography-text>
             </div>
           </template>
 
           <template v-else-if="column.key === 'source'">
-            <a-typography-text :ellipsis="{ tooltip: record.source_name }">
-              {{ getSourceText(record) }}
-            </a-typography-text>
+            <a-tooltip :title="record.source_name || '--'">
+              <div class="source-text">{{ getSourceText(record) }}</div>
+            </a-tooltip>
+          </template>
+
+          <template v-else-if="column.key === 'source_type'">
+            <a-tag :color="getSourceTypeMeta(record.source_type).color">
+              {{ getSourceTypeMeta(record.source_type).text }}
+            </a-tag>
+          </template>
+
+          <template v-else-if="column.key === 'file_md5'">
+            <a-tooltip :title="record.file_md5 || '--'">
+              <div class="md5-text">{{ record.file_md5 || '--' }}</div>
+            </a-tooltip>
           </template>
 
           <template v-else-if="column.key === 'created_at'">
@@ -265,15 +299,18 @@ onBeforeUnmount(() => {
           </template>
 
           <template v-else-if="column.key === 'actions'">
-            <a-space>
+            <a-space size="small">
               <a-button type="link" @click="openTaskDetail(record.id)">查看</a-button>
-              <template v-if="record.status === 'completed'">
-                <a-button type="link" @click="handleDownload(record.id, 'apk')">下载APK</a-button>
-                <a-button type="link" @click="handleDownload(record.id, 'report')">
-                  下载报告
-                </a-button>
-                <a-button type="link" @click="handleDownload(record.id, 'pcap')">下载PCAP</a-button>
-              </template>
+              <a-dropdown v-if="record.status === 'completed'" placement="bottomRight">
+                <a-button type="link">下载</a-button>
+                <template #overlay>
+                  <a-menu @click="({ key }) => handleDownload(record.id, key)">
+                    <a-menu-item key="apk">下载APK</a-menu-item>
+                    <a-menu-item key="report">下载报告</a-menu-item>
+                    <a-menu-item key="pcap">下载PCAP</a-menu-item>
+                  </a-menu>
+                </template>
+              </a-dropdown>
             </a-space>
           </template>
         </template>
@@ -291,8 +328,106 @@ onBeforeUnmount(() => {
   gap: 16px;
 }
 
-.search-card :deep(.ant-form-item) {
-  margin-bottom: 12px;
+.search-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.search-row-top {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 24px;
+}
+
+.search-row-bottom {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  min-width: 0;
+}
+
+.search-form-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.search-item {
+  margin-bottom: 0;
+  width: 100%;
+}
+
+.range-item {
+  width: 360px;
+}
+
+.search-form :deep(.ant-form-item-row) {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+}
+
+.search-form :deep(.ant-form-item-label) {
+  padding: 0;
+  line-height: 32px;
+  flex: 0 0 auto;
+}
+
+.search-form :deep(.ant-form-item-control) {
+  flex: 1 1 auto;
+}
+
+.search-form :deep(.ant-form-item-control-input) {
+  min-height: 32px;
+}
+
+@media (max-width: 1200px) {
+  .search-row-top {
+    gap: 16px;
+  }
+
+  .range-item {
+    width: 320px;
+  }
+}
+
+@media (max-width: 900px) {
+  .search-row-top {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    width: 100%;
+  }
+
+  .search-row-bottom {
+    gap: 12px;
+    width: 100%;
+  }
+
+  .search-form-right {
+    margin-left: 0;
+  }
+}
+
+@media (max-width: 640px) {
+  .search-row-top {
+    display: flex;
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+
+  .search-row-bottom {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .search-item,
+  .range-item {
+    width: 100%;
+  }
 }
 
 .table-header {
@@ -309,6 +444,18 @@ onBeforeUnmount(() => {
 
 .app-cell {
   line-height: 1.5;
+  width: 150px;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-name,
+.app-package {
+  display: inline-block;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .app-name {
@@ -318,5 +465,19 @@ onBeforeUnmount(() => {
 .app-package {
   color: #7a869a;
   font-size: 12px;
+}
+
+.source-text {
+  width: 170px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.md5-text {
+  width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>

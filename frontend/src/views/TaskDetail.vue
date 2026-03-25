@@ -283,26 +283,32 @@ onBeforeUnmount(() => {
       </template>
 
       <a-spin :spinning="taskLoading">
-        <a-descriptions v-if="task" :column="3" size="small">
-          <a-descriptions-item label="任务ID">{{ task.id }}</a-descriptions-item>
-          <a-descriptions-item label="来源">
-            <a-typography-text :ellipsis="{ tooltip: task.source_name }">
-              {{ task.source_name || '--' }}
-            </a-typography-text>
+        <a-descriptions v-if="task" :column="3" size="small" class="task-base-desc">
+          <a-descriptions-item label="任务ID">
+            <span class="desc-value">{{ task.id }}</span>
+          </a-descriptions-item>
+          <a-descriptions-item label="来源" class="source-item">
+            <a-tooltip :title="task.source_name || '--'">
+              <span class="desc-value source-link-text">{{ task.source_name || '--' }}</span>
+            </a-tooltip>
           </a-descriptions-item>
           <a-descriptions-item label="状态">
             <TaskStatusTag :status="task.status" />
           </a-descriptions-item>
-          <a-descriptions-item label="文件MD5">{{ task.file_md5 || '--' }}</a-descriptions-item>
-          <a-descriptions-item label="文件大小">
-            {{ formatFileSize(task.file_size) }}
+          <a-descriptions-item label="文件MD5">
+            <span class="desc-value">{{ task.file_md5 || '--' }}</span>
           </a-descriptions-item>
-          <a-descriptions-item label="分配设备">{{ task.device_id || '--' }}</a-descriptions-item>
+          <a-descriptions-item label="文件大小">
+            <span class="desc-value">{{ formatFileSize(task.file_size) }}</span>
+          </a-descriptions-item>
+          <a-descriptions-item label="分配设备">
+            <span class="desc-value">{{ task.device_id || '--' }}</span>
+          </a-descriptions-item>
           <a-descriptions-item label="提交时间">
-            {{ formatDateTime(task.created_at) }}
+            <span class="desc-value">{{ formatDateTime(task.created_at) }}</span>
           </a-descriptions-item>
           <a-descriptions-item label="更新时间">
-            {{ formatDateTime(task.updated_at) }}
+            <span class="desc-value">{{ formatDateTime(task.updated_at) }}</span>
           </a-descriptions-item>
         </a-descriptions>
 
@@ -369,5 +375,43 @@ onBeforeUnmount(() => {
 
 .download-row {
   margin-top: 12px;
+}
+
+.source-link-text {
+  display: inline-block;
+  max-width: 240px;
+  vertical-align: middle;
+}
+
+.task-detail-page :deep(.source-item .ant-descriptions-item-content) {
+  white-space: nowrap;
+}
+
+.task-base-desc :deep(.ant-descriptions-view table) {
+  table-layout: fixed;
+}
+
+.task-base-desc :deep(.ant-descriptions-item-label) {
+  white-space: nowrap;
+  padding-right: 1ch;
+  padding-bottom: 14px;
+}
+
+.task-base-desc :deep(.ant-descriptions-item-label::after) {
+  margin-inline: 0;
+}
+
+.task-base-desc :deep(.ant-descriptions-item-content) {
+  padding-right: 24px;
+  padding-bottom: 14px;
+}
+
+.desc-value {
+  display: inline-block;
+  width: 100%;
+  vertical-align: middle;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 </style>
