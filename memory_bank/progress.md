@@ -1,5 +1,50 @@
 # Progress Log
 
+## 2026-03-25
+
+已完成阶段十四（前端结果展示模块）并通过用户验证：
+
+- 完成 `frontend/src/components/StaticResult.vue`：
+  - 实现静态结果展示：图标、基础信息（MD5/大小/名称/包名/版本）、证书三项、权限清单（危险权限标红）、组件折叠列表、SO 文件列表
+- 完成 `frontend/src/components/TrafficLogTable.vue`：
+  - 实现流量日志 8 列展示（源/目的 IP、端口、协议、域名、URL、解析 IP）
+  - 协议列支持筛选，URL 列支持截断 Tooltip 与一键复制
+- 完成 `frontend/src/components/ScreenshotViewer.vue`：
+  - 实现截图缩略图网格展示
+  - 接入 `Image.PreviewGroup` 大图预览（支持键盘左右切换）
+- 完成 `frontend/src/components/DynamicResult.vue`：
+  - 实现动态操作记录表格
+  - 展开行展示“操作前/操作后”截图
+  - 集成 `TrafficLogTable` 展示流量日志
+- 完成 `frontend/src/views/TaskDetail.vue`：
+  - 实现任务基础信息卡片（来源、MD5、大小、状态、设备、时间）
+  - 失败任务红色 `Alert` 显示 `error_message`
+  - 下载操作行（APK/报告/PCAP）按后端可用文件路径显隐
+  - 结果 Tabs（静态分析/动态溯源）联动结果组件
+  - 非终态任务启用轮询，状态变化后自动刷新详情与结果数据
+- 本地校验通过：
+  - `npm run build`（frontend）构建成功
+
+阶段十四验证结果（2026-03-25）：
+
+- 用户联调验证结论：**验证通过**
+
+本轮联调补充修复（后端启动兼容性）：
+
+- 修复 `backend/workers/static_analysis.py`：
+  - 移除 Python 3.13 已删除模块 `imghdr` 依赖
+  - 改为基于文件魔数识别 PNG/JPG/GIF/WEBP 图标类型，保证静态分析任务可正常导入与启动
+
+运行状态记录：
+
+- 前端开发服务启动成功：`http://localhost:5173`
+- 后端服务启动成功：`http://localhost:8000`
+
+说明：
+
+- 按要求在你完成测试并确认“验证通过”后，才记录本阶段进度与架构更新。
+- 本阶段仅创建/修改代码与文档，未执行任何 Docker 容器运行操作。
+
 ## 2026-03-18
 
 已完成阶段一（环境与工程初始化，排除 Docker 运行）：

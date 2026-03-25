@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import imghdr
 import logging
 import shutil
 from pathlib import Path
@@ -24,12 +23,24 @@ def _guess_icon_extension(icon_name: str | None, icon_bytes: bytes) -> str:
     if suffix in {".png", ".jpg", ".jpeg", ".webp", ".gif"}:
         return suffix.lstrip(".")
 
-    guessed = imghdr.what(None, h=icon_bytes)
-    if guessed == "jpeg":
+    guessed = _detect_image_type(icon_bytes)
+    if guessed == "jpg":
         return "jpg"
     if guessed:
         return guessed
     return "png"
+
+
+def _detect_image_type(content: bytes) -> str | None:
+    if len(content) >= 8 and content.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "png"
+    if len(content) >= 3 and content[:3] == b"\xff\xd8\xff":
+        return "jpg"
+    if len(content) >= 6 and content[:6] in {b"GIF87a", b"GIF89a"}:
+        return "gif"
+    if len(content) >= 12 and content[:4] == b"RIFF" and content[8:12] == b"WEBP":
+        return "webp"
+    return None
 
 
 def _guess_icon_content_type(extension: str) -> str:

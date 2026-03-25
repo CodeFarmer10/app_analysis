@@ -48,6 +48,10 @@
 - 阶段十三完成任务模块首版闭环：任务查询筛选、批量提交、列表展示、终态文件下载入口与状态轮询已联动。
 - 任务轮询采用“页面级自动启停”策略：存在非终态任务时开启轮询，全部终态后自动停止，降低无效请求。
 - 任务提交弹窗采用统一组件承载 APK/URL 两种入口，并通过 `success` 事件回传触发列表刷新，减少页面与提交流程耦合。
+- 阶段十四完成结果展示闭环：任务详情页统一承载基础信息、下载操作、静态分析与动态溯源双 Tab，前端结果查看链路可独立运行。
+- 任务详情采用“按状态就绪加载”策略：静态结果仅在 `waiting_device` 及之后拉取，动态结果仅在 `dynamic_tracing` 及之后拉取，减少无效请求。
+- 动态结果采用“双分页模型”（操作记录分页 + 流量日志分页），避免单一分页耦合导致的大列表渲染压力。
+- 静态分析图标类型识别改为“后缀优先 + 文件魔数回退”，规避 Python 3.13 移除 `imghdr` 带来的运行时兼容问题。
 - 文件存储采用单一 Bucket（`BUCKET_TASK_FILES`）策略，按任务目录前缀组织：
   - `{task_id}/apk/...`
   - `{task_id}/icon/...`
@@ -108,7 +112,7 @@
 - `backend/workers/download.py`
   - URL 下载任务实现：流式下载、MIME 校验、MD5 去重、MinIO 上传、状态流转、重试与失败回写。
 - `backend/workers/static_analysis.py`
-  - 静态分析任务实现：从 MinIO 下载 APK、调用 `apk_parser` 提取特征、上传图标、写入 `static_results`、更新任务状态到 `waiting_device`，异常回写 `static_failed`。
+  - 静态分析任务实现：从 MinIO 下载 APK、调用 `apk_parser` 提取特征、上传图标、写入 `static_results`、更新任务状态到 `waiting_device`，异常回写 `static_failed`；图标类型识别支持后缀与文件魔数回退。
 - `backend/workers/dynamic_trace.py`
   - 动态溯源异步任务实现：任务/设备上下文读取、APK 安装执行、操作结果与流量解析、截图/PCAP/日志上传、动态结果与流量日志事务写库、异常回滚与设备恢复；完成后将报告任务投递至 `queue_report`。
 - `backend/workers/report.py`
@@ -171,7 +175,7 @@
 - `frontend/src/views/TaskList.vue`
   - 任务列表页：实现多条件筛选、任务表格展示、上传提交弹窗入口、完成态下载操作与自动轮询刷新。
 - `frontend/src/views/TaskDetail.vue`
-  - 任务详情页占位组件（阶段十四实现静态/动态结果展示与下载操作）。
+  - 任务详情页：展示任务基础信息、失败告警、下载按钮（APK/报告/PCAP）、结果 Tabs（静态/动态），并在非终态自动轮询刷新。
 - `frontend/src/views/DeviceList.vue`
   - 设备管理页占位组件（阶段十五实现设备 CRUD 与状态展示）。
 - `frontend/src/components/AppLayout.vue`
@@ -181,13 +185,13 @@
 - `frontend/src/components/TaskUploadModal.vue`
   - 任务提交弹窗组件：支持 APK 批量上传和 URL 批量提交，成功后通知父页面刷新列表。
 - `frontend/src/components/StaticResult.vue`
-  - 静态结果展示组件预留。
+  - 静态结果组件：展示图标、基础信息、证书摘要、危险权限标记、组件折叠列表与 SO 文件列表。
 - `frontend/src/components/DynamicResult.vue`
-  - 动态结果展示组件预留。
+  - 动态结果组件：展示操作记录表（展开看步骤截图）与流量日志区块，联动双分页参数。
 - `frontend/src/components/TrafficLogTable.vue`
-  - 流量日志表格组件预留。
+  - 流量日志表格组件：展示 8 列流量字段，支持协议筛选、URL 截断提示与一键复制。
 - `frontend/src/components/ScreenshotViewer.vue`
-  - 截图查看组件预留。
+  - 截图查看组件：展示缩略图网格，并通过 `Image.PreviewGroup` 提供大图预览与键盘切换能力。
 - `frontend/src/utils/polling.js`
   - 轮询工具：提供 `usePolling(fetchFn, intervalMs)` 启停能力与任务终态常量。
 - `frontend/src/utils/format.js`
