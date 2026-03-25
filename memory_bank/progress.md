@@ -1,5 +1,38 @@
 # Progress Log
 
+## 2026-03-25（阶段十五）
+
+已完成阶段十五（前端设备与看板模块）并通过用户验证：
+
+- 完成 `frontend/src/views/DeviceList.vue`：
+  - 实现设备列表展示（状态 Badge、当前任务、最后心跳）
+  - 实现“添加设备”弹窗（serial/name）并接入新增接口
+  - 实现“重命名”弹窗并接入更新接口
+  - 实现删除二次确认并接入删除接口
+  - 接入每 30 秒自动刷新与手动刷新
+- 完成 `frontend/src/views/Dashboard.vue`：
+  - 实现 6 个统计卡片（总任务、今日提交、今日完成、分析中、在线设备、成功率）
+  - 接入 ECharts 折线图展示提交/完成趋势
+  - 实现 7 天 / 30 天切换与手动刷新
+  - 接入每 30 秒自动刷新统计与趋势
+- 完成 `frontend/src/stores/dashboard.js`：
+  - 新增 `fetchStats()`、`fetchTrend(days)`、`setTrendDays(days)`
+  - 与后端 `stats/trend` 返回字段对齐（`analyzing_tasks` 等）
+- 本地校验通过：
+  - `npm run build`（frontend）构建成功
+- 联调运行记录：
+  - 前端开发服务启动：`http://localhost:5173`
+  - 后端服务启动：`http://localhost:8000`
+
+阶段十五验证结果（2026-03-25）：
+
+- 用户联调验证结论：**验证通过**
+
+说明：
+
+- 按要求在你反馈“验证通过”后才更新本阶段文档记录。
+- 本阶段仅创建/修改代码与文档，未执行任何 Docker 容器运行操作。
+
 ## 2026-03-25
 
 已完成阶段十四（前端结果展示模块）并通过用户验证：

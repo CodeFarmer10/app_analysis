@@ -52,6 +52,9 @@
 - 任务详情采用“按状态就绪加载”策略：静态结果仅在 `waiting_device` 及之后拉取，动态结果仅在 `dynamic_tracing` 及之后拉取，减少无效请求。
 - 动态结果采用“双分页模型”（操作记录分页 + 流量日志分页），避免单一分页耦合导致的大列表渲染压力。
 - 静态分析图标类型识别改为“后缀优先 + 文件魔数回退”，规避 Python 3.13 移除 `imghdr` 带来的运行时兼容问题。
+- 阶段十五完成设备与看板前端闭环：设备管理页实现增删改查操作入口，看板页实现统计卡片与趋势图联动展示。
+- 设备页与看板页均采用“页面级 30 秒轮询 + 手动刷新”双机制，兼顾实时性与可控性。
+- 看板趋势图接入 ECharts 并固定 `7/30` 两档切换，保证与后端参数约束一致。
 - 文件存储采用单一 Bucket（`BUCKET_TASK_FILES`）策略，按任务目录前缀组织：
   - `{task_id}/apk/...`
   - `{task_id}/icon/...`
@@ -157,7 +160,7 @@
 - `frontend/src/stores/device.js`
   - 设备模块基础状态：设备列表、总数与加载态。
 - `frontend/src/stores/dashboard.js`
-  - 看板模块基础状态：统计卡片、趋势维度与加载态。
+  - 看板模块状态与动作：管理统计卡片、趋势天数与趋势数据，提供 `fetchStats`、`fetchTrend`、`setTrendDays`。
 - `frontend/src/api/request.js`
   - axios 统一请求层：鉴权头注入、响应解包、401 跳转登录、通用错误提示。
 - `frontend/src/api/auth.js`
@@ -171,13 +174,13 @@
 - `frontend/src/views/Login.vue`
   - 登录页：账号密码表单、必填校验、提交 loading、错误提示；提交后调用 `authStore.login` 完成认证。
 - `frontend/src/views/Dashboard.vue`
-  - 看板页占位组件（阶段十五实现统计卡片与趋势图）。
+  - 看板页：展示 6 个统计卡片、7/30 天趋势折线图，支持手动刷新与 30 秒自动刷新。
 - `frontend/src/views/TaskList.vue`
   - 任务列表页：实现多条件筛选、任务表格展示、上传提交弹窗入口、完成态下载操作与自动轮询刷新。
 - `frontend/src/views/TaskDetail.vue`
   - 任务详情页：展示任务基础信息、失败告警、下载按钮（APK/报告/PCAP）、结果 Tabs（静态/动态），并在非终态自动轮询刷新。
 - `frontend/src/views/DeviceList.vue`
-  - 设备管理页占位组件（阶段十五实现设备 CRUD 与状态展示）。
+  - 设备管理页：展示设备列表与状态，提供添加、重命名、删除（二次确认）及 30 秒自动刷新能力。
 - `frontend/src/components/AppLayout.vue`
   - 全局布局组件：侧边导航、顶部用户信息与退出按钮、子路由内容容器，以及菜单高亮联动。
 - `frontend/src/components/TaskStatusTag.vue`
