@@ -23,7 +23,8 @@ from repositories.task_repo import (
     get_static_result,
     get_task_by_id,
     get_task_by_md5,
-    get_traffic_logs,
+    get_traffic_logs_by_dynamic_result_ids,
+    get_traffic_logs_by_seqs,
     list_dynamic_results,
     list_tasks,
     list_traffic_logs,
@@ -44,6 +45,16 @@ DOWNLOAD_FIELD_MAP = {
     "report": "report_path",
     "pcap": "pcap_path",
 }
+APK_MIME_TYPES = {
+    "application/vnd.android.package-archive",
+    "application/zip",
+    "application/x-zip",
+    "application/x-zip-compressed",
+    "application/java-archive",
+    "application/x-java-archive",
+    "application/jar",
+    "application/x-jar",
+}
 
 
 def _is_valid_url(url: str) -> bool:
@@ -52,10 +63,13 @@ def _is_valid_url(url: str) -> bool:
 
 
 def _is_apk_mime(mime_type: str, file_name: str) -> bool:
+    normalized_mime = (mime_type or "").lower()
     normalized_name = (file_name or "").lower()
-    if mime_type == "application/vnd.android.package-archive":
+    if normalized_mime == "application/vnd.android.package-archive":
         return True
-    if mime_type in {"application/zip", "application/java-archive", "application/octet-stream"}:
+    if normalized_mime in APK_MIME_TYPES:
+        return normalized_name.endswith(".apk")
+    if normalized_mime == "application/octet-stream":
         return normalized_name.endswith(".apk")
     return False
 
@@ -337,8 +351,6 @@ def get_task_dynamic_result(
     task_id: str,
     dynamic_page: int,
     dynamic_size: int,
-    traffic_page: int,
-    traffic_size: int,
 ) -> dict[str, Any]:
     task = get_task_by_id(task_id)
     if not task:
@@ -349,19 +361,49 @@ def get_task_dynamic_result(
 
     normalized_dynamic_page = max(dynamic_page, 1)
     normalized_dynamic_size = min(max(dynamic_size, 1), 200)
-    normalized_traffic_page = max(traffic_page, 1)
-    normalized_traffic_size = min(max(traffic_size, 1), 500)
 
     dynamic_items, dynamic_total = get_dynamic_results(
         task_id,
         normalized_dynamic_page,
         normalized_dynamic_size,
     )
-    traffic_items, traffic_total = get_traffic_logs(
-        task_id,
-        normalized_traffic_page,
-        normalized_traffic_size,
-    )
+    dynamic_id_to_seq: dict[str, int] = {}
+    dynamic_seqs: list[int] = []
+    for item in dynamic_items:
+        dynamic_id = str(item.get("id") or "").strip()
+        seq_value = item.get("seq")
+        try:
+            seq_num = int(seq_value)
+        except (TypeError, ValueError):
+            continue
+        if seq_num > 0:
+            if dynamic_id:
+                dynamic_id_to_seq[dynamic_id] = seq_num
+            dynamic_seqs.append(seq_num)
+
+    step_traffic_items = get_traffic_logs_by_dynamic_result_ids(task_id, list(dynamic_id_to_seq.keys()))
+    seq_fallback_items = get_traffic_logs_by_seqs(task_id, dynamic_seqs)
+
+    step_traffic_logs: dict[int, list[dict]] = {}
+    for packet in step_traffic_items:
+        dynamic_result_id = str(packet.get("dynamic_result_id") or "").strip()
+        seq_value = dynamic_id_to_seq.get(dynamic_result_id)
+        if seq_value is None:
+            continue
+        step_traffic_logs.setdefault(seq_value, []).append(packet)
+
+    for packet in seq_fallback_items:
+        dynamic_result_id = str(packet.get("dynamic_result_id") or "").strip()
+        if dynamic_result_id and dynamic_result_id in dynamic_id_to_seq:
+            continue
+        seq_value = packet.get("seq")
+        try:
+            seq_num = int(seq_value)
+        except (TypeError, ValueError):
+            continue
+        if seq_num <= 0:
+            continue
+        step_traffic_logs.setdefault(seq_num, []).append(packet)
 
     for item in dynamic_items:
         before_path = item.get("screenshot_before")
@@ -390,12 +432,7 @@ def get_task_dynamic_result(
             "page": normalized_dynamic_page,
             "size": normalized_dynamic_size,
         },
-        "traffic_logs": {
-            "items": traffic_items,
-            "total": traffic_total,
-            "page": normalized_traffic_page,
-            "size": normalized_traffic_size,
-        },
+        "step_traffic_logs": step_traffic_logs,
     }
 
 

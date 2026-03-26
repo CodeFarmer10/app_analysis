@@ -56,13 +56,29 @@ function handleFileRemove(targetFile) {
 }
 
 async function submitApkBatch() {
-  const files = fileList.value
-    .map((file) => file.originFileObj || file)
-    .filter(Boolean)
+  const files = fileList.value.filter(Boolean)
 
   const result = await uploadTaskFiles(files)
-  const successCount = result.items?.filter((item) => item.success).length || 0
-  message.success(`已提交 ${successCount} 个 APK 任务`)
+  const items = Array.isArray(result?.items) ? result.items : []
+  const successCount = items.filter((item) => item.success).length
+  const failedItems = items.filter((item) => !item.success)
+
+  if (successCount > 0) {
+    message.success(`已提交 ${successCount} 个 APK 任务`)
+    if (failedItems.length > 0) {
+      const firstReason = failedItems[0]?.reason || '提交失败'
+      message.warning(`另有 ${failedItems.length} 个文件提交失败：${firstReason}`)
+    }
+    return true
+  }
+
+  if (failedItems.length > 0) {
+    const firstReason = failedItems[0]?.reason || '提交失败'
+    message.error(`APK 提交失败：${firstReason}`)
+  } else {
+    message.error('未识别到可提交的 APK 文件')
+  }
+  return false
 }
 
 async function submitUrlBatch() {
@@ -72,8 +88,26 @@ async function submitUrlBatch() {
     .filter(Boolean)
 
   const result = await submitTaskUrls(urls)
-  const successCount = result.items?.filter((item) => item.success).length || 0
-  message.success(`已提交 ${successCount} 条 URL 任务`)
+  const items = Array.isArray(result?.items) ? result.items : []
+  const successCount = items.filter((item) => item.success).length
+  const failedItems = items.filter((item) => !item.success)
+
+  if (successCount > 0) {
+    message.success(`已提交 ${successCount} 条 URL 任务`)
+    if (failedItems.length > 0) {
+      const firstReason = failedItems[0]?.reason || '提交失败'
+      message.warning(`另有 ${failedItems.length} 条 URL 失败：${firstReason}`)
+    }
+    return true
+  }
+
+  if (failedItems.length > 0) {
+    const firstReason = failedItems[0]?.reason || '提交失败'
+    message.error(`URL 提交失败：${firstReason}`)
+  } else {
+    message.error('未识别到可提交的 URL')
+  }
+  return false
 }
 
 async function handleSubmit() {
@@ -83,11 +117,17 @@ async function handleSubmit() {
 
   submitting.value = true
   try {
+    let hasSuccess = false
     if (activeTab.value === 'apk') {
-      await submitApkBatch()
+      hasSuccess = await submitApkBatch()
     } else {
-      await submitUrlBatch()
+      hasSuccess = await submitUrlBatch()
     }
+
+    if (!hasSuccess) {
+      return
+    }
+
     emit('success')
     handleCancel()
   } finally {

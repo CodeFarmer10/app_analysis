@@ -101,6 +101,7 @@ CREATE TABLE IF NOT EXISTS dynamic_results (
 CREATE TABLE IF NOT EXISTS traffic_logs (
   id VARCHAR(36) PRIMARY KEY,
   task_id VARCHAR(36) NOT NULL,
+  dynamic_result_id VARCHAR(36) NULL,
   seq INT NOT NULL,
   src_ip VARCHAR(45) NOT NULL,
   dst_ip VARCHAR(45) NOT NULL,
@@ -111,8 +112,12 @@ CREATE TABLE IF NOT EXISTS traffic_logs (
   url TEXT NULL,
   resolved_ip VARCHAR(45) NULL,
   KEY idx_traffic_logs_task (task_id),
+  KEY idx_traffic_logs_dynamic_result_id (dynamic_result_id),
   CONSTRAINT fk_traffic_logs_task_id
     FOREIGN KEY (task_id) REFERENCES tasks(id)
+    ON DELETE CASCADE,
+  CONSTRAINT fk_traffic_logs_dynamic_result_id
+    FOREIGN KEY (dynamic_result_id) REFERENCES dynamic_results(id)
     ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
@@ -164,6 +169,61 @@ SET @sql_devices_task := IF(
 PREPARE stmt_devices_task FROM @sql_devices_task;
 EXECUTE stmt_devices_task;
 DEALLOCATE PREPARE stmt_devices_task;
+
+-- Backward-compatible traffic_logs.dynamic_result_id upgrade for existing tables.
+SET @traffic_logs_dynamic_result_col := (
+  SELECT COUNT(*) FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'traffic_logs'
+    AND column_name = 'dynamic_result_id'
+);
+SET @sql_traffic_logs_dynamic_result_col := IF(
+  @traffic_logs_dynamic_result_col = 0,
+  'ALTER TABLE traffic_logs ADD COLUMN dynamic_result_id VARCHAR(36) NULL AFTER task_id',
+  'SELECT 1'
+);
+PREPARE stmt_traffic_logs_dynamic_result_col FROM @sql_traffic_logs_dynamic_result_col;
+EXECUTE stmt_traffic_logs_dynamic_result_col;
+DEALLOCATE PREPARE stmt_traffic_logs_dynamic_result_col;
+
+-- Backfill mapping using task_id + seq where possible.
+UPDATE traffic_logs tl
+INNER JOIN dynamic_results dr
+  ON dr.task_id = tl.task_id
+ AND dr.seq = tl.seq
+SET tl.dynamic_result_id = dr.id
+WHERE tl.dynamic_result_id IS NULL;
+
+SET @traffic_logs_dynamic_result_idx := (
+  SELECT COUNT(*) FROM information_schema.statistics
+  WHERE table_schema = DATABASE()
+    AND table_name = 'traffic_logs'
+    AND index_name = 'idx_traffic_logs_dynamic_result_id'
+);
+SET @sql_traffic_logs_dynamic_result_idx := IF(
+  @traffic_logs_dynamic_result_idx = 0,
+  'ALTER TABLE traffic_logs ADD KEY idx_traffic_logs_dynamic_result_id (dynamic_result_id)',
+  'SELECT 1'
+);
+PREPARE stmt_traffic_logs_dynamic_result_idx FROM @sql_traffic_logs_dynamic_result_idx;
+EXECUTE stmt_traffic_logs_dynamic_result_idx;
+DEALLOCATE PREPARE stmt_traffic_logs_dynamic_result_idx;
+
+SET @fk_traffic_logs_dynamic_result := (
+  SELECT COUNT(*) FROM information_schema.table_constraints
+  WHERE constraint_schema = DATABASE()
+    AND table_name = 'traffic_logs'
+    AND constraint_name = 'fk_traffic_logs_dynamic_result_id'
+    AND constraint_type = 'FOREIGN KEY'
+);
+SET @sql_fk_traffic_logs_dynamic_result := IF(
+  @fk_traffic_logs_dynamic_result = 0,
+  'ALTER TABLE traffic_logs ADD CONSTRAINT fk_traffic_logs_dynamic_result_id FOREIGN KEY (dynamic_result_id) REFERENCES dynamic_results(id) ON DELETE CASCADE',
+  'SELECT 1'
+);
+PREPARE stmt_fk_traffic_logs_dynamic_result FROM @sql_fk_traffic_logs_dynamic_result;
+EXECUTE stmt_fk_traffic_logs_dynamic_result;
+DEALLOCATE PREPARE stmt_fk_traffic_logs_dynamic_result;
 
 -- Backward-compatible users.role upgrade for existing tables.
 SET @users_role_col := (

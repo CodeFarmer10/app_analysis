@@ -81,15 +81,19 @@ def analyze_apk(task_id: str):
         icon_path = None
         icon_bytes = parsed.get("icon_bytes")
         if isinstance(icon_bytes, (bytes, bytearray)) and icon_bytes:
-            extension = _guess_icon_extension(parsed.get("icon_name"), bytes(icon_bytes))
-            icon_file_name = f"{task_id}.{extension}"
-            icon_path = storage_service.upload_task_bytes(
-                task_id=task_id,
-                file_type="icon",
-                file_name=icon_file_name,
-                data=bytes(icon_bytes),
-                content_type=_guess_icon_content_type(extension),
-            )
+            try:
+                extension = _guess_icon_extension(parsed.get("icon_name"), bytes(icon_bytes))
+                icon_file_name = f"{task_id}.{extension}"
+                icon_path = storage_service.upload_task_bytes(
+                    task_id=task_id,
+                    file_type="icon",
+                    file_name=icon_file_name,
+                    data=bytes(icon_bytes),
+                    content_type=_guess_icon_content_type(extension),
+                )
+            except Exception as icon_exc:  # pragma: no cover - runtime/storage dependent
+                logger.warning("icon upload failed task_id=%s: %s", task_id, icon_exc)
+                icon_path = None
 
         upsert_static_result(
             task_id,

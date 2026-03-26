@@ -13,7 +13,7 @@ const props = defineProps({
     <div class="screenshot-grid">
       <div v-for="(item, index) in screenshots" :key="item.url || index" class="screenshot-item">
         <a-image :src="item.url" :alt="item.label || `截图 ${index + 1}`" :width="180" />
-        <div class="screenshot-label">{{ item.label || `截图 ${index + 1}` }}</div>
+        <div v-if="item.label" class="screenshot-label">{{ item.label }}</div>
       </div>
     </div>
   </a-image-preview-group>
@@ -27,9 +27,8 @@ const props = defineProps({
 }
 
 .screenshot-item {
-  border: 1px solid #f0f0f0;
-  border-radius: 8px;
-  padding: 8px;
+  border: none;
+  padding: 0;
 }
 
 .screenshot-label {

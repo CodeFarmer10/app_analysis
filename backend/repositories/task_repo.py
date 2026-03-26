@@ -308,6 +308,7 @@ def get_traffic_logs(task_id: str, page: int, size: int) -> tuple[list[dict], in
         SELECT
             id,
             task_id,
+            dynamic_result_id,
             seq,
             src_ip,
             dst_ip,
@@ -324,6 +325,62 @@ def get_traffic_logs(task_id: str, page: int, size: int) -> tuple[list[dict], in
     """
     items = fetch_all(sql, (task_id, max(size, 1), offset))
     return items, total
+
+
+def get_traffic_logs_by_seqs(task_id: str, seqs: list[int]) -> list[dict]:
+    normalized_seqs = sorted({int(seq) for seq in seqs if isinstance(seq, int) and seq > 0})
+    if not normalized_seqs:
+        return []
+
+    placeholders = ",".join(["%s"] * len(normalized_seqs))
+    sql = f"""
+        SELECT
+            id,
+            task_id,
+            dynamic_result_id,
+            seq,
+            src_ip,
+            dst_ip,
+            src_port,
+            dst_port,
+            protocol,
+            domain,
+            url,
+            resolved_ip
+        FROM traffic_logs
+        WHERE task_id = %s
+          AND seq IN ({placeholders})
+        ORDER BY seq ASC, id ASC
+    """
+    return fetch_all(sql, (task_id, *normalized_seqs))
+
+
+def get_traffic_logs_by_dynamic_result_ids(task_id: str, dynamic_result_ids: list[str]) -> list[dict]:
+    normalized_ids = sorted({str(item).strip() for item in dynamic_result_ids if str(item).strip()})
+    if not normalized_ids:
+        return []
+
+    placeholders = ",".join(["%s"] * len(normalized_ids))
+    sql = f"""
+        SELECT
+            id,
+            task_id,
+            dynamic_result_id,
+            seq,
+            src_ip,
+            dst_ip,
+            src_port,
+            dst_port,
+            protocol,
+            domain,
+            url,
+            resolved_ip
+        FROM traffic_logs
+        WHERE task_id = %s
+          AND dynamic_result_id IN ({placeholders})
+        ORDER BY seq ASC, id ASC
+    """
+    return fetch_all(sql, (task_id, *normalized_ids))
 
 
 def get_dynamic_result_by_seq(task_id: str, seq: int) -> dict | None:

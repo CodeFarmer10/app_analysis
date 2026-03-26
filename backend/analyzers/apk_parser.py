@@ -106,6 +106,14 @@ def _build_activities(activity_names: list[str], launcher_activities: set[str]) 
     return activities
 
 
+def _safe_android_version(apk: APK, key: str) -> str | None:
+    android_version = getattr(apk, "androidversion", {}) or {}
+    value = android_version.get(key)
+    if value:
+        return str(value)
+    return None
+
+
 def parse_apk(apk_path: str) -> dict[str, Any]:
     path = Path(apk_path)
     if not path.is_file():
@@ -128,12 +136,14 @@ def parse_apk(apk_path: str) -> dict[str, Any]:
     services = sorted({item for item in (apk.get_services() or []) if item})
     providers = sorted({item for item in (apk.get_providers() or []) if item})
     so_files = sorted({item for item in apk.get_files() if item.lower().endswith(".so")})
+    version_name = _safe_android_version(apk, "Name")
+    version_code = _safe_android_version(apk, "Code")
 
     return {
         "app_name": apk.get_app_name() or None,
         "package_name": apk.get_package() or None,
-        "version_name": apk.get_androidversion_name() or None,
-        "version_code": apk.get_androidversion_code() or None,
+        "version_name": version_name,
+        "version_code": version_code,
         "cert_md5": hashlib.md5(cert_der).hexdigest() if cert_der else None,
         "cert_sha1": hashlib.sha1(cert_der).hexdigest() if cert_der else None,
         "cert_sha256": hashlib.sha256(cert_der).hexdigest() if cert_der else None,

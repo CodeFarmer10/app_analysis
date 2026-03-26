@@ -95,8 +95,6 @@ async def get_task_dynamic(
     task_id: str,
     dynamic_page: int = Query(default=1, ge=1),
     dynamic_size: int = Query(default=20, ge=1, le=200),
-    traffic_page: int = Query(default=1, ge=1),
-    traffic_size: int = Query(default=50, ge=1, le=500),
     current_user: dict = Depends(get_current_user),
 ):
     _ = current_user
@@ -105,8 +103,6 @@ async def get_task_dynamic(
             task_id=task_id,
             dynamic_page=dynamic_page,
             dynamic_size=dynamic_size,
-            traffic_page=traffic_page,
-            traffic_size=traffic_size,
         )
     )
 

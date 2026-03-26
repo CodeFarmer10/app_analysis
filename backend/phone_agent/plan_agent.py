@@ -16,7 +16,7 @@ from phone_agent.model import ModelClient, ModelConfig
 from phone_agent.model.client import MessageBuilder
 from phone_agent.agent import PhoneAgent, AgentConfig
 from phone_agent.adb.traffic import TrafficCapture
-from traffic_parser import TrafficParser, PacketInfo
+from phone_agent.traffic_parser import TrafficParser, PacketInfo
 
 
 @dataclass

@@ -221,6 +221,7 @@ def _persist_trace_results(
         INSERT INTO traffic_logs (
             id,
             task_id,
+            dynamic_result_id,
             seq,
             src_ip,
             dst_ip,
@@ -231,7 +232,7 @@ def _persist_trace_results(
             url,
             resolved_ip
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     """
 
     with get_connection() as conn:
@@ -266,6 +267,7 @@ def _persist_trace_results(
                             (
                                 item["id"],
                                 item["task_id"],
+                                item["dynamic_result_id"],
                                 item["seq"],
                                 item["src_ip"],
                                 item["dst_ip"],
@@ -304,7 +306,6 @@ def _parse_operation_results(
     """解析 operation_results 为 dynamic_rows 与 traffic_rows。"""
     dynamic_rows: list[dict] = []
     traffic_rows: list[dict] = []
-    traffic_seq = 1
 
     for index, item in enumerate(operation_results):
         if not isinstance(item, dict):
@@ -333,6 +334,7 @@ def _parse_operation_results(
                 "is_success": 1 if bool(item.get("successed", True)) else 0,
             }
         )
+        dynamic_result_id = dynamic_rows[-1]["id"]
 
         traffic_logs = item.get("traffic_logs") or []
         if not isinstance(traffic_logs, list):
@@ -349,7 +351,8 @@ def _parse_operation_results(
                 {
                     "id": str(uuid4()),
                     "task_id": task_id,
-                    "seq": traffic_seq,
+                    "dynamic_result_id": dynamic_result_id,
+                    "seq": seq,
                     "src_ip": _clip_text(src_ip, 45),
                     "dst_ip": _clip_text(dst_ip, 45),
                     "src_port": _to_port(packet.get("src_port")),
@@ -360,7 +363,6 @@ def _parse_operation_results(
                     "resolved_ip": _clip_text(packet.get("dns_ip"), 45),
                 }
             )
-            traffic_seq += 1
 
     if not dynamic_rows:
         raise ValueError("未解析到动态操作记录")

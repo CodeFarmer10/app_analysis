@@ -35,12 +35,7 @@ const dynamicResults = ref({
   page: 1,
   size: 20,
 })
-const trafficLogs = ref({
-  items: [],
-  total: 0,
-  page: 1,
-  size: 50,
-})
+const stepTrafficLogs = ref({})
 
 const terminalStatusSet = new Set(TASK_TERMINAL_STATUSES)
 const staticReadyStatusSet = new Set(['waiting_device', 'dynamic_tracing', 'dynamic_failed', 'completed'])
@@ -90,7 +85,7 @@ function goBack() {
 function resetResultState() {
   staticResult.value = null
   dynamicResults.value = { items: [], total: 0, page: 1, size: 20 }
-  trafficLogs.value = { items: [], total: 0, page: 1, size: 50 }
+  stepTrafficLogs.value = {}
 }
 
 function syncPollingState() {
@@ -136,15 +131,13 @@ async function fetchStaticResult() {
 async function fetchDynamicResult(options = {}) {
   if (!task.value || !dynamicReadyStatusSet.has(task.value.status)) {
     dynamicResults.value = { items: [], total: 0, page: 1, size: 20 }
-    trafficLogs.value = { items: [], total: 0, page: 1, size: 50 }
+    stepTrafficLogs.value = {}
     return
   }
 
   const {
     dynamicPage = dynamicResults.value.page,
     dynamicSize = dynamicResults.value.size,
-    trafficPage = trafficLogs.value.page,
-    trafficSize = trafficLogs.value.size,
   } = options
 
   dynamicLoading.value = true
@@ -152,8 +145,6 @@ async function fetchDynamicResult(options = {}) {
     const data = await getTaskDynamicResult(currentTaskId.value, {
       dynamic_page: dynamicPage,
       dynamic_size: dynamicSize,
-      traffic_page: trafficPage,
-      traffic_size: trafficSize,
     })
     dynamicResults.value = data?.dynamic_results || {
       items: [],
@@ -161,12 +152,7 @@ async function fetchDynamicResult(options = {}) {
       page: dynamicPage,
       size: dynamicSize,
     }
-    trafficLogs.value = data?.traffic_logs || {
-      items: [],
-      total: 0,
-      page: trafficPage,
-      size: trafficSize,
-    }
+    stepTrafficLogs.value = data?.step_traffic_logs || {}
   } finally {
     dynamicLoading.value = false
   }
@@ -244,17 +230,6 @@ async function handleDynamicPageChange(payload) {
   await fetchDynamicResult({
     dynamicPage: payload.page,
     dynamicSize: payload.size,
-    trafficPage: trafficLogs.value.page,
-    trafficSize: trafficLogs.value.size,
-  })
-}
-
-async function handleTrafficPageChange(payload) {
-  await fetchDynamicResult({
-    dynamicPage: dynamicResults.value.page,
-    dynamicSize: dynamicResults.value.size,
-    trafficPage: payload.page,
-    trafficSize: payload.size,
   })
 }
 
@@ -345,10 +320,9 @@ onBeforeUnmount(() => {
         <a-tab-pane key="dynamic" tab="动态溯源">
           <DynamicResult
             :dynamic-results="dynamicResults"
-            :traffic-logs="trafficLogs"
+            :step-traffic-logs="stepTrafficLogs"
             :loading="dynamicLoading"
             @change-dynamic-page="handleDynamicPageChange"
-            @change-traffic-page="handleTrafficPageChange"
           />
         </a-tab-pane>
       </a-tabs>

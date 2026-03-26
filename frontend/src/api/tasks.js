@@ -3,7 +3,12 @@ import request from './request'
 export function uploadTaskFiles(files) {
   const formData = new FormData()
   files.forEach((file) => {
-    formData.append('files', file)
+    const rawFile = file?.originFileObj || file
+    if (!(rawFile instanceof Blob)) {
+      return
+    }
+    const filename = rawFile.name || file?.name || 'upload.apk'
+    formData.append('files', rawFile, filename)
   })
   return request.post('/tasks/upload', formData, {
     headers: {
