@@ -251,7 +251,9 @@ onBeforeUnmount(() => {
             {{ (taskStore.page - 1) * taskStore.size + index + 1 }}
           </template>
           <template v-else-if="column.key === 'icon'">
-            <a-avatar shape="square" class="task-icon">{{ getAppInitial(record.app_name) }}</a-avatar>
+            <a-avatar shape="square" class="task-icon" :src="record.icon_url">
+              {{ getAppInitial(record.app_name) }}
+            </a-avatar>
           </template>
 
           <template v-else-if="column.key === 'app'">

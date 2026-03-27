@@ -275,7 +275,24 @@ def get_task_list(
         "end": filters.get("end"),
     }
     items, total = list_tasks(normalized_filters, normalized_page, normalized_size)
-    return items, total, normalized_page, normalized_size
+
+    enriched_items: list[dict[str, Any]] = []
+    for item in items:
+        row = dict(item)
+        icon_path = row.pop("icon_path", None)
+        row["icon_url"] = None
+        if icon_path:
+            try:
+                row["icon_url"] = storage_service.get_presigned_url(icon_path)
+            except Exception as exc:  # pragma: no cover - depends on storage runtime
+                logger.warning(
+                    "build task list icon url failed task_id=%s: %s",
+                    row.get("id"),
+                    exc,
+                )
+        enriched_items.append(row)
+
+    return enriched_items, total, normalized_page, normalized_size
 
 
 def get_task_detail(task_id: str) -> dict[str, Any]:

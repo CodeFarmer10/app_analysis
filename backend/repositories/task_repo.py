@@ -166,6 +166,7 @@ def list_tasks(filters: dict[str, Any], page: int, size: int) -> tuple[list[dict
             t.source_name,
             sr.app_name,
             sr.package_name,
+            sr.icon_path,
             t.file_md5,
             t.status,
             t.device_id,
