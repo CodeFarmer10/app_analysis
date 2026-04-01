@@ -4,174 +4,385 @@
     <meta charset="UTF-8" />
     <title>诈骗APP分析报告</title>
     <style>
+        @page {
+            size: A4;
+            margin: 16mm 14mm;
+        }
         body {
             font-family: "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
             font-size: 12px;
             color: #1f2937;
             margin: 0;
-            padding: 20px;
-            line-height: 1.6;
+            line-height: 1.65;
+            background: #ffffff;
         }
-        .cover {
-            border: 1px solid #d1d5db;
-            border-radius: 8px;
-            padding: 24px;
-            margin-bottom: 24px;
-        }
-        .cover h1 {
-            margin: 0 0 16px;
-            font-size: 24px;
-        }
-        .meta-row {
-            margin: 6px 0;
+        .page-title {
+            margin: 0 0 18px;
+            font-size: 26px;
+            font-weight: 800;
+            text-align: center;
+            color: #111827;
         }
         .section {
-            margin-top: 24px;
+            margin-top: 22px;
         }
-        .section h2 {
+        .section-title {
             margin: 0 0 12px;
-            font-size: 18px;
-            border-left: 4px solid #2563eb;
-            padding-left: 8px;
+            font-size: 19px;
+            font-weight: 800;
+            color: #ffffff;
+            background: linear-gradient(90deg, #1d4ed8 0%, #2563eb 100%);
+            padding: 10px 14px;
+            border-radius: 10px;
+            box-shadow: inset 0 -1px 0 rgba(255,255,255,0.15);
         }
-        .item {
-            margin: 4px 0;
+        .panel {
+            border: 1px solid #dbe3ef;
+            border-radius: 10px;
+            background: #ffffff;
+            overflow: hidden;
+            margin-bottom: 14px;
         }
-        .card {
-            border: 1px solid #e5e7eb;
-            border-radius: 6px;
+        .panel-body {
+            padding: 14px 16px;
+        }
+        .summary-grid {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+        }
+        .summary-grid td {
+            width: 50%;
+            padding: 10px 12px;
+            border-bottom: 1px solid #edf2f7;
+            vertical-align: top;
+        }
+        .summary-grid tr:last-child td {
+            border-bottom: none;
+        }
+        .label {
+            font-size: 11px;
+            font-weight: 700;
+            color: #6b7280;
+            margin-bottom: 4px;
+        }
+        .value {
+            font-size: 13px;
+            font-weight: 500;
+            color: #111827;
+            word-break: break-all;
+        }
+        .static-layout {
+            display: table;
+            width: 100%;
+            table-layout: fixed;
+        }
+        .static-side,
+        .static-main {
+            display: table-cell;
+            vertical-align: top;
+        }
+        .static-side {
+            width: 140px;
+            padding-right: 16px;
+        }
+        .icon-box {
+            width: 120px;
+            height: 120px;
+            border: 1px solid #dbe3ef;
+            border-radius: 12px;
+            background: #f8fafc;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+        .icon-box img {
+            max-width: 100%;
+            max-height: 100%;
+            display: block;
+        }
+        .empty-box {
+            color: #94a3b8;
+            font-size: 12px;
+            text-align: center;
             padding: 12px;
-            margin-bottom: 12px;
         }
-        table {
+        .kv-table {
             width: 100%;
             border-collapse: collapse;
             table-layout: fixed;
-            word-break: break-all;
         }
-        th, td {
-            border: 1px solid #d1d5db;
-            padding: 6px 8px;
+        .kv-table th,
+        .kv-table td {
+            border: 1px solid #e5e7eb;
+            padding: 8px 10px;
             text-align: left;
             vertical-align: top;
+            word-break: break-all;
         }
-        th {
-            background: #f3f4f6;
+        .kv-table th {
+            width: 108px;
+            background: #f8fafc;
+            color: #475569;
+            font-weight: 600;
         }
-        .img-box {
-            margin-top: 8px;
+        .block-title {
+            margin: 14px 0 8px;
+            font-size: 15px;
+            font-weight: 800;
+            color: #1e3a8a;
+            background: #dbeafe;
+            padding: 6px 10px;
+            border-radius: 8px;
         }
-        .img-box img {
-            max-width: 280px;
-            max-height: 360px;
-            border: 1px solid #d1d5db;
-            border-radius: 4px;
+        .permission-list {
+            margin: 0;
+            padding-left: 18px;
+            columns: 2;
+            column-gap: 24px;
+        }
+        .permission-list li {
+            margin: 0 0 6px;
+            break-inside: avoid;
+        }
+        .dynamic-card {
+            page-break-inside: avoid;
+        }
+        .dynamic-head {
+            padding: 12px 16px;
+            background: #f8fafc;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        .step-title {
+            font-size: 17px;
+            font-weight: 800;
+            color: #111827;
+            margin: 0 0 4px;
+        }
+        .step-subtitle {
+            color: #475569;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        .screenshot-box {
+            margin-top: 12px;
+            border: 1px solid #dbe3ef;
+            border-radius: 10px;
+            background: #f8fafc;
+            padding: 12px;
+            text-align: center;
+        }
+        .screenshot-box img {
+            max-width: 100%;
+            max-height: 520px;
+            display: inline-block;
+            border-radius: 8px;
         }
         .muted {
             color: #6b7280;
         }
-        .list-inline {
-            margin: 0;
-            padding-left: 18px;
+        .traffic-summary {
+            margin-top: 10px;
+            font-size: 12px;
+            font-weight: 700;
+            color: #1e3a8a;
+        }
+        .traffic-table {
+            margin-top: 10px;
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed;
+        }
+        .traffic-table th,
+        .traffic-table td {
+            border: 1px solid #e5e7eb;
+            padding: 7px 8px;
+            text-align: left;
+            vertical-align: top;
+            word-break: break-all;
+            font-size: 11px;
+        }
+        .traffic-table th {
+            background: #f8fafc;
+            color: #334155;
+            font-weight: 800;
         }
     </style>
 </head>
 <body>
-    <div class="cover">
-        <h1>诈骗APP分析报告</h1>
-        <div class="meta-row"><strong>任务ID：</strong>{{ task_id }}</div>
-        <div class="meta-row"><strong>样本MD5：</strong>{{ file_md5 }}</div>
-        <div class="meta-row"><strong>分析时间：</strong>{{ analysis_time }}</div>
-        <div class="meta-row"><strong>报告生成时间：</strong>{{ generated_at }}</div>
+    <h1 class="page-title">诈骗APP分析报告</h1>
+
+    <div class="section">
+        <h2 class="section-title">任务信息</h2>
+        <div class="panel">
+            <div class="panel-body">
+                <table class="summary-grid">
+                    <tr>
+                        <td>
+                            <div class="label">任务ID</div>
+                            <div class="value">{{ task_id }}</div>
+                        </td>
+                        <td>
+                            <div class="label">样本MD5</div>
+                            <div class="value">{{ file_md5 }}</div>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>
+                            <div class="label">任务状态</div>
+                            <div class="value">{{ task.status or "-" }}</div>
+                        </td>
+                        <td>
+                            <div class="label">分析时间</div>
+                            <div class="value">{{ analysis_time }}</div>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td colspan="2">
+                            <div class="label">报告生成时间</div>
+                            <div class="value">{{ generated_at }}</div>
+                        </td>
+                    </tr>
+                </table>
+            </div>
+        </div>
     </div>
 
     <div class="section">
-        <h2>静态分析摘要</h2>
-        <div class="item"><strong>APP名称：</strong>{{ static_result.app_name or "-" }}</div>
-        <div class="item"><strong>包名：</strong>{{ static_result.package_name or "-" }}</div>
-        <div class="item"><strong>版本：</strong>{{ static_result.version_name or "-" }} ({{ static_result.version_code or "-" }})</div>
-        <div class="item"><strong>证书MD5：</strong>{{ static_result.cert_md5 or "-" }}</div>
-        <div class="item"><strong>证书SHA1：</strong>{{ static_result.cert_sha1 or "-" }}</div>
-        <div class="item"><strong>证书SHA256：</strong>{{ static_result.cert_sha256 or "-" }}</div>
+        <h2 class="section-title">静态分析</h2>
+        <div class="panel">
+            <div class="panel-body">
+                <div class="static-layout">
+                    <div class="static-side">
+                        <div class="label">应用图标</div>
+                        <div class="icon-box">
+                            {% if static_result.icon_data_uri %}
+                            <img src="{{ static_result.icon_data_uri }}" alt="icon" />
+                            {% else %}
+                            <div class="empty-box">无图标</div>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div class="static-main">
+                        <table class="kv-table">
+                            <tr>
+                                <th>应用名称</th>
+                                <td>{{ static_result.app_name or "-" }}</td>
+                            </tr>
+                            <tr>
+                                <th>包名</th>
+                                <td>{{ static_result.package_name or "-" }}</td>
+                            </tr>
+                            <tr>
+                                <th>版本</th>
+                                <td>{{ static_result.version_name or "-" }} ({{ static_result.version_code or "-" }})</td>
+                            </tr>
+                            <tr>
+                                <th>权限数量</th>
+                                <td>{{ static_result.permissions_count }}</td>
+                            </tr>
+                        </table>
 
-        <div class="item"><strong>权限列表：</strong></div>
-        {% if static_result.permissions %}
-        <ul class="list-inline">
-            {% for item in static_result.permissions %}
-            <li>{{ item.name or "-" }}{% if item.is_dangerous %}（危险）{% endif %}</li>
-            {% endfor %}
-        </ul>
-        {% else %}
-        <div class="muted">无</div>
-        {% endif %}
+                        <div class="block-title">证书信息</div>
+                        <table class="kv-table">
+                            <tr>
+                                <th>证书MD5</th>
+                                <td>{{ static_result.cert_md5 or "-" }}</td>
+                            </tr>
+                            <tr>
+                                <th>证书SHA1</th>
+                                <td>{{ static_result.cert_sha1 or "-" }}</td>
+                            </tr>
+                            <tr>
+                                <th>证书SHA256</th>
+                                <td>{{ static_result.cert_sha256 or "-" }}</td>
+                            </tr>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="block-title">权限信息</div>
+                {% if static_result.permissions %}
+                <ul class="permission-list">
+                    {% for item in static_result.permissions %}
+                    <li>{{ item.name or "-" }}{% if item.is_dangerous %}（危险）{% endif %}</li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <div class="muted">无权限信息</div>
+                {% endif %}
+            </div>
+        </div>
     </div>
 
     <div class="section">
-        <h2>动态溯源记录</h2>
+        <h2 class="section-title">动态操作</h2>
         {% if dynamic_results %}
             {% for item in dynamic_results %}
-            <div class="card">
-                <div><strong>步骤：</strong>{{ item.seq }}</div>
-                <div><strong>操作：</strong>{{ item.action or "-" }}</div>
-                <div><strong>结果：</strong>{{ item.action_result or "-" }}</div>
-                <div><strong>时间：</strong>{{ item.action_time_text }}</div>
-                <div><strong>执行状态：</strong>{% if item.is_success %}成功{% else %}失败{% endif %}</div>
-
-                {% if item.screenshot_before_data_uri %}
-                <div class="img-box">
-                    <div><strong>操作前截图：</strong></div>
-                    <img src="{{ item.screenshot_before_data_uri }}" alt="before" />
+            <div class="panel dynamic-card">
+                <div class="dynamic-head">
+                    <div class="step-title">步骤 {{ item.seq }} - {{ item.action or "-" }}</div>
+                    <div class="step-subtitle">时间：{{ item.action_time_text }}　|　状态：{% if item.is_success %}成功{% else %}失败{% endif %}</div>
                 </div>
-                {% endif %}
+                <div class="panel-body">
+                    <table class="kv-table">
+                        <tr>
+                            <th>执行结果</th>
+                            <td>{{ item.action_result or "-" }}</td>
+                        </tr>
+                        <tr>
+                            <th>关联流量日志</th>
+                            <td>{{ item.step_traffic_log_count }} 条</td>
+                        </tr>
+                    </table>
 
-                {% if item.screenshot_after_data_uri %}
-                <div class="img-box">
-                    <div><strong>操作后截图：</strong></div>
-                    <img src="{{ item.screenshot_after_data_uri }}" alt="after" />
+                    <div class="block-title">操作截图</div>
+                    <div class="screenshot-box">
+                        {% if item.operation_screenshot_data_uri %}
+                        <img src="{{ item.operation_screenshot_data_uri }}" alt="operation-screenshot" />
+                        {% else %}
+                        <div class="empty-box">未采集到操作截图</div>
+                        {% endif %}
+                    </div>
+
+                    <div class="block-title">关联流量日志</div>
+                    {% if item.step_traffic_logs %}
+                    <div class="traffic-summary">当前步骤关联 {{ item.step_traffic_log_count }} 条日志</div>
+                    <table class="traffic-table">
+                        <thead>
+                            <tr>
+                                <th style="width: 8%;">序号</th>
+                                <th style="width: 10%;">协议</th>
+                                <th style="width: 24%;">域名</th>
+                                <th style="width: 26%;">URL</th>
+                                <th style="width: 16%;">源地址</th>
+                                <th style="width: 16%;">目的地址</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for packet in item.step_traffic_logs %}
+                            <tr>
+                                <td>{{ loop.index }}</td>
+                                <td>{{ packet.protocol or "-" }}</td>
+                                <td>{{ packet.domain or "-" }}</td>
+                                <td>{{ packet.url or "-" }}</td>
+                                <td>{{ packet.src_endpoint }}</td>
+                                <td>{{ packet.dst_endpoint }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                    {% else %}
+                    <div class="muted">当前步骤无关联流量日志</div>
+                    {% endif %}
                 </div>
-                {% endif %}
             </div>
             {% endfor %}
         {% else %}
-            <div class="muted">无动态溯源记录</div>
-        {% endif %}
-    </div>
-
-    <div class="section">
-        <h2>流量日志汇总</h2>
-        {% if traffic_logs %}
-        <table>
-            <thead>
-                <tr>
-                    <th style="width: 6%;">序号</th>
-                    <th style="width: 10%;">源IP</th>
-                    <th style="width: 10%;">目的IP</th>
-                    <th style="width: 7%;">源端口</th>
-                    <th style="width: 7%;">目的端口</th>
-                    <th style="width: 8%;">协议</th>
-                    <th style="width: 14%;">域名</th>
-                    <th style="width: 28%;">URL</th>
-                    <th style="width: 10%;">解析IP</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for item in traffic_logs %}
-                <tr>
-                    <td>{{ item.seq }}</td>
-                    <td>{{ item.src_ip or "-" }}</td>
-                    <td>{{ item.dst_ip or "-" }}</td>
-                    <td>{{ item.src_port or "-" }}</td>
-                    <td>{{ item.dst_port or "-" }}</td>
-                    <td>{{ item.protocol or "-" }}</td>
-                    <td>{{ item.domain or "-" }}</td>
-                    <td>{{ item.url or "-" }}</td>
-                    <td>{{ item.resolved_ip or "-" }}</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-        {% else %}
-        <div class="muted">无流量日志记录</div>
+            <div class="panel">
+                <div class="panel-body muted">无动态操作记录</div>
+            </div>
         {% endif %}
     </div>
 </body>
