@@ -85,7 +85,6 @@ async function handleTrendDaysChange(event) {
 }
 
 onMounted(async () => {
-  document.title = '诈骗APP分析系统'
   await refreshDashboard()
   if (!pollingActive.value) {
     pollingActive.value = true

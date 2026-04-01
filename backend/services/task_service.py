@@ -280,6 +280,9 @@ def get_task_list(
     for item in items:
         row = dict(item)
         icon_path = row.pop("icon_path", None)
+        row["can_download_apk"] = bool(row.pop("apk_path", None))
+        row["can_download_report"] = bool(row.pop("report_path", None))
+        row["can_download_pcap"] = bool(row.pop("pcap_path", None))
         row["icon_url"] = None
         if icon_path:
             try:

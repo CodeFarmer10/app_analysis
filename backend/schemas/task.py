@@ -23,6 +23,9 @@ class TaskListItem(BaseModel):
     icon_url: str | None = None
     file_md5: str | None = None
     status: str
+    can_download_apk: bool = False
+    can_download_report: bool = False
+    can_download_pcap: bool = False
     device_id: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None

@@ -48,6 +48,11 @@ const TABLE_COLUMNS = [
 ]
 
 const TERMINAL_SET = new Set(TASK_TERMINAL_STATUSES)
+const DOWNLOAD_FLAG_MAP = {
+  apk: 'can_download_apk',
+  report: 'can_download_report',
+  pcap: 'can_download_pcap',
+}
 
 const hasRunningTasks = computed(() =>
   taskStore.tasks.some((task) => !TERMINAL_SET.has(task.status))
@@ -163,6 +168,11 @@ function openTaskDetail(taskId) {
 }
 
 async function handleDownload(taskId, type) {
+  const task = taskStore.tasks.find((item) => item.id === taskId)
+  if (!isDownloadEnabled(task, type)) {
+    return
+  }
+
   const fetcher = {
     apk: getTaskApkDownload,
     report: getTaskReportDownload,
@@ -177,6 +187,23 @@ async function handleDownload(taskId, type) {
   if (data?.download_url) {
     window.open(data.download_url, '_blank', 'noopener')
   }
+}
+
+function isDownloadEnabled(record, type) {
+  if (!record || !DOWNLOAD_FLAG_MAP[type]) {
+    return false
+  }
+
+  const flag = record[DOWNLOAD_FLAG_MAP[type]]
+  return typeof flag === 'boolean' ? flag : false
+}
+
+function hasAnyDownload(record) {
+  return (
+    isDownloadEnabled(record, 'apk') ||
+    isDownloadEnabled(record, 'report') ||
+    isDownloadEnabled(record, 'pcap')
+  )
 }
 
 onMounted(async () => {
@@ -303,13 +330,19 @@ onBeforeUnmount(() => {
           <template v-else-if="column.key === 'actions'">
             <a-space size="small">
               <a-button type="link" @click="openTaskDetail(record.id)">查看</a-button>
-              <a-dropdown v-if="record.status === 'completed'" placement="bottomRight">
-                <a-button type="link">下载</a-button>
+              <a-dropdown placement="bottomRight" :trigger="hasAnyDownload(record) ? ['click'] : []">
+                <a-button type="link" :disabled="!hasAnyDownload(record)">下载</a-button>
                 <template #overlay>
                   <a-menu @click="({ key }) => handleDownload(record.id, key)">
-                    <a-menu-item key="apk">下载APK</a-menu-item>
-                    <a-menu-item key="report">下载报告</a-menu-item>
-                    <a-menu-item key="pcap">下载PCAP</a-menu-item>
+                    <a-menu-item key="apk" :disabled="!isDownloadEnabled(record, 'apk')">
+                      下载APK
+                    </a-menu-item>
+                    <a-menu-item key="report" :disabled="!isDownloadEnabled(record, 'report')">
+                      下载报告
+                    </a-menu-item>
+                    <a-menu-item key="pcap" :disabled="!isDownloadEnabled(record, 'pcap')">
+                      下载PCAP
+                    </a-menu-item>
                   </a-menu>
                 </template>
               </a-dropdown>
