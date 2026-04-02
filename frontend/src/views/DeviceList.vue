@@ -32,6 +32,7 @@ const columns = [
   { title: '型号', dataIndex: 'model', key: 'model', width: 180 },
   { title: '系统版本', dataIndex: 'android_version', key: 'android_version', width: 130 },
   { title: '分辨率', dataIndex: 'resolution', key: 'resolution', width: 130 },
+  { title: '近1天分析APP数', dataIndex: 'analyzed_app_count_1d', key: 'analyzed_app_count_1d', width: 150 },
   { title: '状态', dataIndex: 'status', key: 'status', width: 120 },
   { title: '当前任务', dataIndex: 'current_task_id', key: 'current_task_id', width: 220 },
   { title: '最后心跳', dataIndex: 'last_heartbeat_at', key: 'last_heartbeat_at', width: 180 },
@@ -52,6 +53,13 @@ const { start: startPolling, stop: stopPolling } = usePolling(async () => {
 
 function getStatusMeta(status) {
   return statusMetaMap[status] || { status: 'default', text: status || '未知' }
+}
+
+function formatCellText(value) {
+  if (value === null || value === undefined || value === '') {
+    return '--'
+  }
+  return value
 }
 
 function resetAddForm() {
@@ -182,7 +190,7 @@ onBeforeUnmount(() => {
         :data-source="deviceList"
         :loading="deviceStore.loading"
         :pagination="false"
-        :scroll="{ x: 1570 }"
+        :scroll="{ x: 1720 }"
       >
         <template #bodyCell="{ column, record, text, index }">
           <template v-if="column.key === 'index'">
@@ -213,7 +221,7 @@ onBeforeUnmount(() => {
             </a-space>
           </template>
           <template v-else>
-            {{ text || '--' }}
+            {{ formatCellText(text) }}
           </template>
         </template>
       </a-table>

@@ -23,4 +23,5 @@ class DeviceItem(BaseModel):
     current_task_id: str | None = None
     current_task_status: str | None = None
     last_heartbeat_at: datetime | None = None
+    analyzed_app_count_1d: int = 0
     created_at: datetime | None = None

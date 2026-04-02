@@ -48,9 +48,20 @@ def get_device_by_id(device_id: str) -> dict | None:
             d.current_task_id,
             d.last_heartbeat_at,
             d.created_at,
-            t.status AS current_task_status
+            t.status AS current_task_status,
+            COALESCE(tc.analyzed_app_count_1d, 0) AS analyzed_app_count_1d
         FROM devices d
         LEFT JOIN tasks t ON t.id = d.current_task_id
+        LEFT JOIN (
+            SELECT
+                device_id,
+                COUNT(*) AS analyzed_app_count_1d
+            FROM tasks
+            WHERE device_id IS NOT NULL
+              AND status = 'completed'
+              AND updated_at >= DATE_SUB(NOW(), INTERVAL 1 DAY)
+            GROUP BY device_id
+        ) tc ON tc.device_id = d.id
         WHERE d.id = %s
         LIMIT 1
     """
@@ -70,9 +81,20 @@ def get_device_by_serial(serial: str) -> dict | None:
             d.current_task_id,
             d.last_heartbeat_at,
             d.created_at,
-            t.status AS current_task_status
+            t.status AS current_task_status,
+            COALESCE(tc.analyzed_app_count_1d, 0) AS analyzed_app_count_1d
         FROM devices d
         LEFT JOIN tasks t ON t.id = d.current_task_id
+        LEFT JOIN (
+            SELECT
+                device_id,
+                COUNT(*) AS analyzed_app_count_1d
+            FROM tasks
+            WHERE device_id IS NOT NULL
+              AND status = 'completed'
+              AND updated_at >= DATE_SUB(NOW(), INTERVAL 1 DAY)
+            GROUP BY device_id
+        ) tc ON tc.device_id = d.id
         WHERE d.serial = %s
         LIMIT 1
     """
@@ -92,9 +114,20 @@ def list_devices() -> list[dict]:
             d.current_task_id,
             d.last_heartbeat_at,
             d.created_at,
-            t.status AS current_task_status
+            t.status AS current_task_status,
+            COALESCE(tc.analyzed_app_count_1d, 0) AS analyzed_app_count_1d
         FROM devices d
         LEFT JOIN tasks t ON t.id = d.current_task_id
+        LEFT JOIN (
+            SELECT
+                device_id,
+                COUNT(*) AS analyzed_app_count_1d
+            FROM tasks
+            WHERE device_id IS NOT NULL
+              AND status = 'completed'
+              AND updated_at >= DATE_SUB(NOW(), INTERVAL 1 DAY)
+            GROUP BY device_id
+        ) tc ON tc.device_id = d.id
         ORDER BY d.created_at DESC
     """
     return fetch_all(sql)
