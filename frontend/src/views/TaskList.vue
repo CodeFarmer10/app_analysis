@@ -231,18 +231,18 @@ onBeforeUnmount(() => {
           <a-form-item label="包名" class="search-item">
             <a-input v-model:value="searchForm.package" placeholder="输入包名" allow-clear />
           </a-form-item>
-          <a-form-item label="状态" class="search-item">
+        </div>
+        <div class="search-row-bottom">
+          <a-form-item label="时间范围" class="search-item range-item">
+            <a-range-picker v-model:value="searchForm.timeRange" style="width: 100%" />
+          </a-form-item>
+          <a-form-item label="状态" class="search-item status-item">
             <a-select
               v-model:value="searchForm.status"
               :options="STATUS_OPTIONS"
               allow-clear
               placeholder="选择状态"
             />
-          </a-form-item>
-        </div>
-        <div class="search-row-bottom">
-          <a-form-item label="时间范围" class="search-item range-item">
-            <a-range-picker v-model:value="searchForm.timeRange" style="width: 100%" />
           </a-form-item>
           <div class="search-form-right">
             <a-space>
@@ -372,14 +372,14 @@ onBeforeUnmount(() => {
 
 .search-row-top {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 24px;
+  grid-template-columns: minmax(170px, 1fr) minmax(190px, 1.15fr) minmax(220px, 1.35fr) minmax(190px, 1.15fr);
+  gap: 16px;
 }
 
 .search-row-bottom {
   display: flex;
   align-items: center;
-  gap: 18px;
+  gap: 16px;
   min-width: 0;
 }
 
@@ -397,6 +397,10 @@ onBeforeUnmount(() => {
 
 .range-item {
   width: 360px;
+}
+
+.status-item {
+  width: 210px;
 }
 
 .search-form :deep(.ant-form-item-row) {
@@ -421,12 +425,16 @@ onBeforeUnmount(() => {
 
 @media (max-width: 1200px) {
   .search-row-top {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 16px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
   }
 
   .range-item {
     width: 320px;
+  }
+
+  .status-item {
+    width: 180px;
   }
 }
 
