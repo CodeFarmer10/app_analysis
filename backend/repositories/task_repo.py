@@ -10,6 +10,8 @@ def create_task(data: dict[str, Any]) -> str:
     sql = """
         INSERT INTO tasks (
             id,
+            batch_id,
+            task_description,
             source_type,
             source_name,
             user_id,
@@ -20,12 +22,14 @@ def create_task(data: dict[str, Any]) -> str:
             error_message,
             device_id
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     """
     execute(
         sql,
         (
             data["id"],
+            data.get("batch_id"),
+            data.get("task_description"),
             data["source_type"],
             data["source_name"],
             data.get("user_id"),
@@ -44,6 +48,8 @@ def get_task_by_id(task_id: str) -> dict | None:
     sql = """
         SELECT
             id,
+            batch_id,
+            task_description,
             source_type,
             source_name,
             user_id,
@@ -69,6 +75,8 @@ def get_task_by_md5(md5: str) -> dict | None:
     sql = """
         SELECT
             id,
+            batch_id,
+            task_description,
             source_type,
             source_name,
             user_id,
@@ -127,6 +135,11 @@ def list_tasks(filters: dict[str, Any], page: int, size: int) -> tuple[list[dict
         )
         params.extend([f"%{name}%", f"%{name}%"])
 
+    task_description = filters.get("task_description")
+    if task_description:
+        where_clauses.append("t.task_description LIKE %s")
+        params.append(f"%{task_description}%")
+
     package_name = filters.get("package")
     if package_name:
         where_clauses.append("sr.package_name LIKE %s")
@@ -162,6 +175,8 @@ def list_tasks(filters: dict[str, Any], page: int, size: int) -> tuple[list[dict
     list_sql = f"""
         SELECT
             t.id,
+            t.batch_id,
+            t.task_description,
             t.source_type,
             t.source_name,
             sr.app_name,

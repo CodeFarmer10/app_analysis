@@ -1,6 +1,6 @@
 import request from './request'
 
-export function uploadTaskFiles(files) {
+export function uploadTaskFiles(files, taskDescription = '') {
   const formData = new FormData()
   files.forEach((file) => {
     const rawFile = file?.originFileObj || file
@@ -10,6 +10,7 @@ export function uploadTaskFiles(files) {
     const filename = rawFile.name || file?.name || 'upload.apk'
     formData.append('files', rawFile, filename)
   })
+  formData.append('task_description', String(taskDescription || '').trim())
   return request.post('/tasks/upload', formData, {
     headers: {
       'Content-Type': 'multipart/form-data',
@@ -17,8 +18,11 @@ export function uploadTaskFiles(files) {
   })
 }
 
-export function submitTaskUrls(urls) {
-  return request.post('/tasks/url', { urls })
+export function submitTaskUrls(urls, taskDescription = '') {
+  return request.post('/tasks/url', {
+    urls,
+    task_description: String(taskDescription || '').trim(),
+  })
 }
 
 export function getTaskList(params) {

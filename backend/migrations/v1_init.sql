@@ -16,6 +16,8 @@ CREATE TABLE IF NOT EXISTS users (
 
 CREATE TABLE IF NOT EXISTS tasks (
   id VARCHAR(36) PRIMARY KEY,
+  batch_id VARCHAR(36) NULL,
+  task_description VARCHAR(255) NULL,
   source_type ENUM('apk_upload', 'url_download') NOT NULL,
   source_name VARCHAR(512) NOT NULL,
   user_id VARCHAR(36) NULL,
@@ -42,7 +44,8 @@ CREATE TABLE IF NOT EXISTS tasks (
   KEY idx_tasks_md5 (file_md5),
   KEY idx_tasks_status (status),
   KEY idx_tasks_created_at (created_at),
-  KEY idx_tasks_user_id (user_id)
+  KEY idx_tasks_user_id (user_id),
+  KEY idx_tasks_batch_id (batch_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS devices (
@@ -255,5 +258,51 @@ SET @sql_users_role_idx := IF(
 PREPARE stmt_users_role_idx FROM @sql_users_role_idx;
 EXECUTE stmt_users_role_idx;
 DEALLOCATE PREPARE stmt_users_role_idx;
+
+-- Backward-compatible tasks.batch_id upgrade for existing tables.
+SET @tasks_batch_id_col := (
+  SELECT COUNT(*) FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'tasks'
+    AND column_name = 'batch_id'
+);
+SET @sql_tasks_batch_id_col := IF(
+  @tasks_batch_id_col = 0,
+  'ALTER TABLE tasks ADD COLUMN batch_id VARCHAR(36) NULL AFTER id',
+  'SELECT 1'
+);
+PREPARE stmt_tasks_batch_id_col FROM @sql_tasks_batch_id_col;
+EXECUTE stmt_tasks_batch_id_col;
+DEALLOCATE PREPARE stmt_tasks_batch_id_col;
+
+SET @tasks_desc_col := (
+  SELECT COUNT(*) FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'tasks'
+    AND column_name = 'task_description'
+);
+SET @sql_tasks_desc_col := IF(
+  @tasks_desc_col = 0,
+  'ALTER TABLE tasks ADD COLUMN task_description VARCHAR(255) NULL AFTER batch_id',
+  'SELECT 1'
+);
+PREPARE stmt_tasks_desc_col FROM @sql_tasks_desc_col;
+EXECUTE stmt_tasks_desc_col;
+DEALLOCATE PREPARE stmt_tasks_desc_col;
+
+SET @tasks_batch_id_idx := (
+  SELECT COUNT(*) FROM information_schema.statistics
+  WHERE table_schema = DATABASE()
+    AND table_name = 'tasks'
+    AND index_name = 'idx_tasks_batch_id'
+);
+SET @sql_tasks_batch_id_idx := IF(
+  @tasks_batch_id_idx = 0,
+  'ALTER TABLE tasks ADD KEY idx_tasks_batch_id (batch_id)',
+  'SELECT 1'
+);
+PREPARE stmt_tasks_batch_id_idx FROM @sql_tasks_batch_id_idx;
+EXECUTE stmt_tasks_batch_id_idx;
+DEALLOCATE PREPARE stmt_tasks_batch_id_idx;
 
 SET FOREIGN_KEY_CHECKS = 1;

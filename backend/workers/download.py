@@ -13,7 +13,7 @@ try:
 except ImportError:  # pragma: no cover - depends on runtime system library
     magic = None
 
-from repositories.task_repo import get_task_by_id, get_task_by_md5, update_task
+from repositories.task_repo import get_task_by_id, update_task
 from services.storage_service import storage_service
 from workers.celery_app import celery_app
 from workers.static_analysis import analyze_apk
@@ -128,19 +128,6 @@ def download_apk(self, task_id: str, url: str):  # pylint: disable=unused-argume
                 },
             )
             return {"task_id": task_id, "status": "download_failed"}
-
-        duplicated = get_task_by_md5(file_md5)
-        if duplicated and duplicated["id"] != task_id:
-            update_task(
-                task_id,
-                {
-                    "status": "download_failed",
-                    "error_message": f"检测到重复样本，已存在任务: {duplicated['id']}",
-                    "file_md5": file_md5,
-                    "file_size": file_size,
-                },
-            )
-            return {"task_id": task_id, "status": "download_failed", "duplicate": duplicated["id"]}
 
         object_name = storage_service.build_task_object_name(task_id, "apk", f"{file_md5}.apk")
         storage_service.upload_file(object_name=object_name, file_path=str(temp_file))

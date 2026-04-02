@@ -262,6 +262,12 @@ onBeforeUnmount(() => {
           <a-descriptions-item label="任务ID">
             <span class="desc-value">{{ task.id }}</span>
           </a-descriptions-item>
+          <a-descriptions-item label="批次号">
+            <span class="desc-value">{{ task.batch_id || '--' }}</span>
+          </a-descriptions-item>
+          <a-descriptions-item label="任务描述">
+            <span class="desc-value">{{ task.task_description || '--' }}</span>
+          </a-descriptions-item>
           <a-descriptions-item label="来源" class="source-item">
             <a-tooltip :title="task.source_name || '--'">
               <span class="desc-value source-link-text">{{ task.source_name || '--' }}</span>

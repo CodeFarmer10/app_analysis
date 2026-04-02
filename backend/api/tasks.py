@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, File, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
 from fastapi.responses import RedirectResponse
 
 from core.response import success_response
@@ -30,10 +30,11 @@ async def tasks_ping(current_user: dict = Depends(get_current_user)):
 @router.post("/upload")
 async def upload_tasks(
     files: list[UploadFile] = File(...),
+    task_description: str = Form(default=""),
     current_user: dict = Depends(get_current_user),
 ):
-    results = create_upload_tasks(files, current_user["id"])
-    return success_response({"items": results, "total": len(results)})
+    batch_id, results = create_upload_tasks(files, current_user["id"], task_description=task_description)
+    return success_response({"batch_id": batch_id, "items": results, "total": len(results)})
 
 
 @router.post("/url")
@@ -41,15 +42,27 @@ async def submit_task_urls(
     payload: UrlSubmitRequest,
     current_user: dict = Depends(get_current_user),
 ):
-    results = create_url_tasks(payload.urls, current_user["id"])
+    batch_id, results = create_url_tasks(
+        payload.urls,
+        current_user["id"],
+        task_description=payload.task_description,
+    )
     task_ids = [item["task_id"] for item in results if item.get("success")]
-    return success_response({"task_ids": task_ids, "items": results, "total": len(results)})
+    return success_response(
+        {
+            "batch_id": batch_id,
+            "task_ids": task_ids,
+            "items": results,
+            "total": len(results),
+        }
+    )
 
 
 @router.get("")
 async def list_task_items(
     md5: str | None = Query(default=None),
     name: str | None = Query(default=None),
+    task_description: str | None = Query(default=None),
     package: str | None = Query(default=None),
     status: str | None = Query(default=None),
     start: str | None = Query(default=None),
@@ -62,6 +75,7 @@ async def list_task_items(
     filters = {
         "md5": md5,
         "name": name,
+        "task_description": task_description,
         "package": package,
         "status": status,
         "start": parse_datetime_filter(start, "start"),

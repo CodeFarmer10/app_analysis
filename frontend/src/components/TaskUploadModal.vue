@@ -16,6 +16,7 @@ const emit = defineEmits(['update:open', 'success'])
 const activeTab = ref('apk')
 const fileList = ref([])
 const urlText = ref('')
+const taskDescription = ref('')
 const submitting = ref(false)
 
 const canSubmit = computed(() => {
@@ -38,6 +39,7 @@ function resetFormState() {
   activeTab.value = 'apk'
   fileList.value = []
   urlText.value = ''
+  taskDescription.value = ''
   submitting.value = false
 }
 
@@ -58,16 +60,25 @@ function handleFileRemove(targetFile) {
 async function submitApkBatch() {
   const files = fileList.value.filter(Boolean)
 
-  const result = await uploadTaskFiles(files)
+  const result = await uploadTaskFiles(files, taskDescription.value)
   const items = Array.isArray(result?.items) ? result.items : []
   const successCount = items.filter((item) => item.success).length
   const failedItems = items.filter((item) => !item.success)
+  const nonDuplicateFailedItems = failedItems.filter(
+    (item) => !String(item?.reason || '').includes('同一批次检测到重复')
+  )
+  const duplicateCount = failedItems.filter((item) =>
+    String(item?.reason || '').includes('同一批次检测到重复')
+  ).length
 
   if (successCount > 0) {
     message.success(`已提交 ${successCount} 个 APK 任务`)
-    if (failedItems.length > 0) {
-      const firstReason = failedItems[0]?.reason || '提交失败'
-      message.warning(`另有 ${failedItems.length} 个文件提交失败：${firstReason}`)
+    if (duplicateCount > 0) {
+      message.info(`已自动忽略 ${duplicateCount} 个批次内重复 APK`)
+    }
+    if (nonDuplicateFailedItems.length > 0) {
+      const firstReason = nonDuplicateFailedItems[0]?.reason || '提交失败'
+      message.warning(`另有 ${nonDuplicateFailedItems.length} 个文件提交失败：${firstReason}`)
     }
     return true
   }
@@ -87,16 +98,25 @@ async function submitUrlBatch() {
     .map((item) => item.trim())
     .filter(Boolean)
 
-  const result = await submitTaskUrls(urls)
+  const result = await submitTaskUrls(urls, taskDescription.value)
   const items = Array.isArray(result?.items) ? result.items : []
   const successCount = items.filter((item) => item.success).length
   const failedItems = items.filter((item) => !item.success)
+  const nonDuplicateFailedItems = failedItems.filter(
+    (item) => !String(item?.reason || '').includes('同一批次检测到重复')
+  )
+  const duplicateCount = failedItems.filter((item) =>
+    String(item?.reason || '').includes('同一批次检测到重复')
+  ).length
 
   if (successCount > 0) {
     message.success(`已提交 ${successCount} 条 URL 任务`)
-    if (failedItems.length > 0) {
-      const firstReason = failedItems[0]?.reason || '提交失败'
-      message.warning(`另有 ${failedItems.length} 条 URL 失败：${firstReason}`)
+    if (duplicateCount > 0) {
+      message.info(`已自动忽略 ${duplicateCount} 条批次内重复 URL`)
+    }
+    if (nonDuplicateFailedItems.length > 0) {
+      const firstReason = nonDuplicateFailedItems[0]?.reason || '提交失败'
+      message.warning(`另有 ${nonDuplicateFailedItems.length} 条 URL 失败：${firstReason}`)
     }
     return true
   }
@@ -148,6 +168,18 @@ async function handleSubmit() {
     @ok="handleSubmit"
     @cancel="handleCancel"
   >
+    <a-form layout="vertical" style="margin-bottom: 12px">
+      <a-form-item label="任务描述">
+        <a-textarea
+          v-model:value="taskDescription"
+          :maxlength="255"
+          :auto-size="{ minRows: 2, maxRows: 4 }"
+          placeholder="请输入本次任务批次描述（可选）"
+          show-count
+        />
+      </a-form-item>
+    </a-form>
+
     <a-tabs v-model:activeKey="activeTab">
       <a-tab-pane key="apk" tab="APK 批量上传">
         <a-upload-dragger

@@ -22,7 +22,6 @@ from repositories.task_repo import (
     get_dynamic_results,
     get_static_result,
     get_task_by_id,
-    get_task_by_md5,
     get_traffic_logs_by_dynamic_result_ids,
     get_traffic_logs_by_seqs,
     list_dynamic_results,
@@ -126,14 +125,26 @@ def _dispatch_download(task_id: str, url: str) -> None:
         logger.warning("dispatch download task failed for task_id=%s: %s", task_id, exc)
 
 
-def create_upload_tasks(files: list[UploadFile], user_id: str) -> list[dict[str, Any]]:
+def _normalize_task_description(task_description: str | None) -> str:
+    normalized = (task_description or "").strip()
+    return normalized[:255]
+
+
+def create_upload_tasks(
+    files: list[UploadFile],
+    user_id: str,
+    task_description: str | None = None,
+) -> tuple[str, list[dict[str, Any]]]:
     if not files:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="至少上传一个文件",
         )
 
+    batch_id = str(uuid4())
+    normalized_description = _normalize_task_description(task_description)
     results: list[dict[str, Any]] = []
+    seen_file_md5: set[str] = set()
 
     for upload in files:
         temp_path = ""
@@ -151,23 +162,24 @@ def create_upload_tasks(files: list[UploadFile], user_id: str) -> list[dict[str,
                 )
                 continue
 
-            existed = get_task_by_md5(file_md5)
-            if existed:
+            if file_md5 in seen_file_md5:
                 results.append(
                     {
                         "filename": filename,
                         "success": False,
-                        "reason": "检测到重复样本",
-                        "duplicate_task_id": existed["id"],
+                        "reason": "同一批次检测到重复APK，已自动忽略",
                         "md5": file_md5,
                     }
                 )
                 continue
+            seen_file_md5.add(file_md5)
 
             task_id = str(uuid4())
             create_task(
                 {
                     "id": task_id,
+                    "batch_id": batch_id,
+                    "task_description": normalized_description or None,
                     "source_type": "apk_upload",
                     "source_name": filename,
                     "user_id": user_id,
@@ -219,11 +231,19 @@ def create_upload_tasks(files: list[UploadFile], user_id: str) -> list[dict[str,
             if temp_path and os.path.exists(temp_path):
                 os.remove(temp_path)
 
-    return results
+    return batch_id, results
 
 
-def create_url_tasks(urls: list[str], user_id: str) -> list[dict[str, Any]]:
+def create_url_tasks(
+    urls: list[str],
+    user_id: str,
+    task_description: str | None = None,
+) -> tuple[str, list[dict[str, Any]]]:
+    batch_id = str(uuid4())
+    normalized_description = _normalize_task_description(task_description)
     results: list[dict[str, Any]] = []
+    seen_urls: set[str] = set()
+
     for url in urls:
         source = url.strip()
         if not _is_valid_url(source):
@@ -236,10 +256,23 @@ def create_url_tasks(urls: list[str], user_id: str) -> list[dict[str, Any]]:
             )
             continue
 
+        if source in seen_urls:
+            results.append(
+                {
+                    "url": source,
+                    "success": False,
+                    "reason": "同一批次检测到重复URL，已自动忽略",
+                }
+            )
+            continue
+        seen_urls.add(source)
+
         task_id = str(uuid4())
         create_task(
             {
                 "id": task_id,
+                "batch_id": batch_id,
+                "task_description": normalized_description or None,
                 "source_type": "url_download",
                 "source_name": source,
                 "user_id": user_id,
@@ -255,7 +288,7 @@ def create_url_tasks(urls: list[str], user_id: str) -> list[dict[str, Any]]:
                 "status": "downloading",
             }
         )
-    return results
+    return batch_id, results
 
 
 def get_task_list(
@@ -269,6 +302,7 @@ def get_task_list(
     normalized_filters = {
         "md5": filters.get("md5"),
         "name": filters.get("name"),
+        "task_description": filters.get("task_description"),
         "package": filters.get("package"),
         "status": filters.get("status"),
         "start": filters.get("start"),

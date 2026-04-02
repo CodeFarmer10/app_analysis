@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 
 class UrlSubmitRequest(BaseModel):
     urls: list[str] = Field(..., min_length=1, max_length=100)
+    task_description: str = Field(default="", max_length=255)
 
 
 class TaskStatusResponse(BaseModel):
@@ -16,6 +17,8 @@ class TaskStatusResponse(BaseModel):
 
 class TaskListItem(BaseModel):
     id: str
+    batch_id: str | None = None
+    task_description: str | None = None
     source_type: str
     source_name: str
     app_name: str | None = None

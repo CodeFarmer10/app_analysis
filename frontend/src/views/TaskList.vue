@@ -18,6 +18,7 @@ const pollingActive = ref(false)
 const searchForm = reactive({
   md5: '',
   name: '',
+  task_description: '',
   package: '',
   status: '',
   timeRange: [],
@@ -38,8 +39,8 @@ const TABLE_COLUMNS = [
   { title: '序号', key: 'index', width: 70, fixed: 'left' },
   { title: '图标', key: 'icon', width: 70 },
   { title: 'APP名称/包名', key: 'app', width: 170 },
-  { title: '来源类型', key: 'source_type', dataIndex: 'source_type', width: 100 },
   { title: '来源', key: 'source', width: 180 },
+  { title: '任务描述', key: 'task_description', dataIndex: 'task_description', width: 220 },
   { title: '文件MD5', key: 'file_md5', dataIndex: 'file_md5', width: 180 },
   { title: '状态', key: 'status', dataIndex: 'status', width: 140 },
   { title: '提交时间', key: 'created_at', dataIndex: 'created_at', width: 160 },
@@ -82,16 +83,6 @@ function getSourceText(record) {
   return record.source_name || '--'
 }
 
-function getSourceTypeMeta(sourceType) {
-  if (sourceType === 'apk_upload') {
-    return { text: 'APK', color: 'blue' }
-  }
-  if (sourceType === 'url_download') {
-    return { text: 'URL', color: 'purple' }
-  }
-  return { text: sourceType || '--', color: 'default' }
-}
-
 function buildFilterPayload() {
   let start = ''
   let end = ''
@@ -104,6 +95,7 @@ function buildFilterPayload() {
   return {
     md5: searchForm.md5.trim(),
     name: searchForm.name.trim(),
+    task_description: searchForm.task_description.trim(),
     package: searchForm.package.trim(),
     status: searchForm.status,
     start,
@@ -138,6 +130,7 @@ async function handleSearch() {
 async function handleReset() {
   searchForm.md5 = ''
   searchForm.name = ''
+  searchForm.task_description = ''
   searchForm.package = ''
   searchForm.status = ''
   searchForm.timeRange = []
@@ -145,6 +138,7 @@ async function handleReset() {
   taskStore.setFilters({
     md5: '',
     name: '',
+    task_description: '',
     package: '',
     status: '',
     start: '',
@@ -227,6 +221,13 @@ onBeforeUnmount(() => {
           <a-form-item label="名称" class="search-item">
             <a-input v-model:value="searchForm.name" placeholder="输入 APP 名称" allow-clear />
           </a-form-item>
+          <a-form-item label="任务描述" class="search-item">
+            <a-input
+              v-model:value="searchForm.task_description"
+              placeholder="输入任务描述"
+              allow-clear
+            />
+          </a-form-item>
           <a-form-item label="包名" class="search-item">
             <a-input v-model:value="searchForm.package" placeholder="输入包名" allow-clear />
           </a-form-item>
@@ -270,7 +271,7 @@ onBeforeUnmount(() => {
         :data-source="taskStore.tasks"
         :loading="taskStore.loading"
         :pagination="pagination"
-        :scroll="{ x: 1410 }"
+        :scroll="{ x: 1540 }"
         @change="handleTableChange"
       >
         <template #bodyCell="{ column, record, index }">
@@ -303,10 +304,10 @@ onBeforeUnmount(() => {
             </a-tooltip>
           </template>
 
-          <template v-else-if="column.key === 'source_type'">
-            <a-tag :color="getSourceTypeMeta(record.source_type).color">
-              {{ getSourceTypeMeta(record.source_type).text }}
-            </a-tag>
+          <template v-else-if="column.key === 'task_description'">
+            <a-tooltip :title="record.task_description || '--'">
+              <div class="desc-text">{{ record.task_description || '--' }}</div>
+            </a-tooltip>
           </template>
 
           <template v-else-if="column.key === 'file_md5'">
@@ -371,7 +372,7 @@ onBeforeUnmount(() => {
 
 .search-row-top {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 24px;
 }
 
@@ -420,6 +421,7 @@ onBeforeUnmount(() => {
 
 @media (max-width: 1200px) {
   .search-row-top {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 16px;
   }
 
@@ -504,6 +506,13 @@ onBeforeUnmount(() => {
 
 .source-text {
   width: 170px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.desc-text {
+  width: 210px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

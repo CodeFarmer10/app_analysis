@@ -11,6 +11,7 @@ export const useTaskStore = defineStore('task', {
     filters: {
       md5: '',
       name: '',
+      task_description: '',
       package: '',
       status: '',
       start: '',
@@ -32,6 +33,7 @@ export const useTaskStore = defineStore('task', {
           size: this.size,
           md5: this.filters.md5 || undefined,
           name: this.filters.name || undefined,
+          task_description: this.filters.task_description || undefined,
           package: this.filters.package || undefined,
           status: this.filters.status || undefined,
           start: this.filters.start || undefined,
