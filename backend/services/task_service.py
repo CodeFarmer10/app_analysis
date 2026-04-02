@@ -37,6 +37,7 @@ from workers.static_analysis import analyze_apk
 logger = logging.getLogger(__name__)
 
 MAX_APK_SIZE = 500 * 1024 * 1024
+TASK_PRIORITY_HIGHEST = 100
 STATIC_READY_STATUSES = {"waiting_device", "dynamic_tracing", "dynamic_failed", "completed"}
 DYNAMIC_READY_STATUSES = {"dynamic_tracing", "dynamic_failed", "completed"}
 DOWNLOAD_FIELD_MAP = {
@@ -180,6 +181,7 @@ def create_upload_tasks(
                     "id": task_id,
                     "batch_id": batch_id,
                     "task_description": normalized_description or None,
+                    "priority": TASK_PRIORITY_HIGHEST,
                     "source_type": "apk_upload",
                     "source_name": filename,
                     "user_id": user_id,
@@ -273,6 +275,7 @@ def create_url_tasks(
                 "id": task_id,
                 "batch_id": batch_id,
                 "task_description": normalized_description or None,
+                "priority": TASK_PRIORITY_HIGHEST,
                 "source_type": "url_download",
                 "source_name": source,
                 "user_id": user_id,

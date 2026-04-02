@@ -12,6 +12,7 @@ def create_task(data: dict[str, Any]) -> str:
             id,
             batch_id,
             task_description,
+            priority,
             source_type,
             source_name,
             user_id,
@@ -22,7 +23,7 @@ def create_task(data: dict[str, Any]) -> str:
             error_message,
             device_id
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     """
     execute(
         sql,
@@ -30,6 +31,7 @@ def create_task(data: dict[str, Any]) -> str:
             data["id"],
             data.get("batch_id"),
             data.get("task_description"),
+            int(data.get("priority", 100)),
             data["source_type"],
             data["source_name"],
             data.get("user_id"),
@@ -50,6 +52,7 @@ def get_task_by_id(task_id: str) -> dict | None:
             id,
             batch_id,
             task_description,
+            priority,
             source_type,
             source_name,
             user_id,
@@ -77,6 +80,7 @@ def get_task_by_md5(md5: str) -> dict | None:
             id,
             batch_id,
             task_description,
+            priority,
             source_type,
             source_name,
             user_id,
@@ -177,6 +181,7 @@ def list_tasks(filters: dict[str, Any], page: int, size: int) -> tuple[list[dict
             t.id,
             t.batch_id,
             t.task_description,
+            t.priority,
             t.source_type,
             t.source_name,
             sr.app_name,
@@ -193,7 +198,7 @@ def list_tasks(filters: dict[str, Any], page: int, size: int) -> tuple[list[dict
         FROM tasks t
         LEFT JOIN static_results sr ON sr.task_id = t.id
         WHERE {where_sql}
-        ORDER BY t.created_at DESC
+        ORDER BY t.priority DESC, t.created_at DESC
         LIMIT %s OFFSET %s
     """
     items = fetch_all(list_sql, tuple([*params, size, offset]))

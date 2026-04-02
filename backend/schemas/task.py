@@ -19,6 +19,7 @@ class TaskListItem(BaseModel):
     id: str
     batch_id: str | None = None
     task_description: str | None = None
+    priority: int = 100
     source_type: str
     source_name: str
     app_name: str | None = None
