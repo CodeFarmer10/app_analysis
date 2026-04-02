@@ -31,6 +31,7 @@ class TaskListItem(BaseModel):
     can_download_report: bool = False
     can_download_pcap: bool = False
     device_id: str | None = None
+    device_serial: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 

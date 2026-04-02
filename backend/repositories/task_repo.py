@@ -193,10 +193,12 @@ def list_tasks(filters: dict[str, Any], page: int, size: int) -> tuple[list[dict
             t.report_path,
             t.pcap_path,
             t.device_id,
+            d.serial AS device_serial,
             t.created_at,
             t.updated_at
         FROM tasks t
         LEFT JOIN static_results sr ON sr.task_id = t.id
+        LEFT JOIN devices d ON d.id = t.device_id
         WHERE {where_sql}
         ORDER BY t.priority DESC, t.created_at DESC
         LIMIT %s OFFSET %s

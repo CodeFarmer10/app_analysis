@@ -325,7 +325,7 @@ onBeforeUnmount(() => {
           </template>
 
           <template v-else-if="column.key === 'device_id'">
-            {{ record.device_id || '--' }}
+            {{ record.device_serial || record.device_id || '--' }}
           </template>
 
           <template v-else-if="column.key === 'actions'">
