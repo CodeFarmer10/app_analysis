@@ -10,11 +10,17 @@ const authStore = useAuthStore()
 
 const logoutLoading = ref(false)
 
-const menuItems = [
-  { key: '/dashboard', label: '主页' },
-  { key: '/tasks', label: '任务管理' },
-  { key: '/devices', label: '设备管理' },
-]
+const menuItems = computed(() => {
+  const items = [
+    { key: '/dashboard', label: '主页' },
+    { key: '/tasks', label: '任务管理' },
+    { key: '/devices', label: '设备管理' },
+  ]
+  if (authStore.role === 'admin') {
+    items.push({ key: '/users', label: '用户管理' })
+  }
+  return items
+})
 
 const selectedMenuKey = computed(() => {
   if (route.path.startsWith('/tasks')) {
@@ -22,6 +28,9 @@ const selectedMenuKey = computed(() => {
   }
   if (route.path.startsWith('/devices')) {
     return '/devices'
+  }
+  if (route.path.startsWith('/users')) {
+    return '/users'
   }
   return '/dashboard'
 })

@@ -19,7 +19,7 @@ async def login(payload: LoginRequest):
         )
 
     token = create_access_token(user["id"])
-    data = LoginResponse(token=token, username=user["username"]).model_dump()
+    data = LoginResponse(token=token, username=user["username"], role=user["role"]).model_dump()
     return success_response(data)
 
 

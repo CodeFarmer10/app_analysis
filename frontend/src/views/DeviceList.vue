@@ -49,7 +49,7 @@ const statusMetaMap = {
 
 const { start: startPolling, stop: stopPolling } = usePolling(async () => {
   await fetchDevices()
-}, 30000)
+}, 5 * 60 * 1000)
 
 function getStatusMeta(status) {
   return statusMetaMap[status] || { status: 'default', text: status || '未知' }

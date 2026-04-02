@@ -42,6 +42,12 @@ const routes = [
         component: () => import('../views/DeviceList.vue'),
         meta: { title: '设备管理' },
       },
+      {
+        path: 'users',
+        name: 'users',
+        component: () => import('../views/UserList.vue'),
+        meta: { title: '用户管理', requiresAdmin: true },
+      },
     ],
   },
   {
@@ -66,6 +72,10 @@ router.beforeEach((to) => {
       path: '/login',
       query: { redirect: to.fullPath },
     }
+  }
+
+  if (to.meta.requiresAdmin && authStore.role !== 'admin') {
+    return '/dashboard'
   }
 
   if (to.path === '/login' && hasToken) {
