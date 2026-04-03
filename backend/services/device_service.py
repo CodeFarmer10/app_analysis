@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import subprocess
 from datetime import datetime
 from uuid import uuid4
@@ -18,6 +19,9 @@ from repositories.device_repo import (
 
 ADB_COMMAND_TIMEOUT_SECONDS = 10
 ADB_HEARTBEAT_TIMEOUT_SECONDS = 3
+HEARTBEAT_REFRESH_INTERVAL_SECONDS = 5 * 60
+
+logger = logging.getLogger(__name__)
 
 
 def _run_command(command: list[str], timeout: int = ADB_COMMAND_TIMEOUT_SECONDS) -> str:
@@ -168,9 +172,21 @@ def _refresh_device_runtime(device: dict) -> dict:
     return device
 
 
-def list_device_items() -> list[dict]:
+def refresh_all_device_heartbeats() -> None:
     devices = list_devices()
-    return [_refresh_device_runtime(item) for item in devices]
+    for device in devices:
+        try:
+            _refresh_device_runtime(device)
+        except Exception as exc:  # pragma: no cover - runtime dependent
+            logger.warning(
+                "refresh device heartbeat failed serial=%s err=%s",
+                str(device.get("serial") or "").strip() or "unknown",
+                exc,
+            )
+
+
+def list_device_items() -> list[dict]:
+    return list_devices()
 
 
 def get_device_detail(device_id: str) -> dict:
@@ -180,7 +196,7 @@ def get_device_detail(device_id: str) -> dict:
             status_code=status.HTTP_404_NOT_FOUND,
             detail="设备不存在",
         )
-    return _refresh_device_runtime(device)
+    return device
 
 
 def create_new_device(serial: str, name: str | None = None) -> dict:

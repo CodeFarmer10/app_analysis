@@ -482,8 +482,9 @@ onBeforeUnmount(() => {
 }
 
 .task-icon {
-  background: #e8f0ff;
-  color: #2f54eb;
+  background: #e3eefb;
+  color: #1d548a;
+  border: 1px solid #c2d6eb;
   font-weight: 600;
 }
 
@@ -504,11 +505,11 @@ onBeforeUnmount(() => {
 }
 
 .app-name {
-  color: #1f2d3d;
+  color: #1e3249;
 }
 
 .app-package {
-  color: #7a869a;
+  color: #667a90;
   font-size: 12px;
 }
 

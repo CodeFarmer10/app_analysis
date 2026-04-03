@@ -31,6 +31,13 @@ const canSubmit = computed(() => {
   return urls.length > 0
 })
 
+const okButtonProps = computed(() => ({
+  disabled: !canSubmit.value,
+  style: {
+    color: '#ffffff',
+  },
+}))
+
 function closeModal() {
   emit('update:open', false)
 }
@@ -162,7 +169,7 @@ async function handleSubmit() {
     title="上传/提交分析任务"
     width="680px"
     :confirm-loading="submitting"
-    :ok-button-props="{ disabled: !canSubmit }"
+    :ok-button-props="okButtonProps"
     ok-text="提交"
     cancel-text="取消"
     @ok="handleSubmit"

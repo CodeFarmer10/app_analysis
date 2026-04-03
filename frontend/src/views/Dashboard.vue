@@ -33,6 +33,7 @@ const trendChartOption = computed(() => {
   const completedSeries = items.map((item) => Number(item?.completed || 0))
 
   return {
+    color: ['#1d5f9a', '#2d8a6a'],
     tooltip: { trigger: 'axis' },
     legend: {
       data: ['提交数', '完成数'],
@@ -144,26 +145,35 @@ onBeforeUnmount(() => {
 
 .stats-panel {
   padding: 12px;
-  border-radius: 12px;
-  border: 1px solid #e8eef8;
-  background: linear-gradient(180deg, #f8fbff 0%, #f5f8ff 100%);
+  border-radius: 8px;
+  border: 1px solid #d8e3ee;
+  background: linear-gradient(180deg, #f8fbfe 0%, #f2f7fc 100%);
 }
 
 .stat-card,
 .trend-card {
   border-radius: 8px;
-  border: 1px solid #e9eef7;
-  background: #fff;
-  box-shadow: 0 6px 18px rgba(38, 58, 99, 0.05);
 }
 
 .trend-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
 }
 
 .trend-chart {
   height: 360px;
+}
+
+@media (max-width: 768px) {
+  .trend-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .trend-chart {
+    height: 280px;
+  }
 }
 </style>

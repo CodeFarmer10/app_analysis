@@ -279,5 +279,13 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 10px;
+}
+
+@media (max-width: 768px) {
+  .table-header {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
 }
 </style>

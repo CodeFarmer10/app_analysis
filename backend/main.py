@@ -1,4 +1,6 @@
+import asyncio
 import logging
+from contextlib import suppress
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
@@ -12,6 +14,10 @@ from api.tasks import router as tasks_router
 from api.users import router as users_router
 from core.config import settings
 from core.response import success_response
+from services.device_service import (
+    HEARTBEAT_REFRESH_INTERVAL_SECONDS,
+    refresh_all_device_heartbeats,
+)
 from services.storage_service import storage_service
 
 
@@ -30,6 +36,15 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+async def _device_heartbeat_loop():
+    while True:
+        try:
+            await asyncio.to_thread(refresh_all_device_heartbeats)
+        except Exception as exc:  # pragma: no cover - runtime dependent
+            logger.warning("device heartbeat loop error: %s", exc)
+        await asyncio.sleep(HEARTBEAT_REFRESH_INTERVAL_SECONDS)
 
 
 @app.exception_handler(HTTPException)
@@ -63,6 +78,16 @@ async def startup_event():
         storage_service.ensure_buckets()
     except Exception as exc:
         logger.warning("Storage bootstrap skipped: %s", exc)
+    app.state.device_heartbeat_task = asyncio.create_task(_device_heartbeat_loop())
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    heartbeat_task = getattr(app.state, "device_heartbeat_task", None)
+    if heartbeat_task:
+        heartbeat_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await heartbeat_task
 
 
 @app.get("/health")

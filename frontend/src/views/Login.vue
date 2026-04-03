@@ -37,8 +37,8 @@ async function handleSubmit(values) {
 <template>
   <div class="login-page">
     <a-card class="login-card" :bordered="false">
-      <h2 class="title">诈骗APP分析系统</h2>
-      <p class="subtitle">请输入账号密码登录系统</p>
+      <h2 class="title">系统登录</h2>
+      <p class="subtitle">请输入账号密码</p>
 
       <a-alert
         v-if="errorText"
@@ -75,34 +75,50 @@ async function handleSubmit(values) {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 24px;
+  padding: 28px;
   background:
-    radial-gradient(circle at 20% 20%, rgba(111, 145, 255, 0.14) 0%, rgba(111, 145, 255, 0) 45%),
-    radial-gradient(circle at 80% 80%, rgba(76, 175, 255, 0.12) 0%, rgba(76, 175, 255, 0) 42%),
-    linear-gradient(135deg, #eef3ff 0%, #f6f9ff 50%, #f8fafc 100%);
+    radial-gradient(circle at 18% 22%, rgba(40, 88, 141, 0.2) 0%, rgba(40, 88, 141, 0) 46%),
+    radial-gradient(circle at 84% 82%, rgba(44, 102, 164, 0.12) 0%, rgba(44, 102, 164, 0) 45%),
+    linear-gradient(135deg, #e8eff7 0%, #edf3f9 45%, #f2f6fb 100%);
 }
 
 .login-card {
-  width: 420px;
-  border-radius: 12px;
-  border: 1px solid #e6ecf7;
-  background: rgba(255, 255, 255, 0.95);
-  box-shadow: 0 14px 36px rgba(31, 45, 61, 0.1);
+  width: min(440px, 100%);
+  border-radius: 10px;
+  border: 1px solid #cedbeb;
+  background: #ffffff;
+  box-shadow: 0 12px 30px rgba(16, 44, 78, 0.1);
+  animation: panel-in 260ms ease-out;
 }
 
 .title {
-  margin: 0 0 8px;
-  text-align: center;
-  color: #1f2d3d;
+  margin: 0 0 6px;
+  color: #1c3856;
 }
 
 .subtitle {
   margin: 0 0 20px;
-  text-align: center;
-  color: #6b7785;
+  color: #667d95;
 }
 
 .error-alert {
   margin-bottom: 16px;
+}
+
+@keyframes panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 960px) {
+  .login-page {
+    padding: 18px;
+  }
 }
 </style>

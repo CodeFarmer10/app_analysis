@@ -36,11 +36,23 @@ const stepTrafficColumns = [
   { title: '源IP', dataIndex: 'src_ip', key: 'src_ip', width: 140 },
   { title: '源端口', dataIndex: 'src_port', key: 'src_port', width: 90 },
   { title: '目的IP', dataIndex: 'dst_ip', key: 'dst_ip', width: 140 },
-  { title: '目的端口', dataIndex: 'dst_port', key: 'dst_port', width: 90 },
+  {
+    title: '目的端口',
+    dataIndex: 'dst_port',
+    key: 'dst_port',
+    width: 100,
+    customHeaderCell: () => ({ class: 'nowrap-header-cell' }),
+  },
   { title: '协议', dataIndex: 'protocol', key: 'protocol', width: 100 },
   { title: '域名', dataIndex: 'domain', key: 'domain', width: 180 },
   { title: 'URL', dataIndex: 'url', key: 'url', width: 300 },
-  { title: '解析IP', dataIndex: 'resolved_ip', key: 'resolved_ip', width: 140 },
+  {
+    title: '解析IP',
+    dataIndex: 'resolved_ip',
+    key: 'resolved_ip',
+    width: 150,
+    customHeaderCell: () => ({ class: 'nowrap-header-cell' }),
+  },
 ]
 
 const dynamicPagination = computed(() => ({
@@ -130,8 +142,8 @@ function handleDynamicTableChange(pager) {
                 :scroll="{ x: 1180 }"
               >
                 <template #bodyCell="{ column, text }">
-                  <template v-if="column.key === 'url'">
-                    <a-typography-text :ellipsis="{ tooltip: text || '--' }">
+                  <template v-if="column.key === 'domain' || column.key === 'url'">
+                    <a-typography-text class="ellipsis-text" :ellipsis="{ tooltip: text || '--' }">
                       {{ text || '--' }}
                     </a-typography-text>
                   </template>
@@ -192,6 +204,18 @@ function handleDynamicTableChange(pager) {
   flex-direction: column;
   gap: 0;
   min-width: 0;
+}
+
+.step-traffic-wrap :deep(.nowrap-header-cell) {
+  white-space: nowrap;
+}
+
+.ellipsis-text {
+  display: inline-block;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 @media (max-width: 1200px) {

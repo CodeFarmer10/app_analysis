@@ -4,14 +4,177 @@
   box-sizing: border-box;
 }
 
+:root {
+  --gov-bg: #eef3f9;
+  --gov-surface: #ffffff;
+  --gov-surface-muted: #f6f9fc;
+  --gov-border: #d7e1ee;
+  --gov-border-strong: #c4d2e3;
+  --gov-primary: #0f4c8a;
+  --gov-primary-hover: #0d4278;
+  --gov-primary-active: #0a365f;
+  --gov-success: #2a8a63;
+  --gov-warning: #b56b1f;
+  --gov-danger: #b2393f;
+  --gov-text: #1f2f43;
+  --gov-text-secondary: #53657b;
+  --gov-shadow: 0 8px 18px rgba(15, 45, 82, 0.08);
+}
+
+html,
+body {
+  min-height: 100%;
+}
+
 body {
   margin: 0;
   font-family:
-    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans',
-    'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
-  background: #f5f7fa;
+    'Source Han Sans SC', 'Noto Sans SC', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei',
+    sans-serif;
+  color: var(--gov-text);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.85), rgba(255, 255, 255, 0.85)),
+    repeating-linear-gradient(
+      90deg,
+      rgba(130, 154, 183, 0.08) 0,
+      rgba(130, 154, 183, 0.08) 1px,
+      transparent 1px,
+      transparent 30px
+    ),
+    var(--gov-bg);
+  background-attachment: fixed;
 }
 
 #app {
   min-height: 100vh;
+}
+
+a {
+  color: var(--gov-primary);
+}
+
+.ant-card {
+  border: 1px solid var(--gov-border);
+  border-radius: 8px;
+  box-shadow: var(--gov-shadow);
+}
+
+.ant-card .ant-card-head {
+  min-height: 52px;
+  border-bottom: 1px solid var(--gov-border);
+  background: linear-gradient(180deg, #f9fbfe 0%, var(--gov-surface-muted) 100%);
+}
+
+.ant-card .ant-card-head-title {
+  color: var(--gov-text);
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+
+.ant-table-wrapper .ant-table {
+  border: 1px solid var(--gov-border);
+  border-radius: 8px;
+}
+
+.ant-table-wrapper .ant-table-thead > tr > th {
+  background: #f0f5fb;
+  color: #30445d;
+  border-bottom: 1px solid var(--gov-border);
+  font-weight: 600;
+}
+
+.ant-table-wrapper .ant-table-tbody > tr > td {
+  border-bottom: 1px solid #e6edf6;
+}
+
+.ant-table-wrapper .ant-table-tbody > tr.ant-table-row:hover > td {
+  background: #f6faff;
+}
+
+.ant-btn {
+  border-radius: 6px;
+  font-weight: 500;
+}
+
+.ant-btn-primary {
+  border-color: var(--gov-primary);
+  background: linear-gradient(180deg, #1561aa 0%, var(--gov-primary) 100%);
+}
+
+.ant-btn-primary:hover,
+.ant-btn-primary:focus {
+  border-color: var(--gov-primary-hover);
+  background: linear-gradient(180deg, #135898 0%, var(--gov-primary-hover) 100%);
+}
+
+.ant-btn-primary:active {
+  border-color: var(--gov-primary-active);
+  background: var(--gov-primary-active);
+}
+
+.ant-input,
+.ant-input-affix-wrapper,
+.ant-picker,
+.ant-select-selector,
+.ant-input-number,
+.ant-input-number-affix-wrapper {
+  border-color: var(--gov-border-strong) !important;
+  border-radius: 6px !important;
+}
+
+.ant-input:focus,
+.ant-input-affix-wrapper-focused,
+.ant-picker-focused,
+.ant-select-focused .ant-select-selector,
+.ant-input-number-focused,
+.ant-input-number-affix-wrapper-focused {
+  border-color: #2c67a5 !important;
+  box-shadow: 0 0 0 2px rgba(44, 103, 165, 0.18) !important;
+}
+
+.ant-form-item .ant-form-item-label > label {
+  color: var(--gov-text-secondary);
+  font-weight: 500;
+}
+
+.ant-tag {
+  border-radius: 999px;
+  border: 1px solid transparent;
+}
+
+.ant-tag-blue {
+  color: #114f89;
+  background: #e8f1fb;
+  border-color: #c7dcf3;
+}
+
+.ant-tag-green {
+  color: #206c50;
+  background: #e8f7f0;
+  border-color: #bde8d3;
+}
+
+.ant-tag-red {
+  color: #a32d33;
+  background: #fdecee;
+  border-color: #f5c8cd;
+}
+
+.section-card,
+.search-card,
+.trend-card,
+.stat-card,
+.login-card {
+  animation: panel-enter 220ms ease-out;
+}
+
+@keyframes panel-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }

@@ -258,7 +258,12 @@ onBeforeUnmount(() => {
       </template>
 
       <a-spin :spinning="taskLoading">
-        <a-descriptions v-if="task" :column="3" size="small" class="task-base-desc">
+        <a-descriptions
+          v-if="task"
+          :column="{ xs: 1, sm: 2, md: 3 }"
+          size="small"
+          class="task-base-desc"
+        >
           <a-descriptions-item label="任务ID">
             <span class="desc-value">{{ task.id }}</span>
           </a-descriptions-item>
@@ -373,6 +378,7 @@ onBeforeUnmount(() => {
 
 .task-base-desc :deep(.ant-descriptions-item-label) {
   white-space: nowrap;
+  color: #4c627a;
   padding-right: 1ch;
   padding-bottom: 14px;
 }
@@ -389,9 +395,21 @@ onBeforeUnmount(() => {
 .desc-value {
   display: inline-block;
   width: 100%;
+  color: #1f334a;
   vertical-align: middle;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+@media (max-width: 768px) {
+  .header-row {
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .task-base-desc :deep(.ant-descriptions-item-content) {
+    padding-right: 0;
+  }
 }
 </style>
