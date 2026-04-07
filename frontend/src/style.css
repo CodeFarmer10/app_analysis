@@ -5,20 +5,20 @@
 }
 
 :root {
-  --gov-bg: #eef3f9;
+  --gov-bg: #ecf3f8;
   --gov-surface: #ffffff;
-  --gov-surface-muted: #f6f9fc;
-  --gov-border: #d7e1ee;
-  --gov-border-strong: #c4d2e3;
-  --gov-primary: #0f4c8a;
-  --gov-primary-hover: #0d4278;
-  --gov-primary-active: #0a365f;
-  --gov-success: #2a8a63;
-  --gov-warning: #b56b1f;
-  --gov-danger: #b2393f;
-  --gov-text: #1f2f43;
-  --gov-text-secondary: #53657b;
-  --gov-shadow: 0 8px 18px rgba(15, 45, 82, 0.08);
+  --gov-surface-muted: #f5f9fc;
+  --gov-border: #d1e1ed;
+  --gov-border-strong: #b8cfdf;
+  --gov-primary: #0f6b8f;
+  --gov-primary-hover: #0d5c7c;
+  --gov-primary-active: #0a4b66;
+  --gov-success: #25835f;
+  --gov-warning: #b06d24;
+  --gov-danger: #b33a47;
+  --gov-text: #173449;
+  --gov-text-secondary: #4d667a;
+  --gov-shadow: 0 8px 20px rgba(18, 58, 82, 0.08);
 }
 
 html,
@@ -33,13 +33,14 @@ body {
     sans-serif;
   color: var(--gov-text);
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.85), rgba(255, 255, 255, 0.85)),
+    radial-gradient(circle at 86% 12%, rgba(74, 149, 182, 0.12), rgba(74, 149, 182, 0) 42%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(255, 255, 255, 0.88)),
     repeating-linear-gradient(
       90deg,
-      rgba(130, 154, 183, 0.08) 0,
-      rgba(130, 154, 183, 0.08) 1px,
+      rgba(103, 148, 178, 0.08) 0,
+      rgba(103, 148, 178, 0.08) 1px,
       transparent 1px,
-      transparent 30px
+      transparent 34px
     ),
     var(--gov-bg);
   background-attachment: fixed;
@@ -55,14 +56,14 @@ a {
 
 .ant-card {
   border: 1px solid var(--gov-border);
-  border-radius: 8px;
+  border-radius: 10px;
   box-shadow: var(--gov-shadow);
 }
 
 .ant-card .ant-card-head {
   min-height: 52px;
   border-bottom: 1px solid var(--gov-border);
-  background: linear-gradient(180deg, #f9fbfe 0%, var(--gov-surface-muted) 100%);
+  background: linear-gradient(180deg, #fbfeff 0%, var(--gov-surface-muted) 100%);
 }
 
 .ant-card .ant-card-head-title {
@@ -73,12 +74,12 @@ a {
 
 .ant-table-wrapper .ant-table {
   border: 1px solid var(--gov-border);
-  border-radius: 8px;
+  border-radius: 10px;
 }
 
 .ant-table-wrapper .ant-table-thead > tr > th {
-  background: #f0f5fb;
-  color: #30445d;
+  background: #edf5fb;
+  color: #274860;
   border-bottom: 1px solid var(--gov-border);
   font-weight: 600;
 }
@@ -88,7 +89,7 @@ a {
 }
 
 .ant-table-wrapper .ant-table-tbody > tr.ant-table-row:hover > td {
-  background: #f6faff;
+  background: #f4fafd;
 }
 
 .ant-btn {
@@ -98,18 +99,21 @@ a {
 
 .ant-btn-primary {
   border-color: var(--gov-primary);
-  background: linear-gradient(180deg, #1561aa 0%, var(--gov-primary) 100%);
+  background: linear-gradient(180deg, #1580a9 0%, var(--gov-primary) 100%);
+  color: #ffffff;
 }
 
 .ant-btn-primary:hover,
 .ant-btn-primary:focus {
   border-color: var(--gov-primary-hover);
-  background: linear-gradient(180deg, #135898 0%, var(--gov-primary-hover) 100%);
+  background: linear-gradient(180deg, #147398 0%, var(--gov-primary-hover) 100%);
+  color: #ffffff;
 }
 
 .ant-btn-primary:active {
   border-color: var(--gov-primary-active);
   background: var(--gov-primary-active);
+  color: #ffffff;
 }
 
 .ant-input,
@@ -128,8 +132,8 @@ a {
 .ant-select-focused .ant-select-selector,
 .ant-input-number-focused,
 .ant-input-number-affix-wrapper-focused {
-  border-color: #2c67a5 !important;
-  box-shadow: 0 0 0 2px rgba(44, 103, 165, 0.18) !important;
+  border-color: #23769b !important;
+  box-shadow: 0 0 0 2px rgba(35, 118, 155, 0.18) !important;
 }
 
 .ant-form-item .ant-form-item-label > label {
@@ -143,21 +147,21 @@ a {
 }
 
 .ant-tag-blue {
-  color: #114f89;
-  background: #e8f1fb;
-  border-color: #c7dcf3;
+  color: #0f5f82;
+  background: #e6f3fa;
+  border-color: #c3e0ee;
 }
 
 .ant-tag-green {
-  color: #206c50;
-  background: #e8f7f0;
-  border-color: #bde8d3;
+  color: #1f664b;
+  background: #e8f6ee;
+  border-color: #bce4cf;
 }
 
 .ant-tag-red {
-  color: #a32d33;
-  background: #fdecee;
-  border-color: #f5c8cd;
+  color: #a3313c;
+  background: #fdecef;
+  border-color: #f2c8ce;
 }
 
 .section-card,

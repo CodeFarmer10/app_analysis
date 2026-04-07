@@ -77,28 +77,28 @@ async function handleSubmit(values) {
   justify-content: center;
   padding: 28px;
   background:
-    radial-gradient(circle at 18% 22%, rgba(40, 88, 141, 0.2) 0%, rgba(40, 88, 141, 0) 46%),
-    radial-gradient(circle at 84% 82%, rgba(44, 102, 164, 0.12) 0%, rgba(44, 102, 164, 0) 45%),
-    linear-gradient(135deg, #e8eff7 0%, #edf3f9 45%, #f2f6fb 100%);
+    radial-gradient(circle at 18% 24%, rgba(31, 110, 143, 0.2) 0%, rgba(31, 110, 143, 0) 44%),
+    radial-gradient(circle at 84% 82%, rgba(33, 133, 129, 0.14) 0%, rgba(33, 133, 129, 0) 45%),
+    linear-gradient(135deg, #e7f0f6 0%, #edf4f8 50%, #f3f8fb 100%);
 }
 
 .login-card {
   width: min(440px, 100%);
-  border-radius: 10px;
-  border: 1px solid #cedbeb;
+  border-radius: 12px;
+  border: 1px solid #cfe0ec;
   background: #ffffff;
-  box-shadow: 0 12px 30px rgba(16, 44, 78, 0.1);
+  box-shadow: 0 16px 34px rgba(15, 58, 85, 0.1);
   animation: panel-in 260ms ease-out;
 }
 
 .title {
   margin: 0 0 6px;
-  color: #1c3856;
+  color: #17435e;
 }
 
 .subtitle {
   margin: 0 0 20px;
-  color: #667d95;
+  color: #5a7489;
 }
 
 .error-alert {

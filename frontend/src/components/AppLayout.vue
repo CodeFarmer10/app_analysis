@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, h, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import { useAuthStore } from '../stores/auth'
@@ -17,14 +17,21 @@ const currentPageTitle = computed(() => {
   return '工作台'
 })
 
+function createMenuLabel(text, iconClass) {
+  return h('span', { class: 'menu-entry' }, [
+    h('span', { class: ['menu-icon', iconClass], 'aria-hidden': 'true' }),
+    h('span', { class: 'menu-text' }, text),
+  ])
+}
+
 const menuItems = computed(() => {
   const items = [
-    { key: '/dashboard', label: '主页' },
-    { key: '/tasks', label: '任务管理' },
-    { key: '/devices', label: '设备管理' },
+    { key: '/dashboard', label: createMenuLabel('主页', 'icon-dashboard') },
+    { key: '/tasks', label: createMenuLabel('任务管理', 'icon-task') },
+    { key: '/devices', label: createMenuLabel('设备管理', 'icon-device') },
   ]
   if (authStore.role === 'admin') {
-    items.push({ key: '/users', label: '用户管理' })
+    items.push({ key: '/users', label: createMenuLabel('用户管理', 'icon-user') })
   }
   return items
 })
@@ -103,9 +110,9 @@ async function handleLogout() {
 }
 
 .app-sider {
-  background: linear-gradient(180deg, #123f70 0%, #103760 55%, #0c2d4f 100%);
-  border-right: 1px solid #2c4f72;
-  box-shadow: inset -1px 0 0 rgba(118, 150, 184, 0.35);
+  background: linear-gradient(180deg, #0f344d 0%, #0d2d42 62%, #0a2334 100%);
+  border-right: 1px solid #1a4d6b;
+  box-shadow: inset -1px 0 0 rgba(93, 166, 206, 0.28);
 }
 
 .logo {
@@ -113,8 +120,8 @@ async function handleLogout() {
   align-items: center;
   height: 72px;
   padding: 0 14px;
-  border-bottom: 1px solid #2c4f72;
-  background: rgba(206, 225, 246, 0.14);
+  border-bottom: 1px solid #1a4d6b;
+  background: rgba(53, 117, 154, 0.2);
 }
 
 .logo-text {
@@ -122,10 +129,10 @@ async function handleLogout() {
 }
 
 .logo-title {
-  color: #edf5ff;
+  color: #f2fbff;
   font-size: 15px;
   font-weight: 600;
-  letter-spacing: 0.2px;
+  letter-spacing: 0.3px;
 }
 
 .app-header {
@@ -133,8 +140,8 @@ async function handleLogout() {
   justify-content: space-between;
   align-items: center;
   padding: 0 20px;
-  background: linear-gradient(180deg, #f8fbfe 0%, #f1f6fc 100%);
-  border-bottom: 1px solid #d9e4f0;
+  background: linear-gradient(180deg, #fbfdff 0%, #f3f8fc 100%);
+  border-bottom: 1px solid #d2e0ec;
 }
 
 .header-left {
@@ -143,7 +150,7 @@ async function handleLogout() {
 }
 
 .header-title {
-  color: #1d344f;
+  color: #18374e;
   font-size: 18px;
   font-weight: 600;
 }
@@ -159,7 +166,7 @@ async function handleLogout() {
 }
 
 .username {
-  color: #2f445d;
+  color: #35546b;
   font-weight: 500;
 }
 
@@ -168,10 +175,10 @@ async function handleLogout() {
 }
 
 .content-shell {
-  border: 1px solid #d9e4ef;
+  border: 1px solid #d2e1ec;
   border-radius: 10px;
   padding: 14px;
-  background: rgba(255, 255, 255, 0.74);
+  background: rgba(255, 255, 255, 0.8);
   backdrop-filter: blur(1px);
 }
 
@@ -189,17 +196,110 @@ async function handleLogout() {
 .app-sider :deep(.ant-menu-item) {
   margin: 6px 0;
   border-radius: 6px;
-  color: #e5effa;
+  color: #dcecf8;
 }
 
 .app-sider :deep(.ant-menu-item:hover) {
   color: #ffffff;
-  background: rgba(123, 164, 206, 0.28);
+  background: rgba(64, 145, 194, 0.3);
 }
 
 .app-sider :deep(.ant-menu-item-selected) {
-  background: rgba(140, 185, 230, 0.44);
+  background: rgba(86, 180, 230, 0.35);
   color: #ffffff;
+}
+
+.app-sider :deep(.ant-menu-title-content) {
+  width: 100%;
+}
+
+.app-sider :deep(.menu-entry) {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.app-sider :deep(.menu-icon) {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  border: 1px solid rgba(214, 239, 255, 0.58);
+  background: rgba(191, 227, 249, 0.22);
+  position: relative;
+  flex: 0 0 16px;
+}
+
+.app-sider :deep(.menu-icon::after) {
+  content: '';
+  position: absolute;
+  inset: 3px;
+  background: rgba(233, 248, 255, 0.86);
+  border-radius: 2px;
+}
+
+.app-sider :deep(.icon-dashboard::before),
+.app-sider :deep(.icon-task::before),
+.app-sider :deep(.icon-device::before),
+.app-sider :deep(.icon-user::before) {
+  content: '';
+  position: absolute;
+  z-index: 1;
+}
+
+.app-sider :deep(.icon-dashboard::before) {
+  width: 8px;
+  height: 8px;
+  left: 3px;
+  top: 3px;
+  border: 1px solid rgba(15, 63, 94, 0.9);
+  box-shadow:
+    6px 0 0 -1px rgba(15, 63, 94, 0.9),
+    0 6px 0 -1px rgba(15, 63, 94, 0.9),
+    6px 6px 0 -1px rgba(15, 63, 94, 0.9);
+}
+
+.app-sider :deep(.icon-task::before) {
+  width: 8px;
+  height: 10px;
+  left: 3px;
+  top: 2px;
+  border: 1px solid rgba(15, 63, 94, 0.95);
+  border-radius: 1px;
+  background:
+    linear-gradient(rgba(15, 63, 94, 0.9), rgba(15, 63, 94, 0.9)) 1px 2px / 6px 1px no-repeat,
+    linear-gradient(rgba(15, 63, 94, 0.9), rgba(15, 63, 94, 0.9)) 1px 5px / 5px 1px no-repeat,
+    linear-gradient(rgba(15, 63, 94, 0.9), rgba(15, 63, 94, 0.9)) 1px 8px / 4px 1px no-repeat;
+}
+
+.app-sider :deep(.icon-device::before) {
+  width: 8px;
+  height: 6px;
+  left: 3px;
+  top: 3px;
+  border: 1px solid rgba(15, 63, 94, 0.95);
+  border-radius: 1px;
+  box-shadow: 0 7px 0 -2px rgba(15, 63, 94, 0.95);
+}
+
+.app-sider :deep(.icon-user::before) {
+  width: 8px;
+  height: 8px;
+  left: 3px;
+  top: 3px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 50% 32%, rgba(15, 63, 94, 0.96) 2px, transparent 2px),
+    linear-gradient(
+      180deg,
+      transparent 45%,
+      rgba(15, 63, 94, 0.96) 45%,
+      rgba(15, 63, 94, 0.96) 100%
+    );
+}
+
+.app-sider :deep(.menu-text) {
+  font-weight: 500;
+  letter-spacing: 0.1px;
 }
 
 @media (max-width: 960px) {
