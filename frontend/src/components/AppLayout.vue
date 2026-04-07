@@ -9,6 +9,8 @@ const router = useRouter()
 const authStore = useAuthStore()
 
 const logoutLoading = ref(false)
+const collapsed = ref(false)
+const isMobile = ref(false)
 const roleText = computed(() => (authStore.role === 'admin' ? '管理员' : '普通用户'))
 const currentPageTitle = computed(() => {
   if (typeof route.meta?.title === 'string' && route.meta.title.trim()) {
@@ -52,7 +54,23 @@ const selectedMenuKey = computed(() => {
 async function handleMenuClick({ key }) {
   if (typeof key === 'string' && key !== route.path) {
     await router.push(key)
+    if (isMobile.value) {
+      collapsed.value = true
+    }
   }
+}
+
+function handleBreakpoint(broken) {
+  isMobile.value = Boolean(broken)
+  collapsed.value = Boolean(broken)
+}
+
+function handleCollapse(nextCollapsed) {
+  collapsed.value = Boolean(nextCollapsed)
+}
+
+function toggleCollapsed() {
+  collapsed.value = !collapsed.value
 }
 
 async function handleLogout() {
@@ -68,7 +86,16 @@ async function handleLogout() {
 
 <template>
   <a-layout class="app-layout">
-    <a-layout-sider class="app-sider" :width="220">
+    <a-layout-sider
+      class="app-sider"
+      :width="232"
+      :collapsed="collapsed"
+      :collapsed-width="isMobile ? 0 : 72"
+      breakpoint="md"
+      :trigger="null"
+      @breakpoint="handleBreakpoint"
+      @collapse="handleCollapse"
+    >
       <div class="logo">
         <div class="logo-text">
           <div class="logo-title">诈骗APP分析系统</div>
@@ -86,6 +113,9 @@ async function handleLogout() {
     <a-layout>
       <a-layout-header class="app-header">
         <div class="header-left">
+          <button class="collapse-btn" type="button" @click="toggleCollapsed">
+            <span class="collapse-icon" />
+          </button>
           <div class="header-title">{{ currentPageTitle }}</div>
         </div>
         <div class="header-right">
@@ -107,21 +137,22 @@ async function handleLogout() {
 <style scoped>
 .app-layout {
   min-height: 100vh;
+  background: transparent;
 }
 
 .app-sider {
-  background: linear-gradient(180deg, #0f344d 0%, #0d2d42 62%, #0a2334 100%);
-  border-right: 1px solid #1a4d6b;
-  box-shadow: inset -1px 0 0 rgba(93, 166, 206, 0.28);
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--border-subtle);
+  box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.02);
 }
 
 .logo {
   display: flex;
   align-items: center;
-  height: 72px;
-  padding: 0 14px;
-  border-bottom: 1px solid #1a4d6b;
-  background: rgba(53, 117, 154, 0.2);
+  min-height: 68px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: linear-gradient(180deg, rgba(59, 130, 246, 0.12) 0%, rgba(59, 130, 246, 0) 100%);
 }
 
 .logo-text {
@@ -129,36 +160,90 @@ async function handleLogout() {
 }
 
 .logo-title {
-  color: #f2fbff;
-  font-size: 15px;
+  color: var(--text-primary);
+  font-size: 16px;
   font-weight: 600;
-  letter-spacing: 0.3px;
+  font-family: var(--font-title);
+  letter-spacing: 0.35px;
 }
 
 .app-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 0 20px;
-  background: linear-gradient(180deg, #fbfdff 0%, #f3f8fc 100%);
-  border-bottom: 1px solid #d2e0ec;
+  height: 62px;
+  line-height: 62px;
+  padding: 0 20px 0 14px;
+  background: rgba(12, 18, 31, 0.9);
+  border-bottom: 1px solid var(--border-subtle);
+  backdrop-filter: blur(10px);
 }
 
 .header-left {
   display: flex;
   align-items: center;
+  gap: 12px;
+}
+
+.collapse-btn {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  line-height: 1;
+  border: 1px solid var(--border-normal);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.02);
+  cursor: pointer;
+  color: var(--text-secondary);
+  transition: all var(--dur-hover) ease;
+}
+
+.collapse-btn:hover {
+  border-color: var(--border-hover);
+  background: rgba(59, 130, 246, 0.16);
+}
+
+.collapse-icon {
+  position: relative;
+  display: block;
+  width: 14px;
+  height: 2px;
+  background: currentColor;
+  border-radius: 99px;
+}
+
+.collapse-icon::before,
+.collapse-icon::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  width: 14px;
+  height: 2px;
+  background: currentColor;
+  border-radius: 99px;
+}
+
+.collapse-icon::before {
+  top: -4px;
+}
+
+.collapse-icon::after {
+  top: 4px;
 }
 
 .header-title {
-  color: #18374e;
-  font-size: 18px;
+  color: var(--text-primary);
+  font-size: 20px;
   font-weight: 600;
+  font-family: var(--font-title);
 }
 
 .header-right {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
 }
 
 .role-tag {
@@ -166,20 +251,20 @@ async function handleLogout() {
 }
 
 .username {
-  color: #35546b;
+  color: var(--text-secondary);
   font-weight: 500;
 }
 
 .app-content {
-  padding: 14px;
+  padding: 14px 16px 16px;
 }
 
 .content-shell {
-  border: 1px solid #d2e1ec;
-  border-radius: 10px;
-  padding: 14px;
-  background: rgba(255, 255, 255, 0.8);
-  backdrop-filter: blur(1px);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 16px;
+  background: rgba(21, 28, 43, 0.56);
+  transition: background var(--dur-expand) ease;
 }
 
 .app-sider :deep(.ant-layout-sider-children) {
@@ -190,23 +275,26 @@ async function handleLogout() {
 .app-sider :deep(.ant-menu) {
   background: transparent;
   border-inline-end: none;
-  padding: 12px 10px 0;
+  padding: 12px 12px 0;
 }
 
 .app-sider :deep(.ant-menu-item) {
   margin: 6px 0;
   border-radius: 6px;
-  color: #dcecf8;
+  color: var(--text-secondary);
+  height: 42px;
+  line-height: 42px;
+  transition: all var(--dur-hover) ease;
 }
 
 .app-sider :deep(.ant-menu-item:hover) {
-  color: #ffffff;
-  background: rgba(64, 145, 194, 0.3);
+  color: var(--text-primary);
+  background: rgba(59, 130, 246, 0.18);
 }
 
 .app-sider :deep(.ant-menu-item-selected) {
-  background: rgba(86, 180, 230, 0.35);
-  color: #ffffff;
+  background: rgba(59, 130, 246, 0.24);
+  color: #dbeafe;
 }
 
 .app-sider :deep(.ant-menu-title-content) {
@@ -223,17 +311,18 @@ async function handleLogout() {
   width: 16px;
   height: 16px;
   border-radius: 4px;
-  border: 1px solid rgba(214, 239, 255, 0.58);
-  background: rgba(191, 227, 249, 0.22);
+  border: 1px solid rgba(148, 163, 184, 0.36);
+  background: rgba(148, 163, 184, 0.1);
   position: relative;
   flex: 0 0 16px;
+  transition: all var(--dur-hover) ease;
 }
 
 .app-sider :deep(.menu-icon::after) {
   content: '';
   position: absolute;
   inset: 3px;
-  background: rgba(233, 248, 255, 0.86);
+  background: rgba(241, 245, 249, 0.85);
   border-radius: 2px;
 }
 
@@ -251,11 +340,11 @@ async function handleLogout() {
   height: 8px;
   left: 3px;
   top: 3px;
-  border: 1px solid rgba(15, 63, 94, 0.9);
+  border: 1px solid rgba(15, 23, 42, 0.92);
   box-shadow:
-    6px 0 0 -1px rgba(15, 63, 94, 0.9),
-    0 6px 0 -1px rgba(15, 63, 94, 0.9),
-    6px 6px 0 -1px rgba(15, 63, 94, 0.9);
+    6px 0 0 -1px rgba(15, 23, 42, 0.92),
+    0 6px 0 -1px rgba(15, 23, 42, 0.92),
+    6px 6px 0 -1px rgba(15, 23, 42, 0.92);
 }
 
 .app-sider :deep(.icon-task::before) {
@@ -263,12 +352,12 @@ async function handleLogout() {
   height: 10px;
   left: 3px;
   top: 2px;
-  border: 1px solid rgba(15, 63, 94, 0.95);
+  border: 1px solid rgba(15, 23, 42, 0.95);
   border-radius: 1px;
   background:
-    linear-gradient(rgba(15, 63, 94, 0.9), rgba(15, 63, 94, 0.9)) 1px 2px / 6px 1px no-repeat,
-    linear-gradient(rgba(15, 63, 94, 0.9), rgba(15, 63, 94, 0.9)) 1px 5px / 5px 1px no-repeat,
-    linear-gradient(rgba(15, 63, 94, 0.9), rgba(15, 63, 94, 0.9)) 1px 8px / 4px 1px no-repeat;
+    linear-gradient(rgba(15, 23, 42, 0.95), rgba(15, 23, 42, 0.95)) 1px 2px / 6px 1px no-repeat,
+    linear-gradient(rgba(15, 23, 42, 0.95), rgba(15, 23, 42, 0.95)) 1px 5px / 5px 1px no-repeat,
+    linear-gradient(rgba(15, 23, 42, 0.95), rgba(15, 23, 42, 0.95)) 1px 8px / 4px 1px no-repeat;
 }
 
 .app-sider :deep(.icon-device::before) {
@@ -276,9 +365,9 @@ async function handleLogout() {
   height: 6px;
   left: 3px;
   top: 3px;
-  border: 1px solid rgba(15, 63, 94, 0.95);
+  border: 1px solid rgba(15, 23, 42, 0.95);
   border-radius: 1px;
-  box-shadow: 0 7px 0 -2px rgba(15, 63, 94, 0.95);
+  box-shadow: 0 7px 0 -2px rgba(15, 23, 42, 0.95);
 }
 
 .app-sider :deep(.icon-user::before) {
@@ -288,12 +377,12 @@ async function handleLogout() {
   top: 3px;
   border-radius: 50%;
   background:
-    radial-gradient(circle at 50% 32%, rgba(15, 63, 94, 0.96) 2px, transparent 2px),
+    radial-gradient(circle at 50% 32%, rgba(15, 23, 42, 0.95) 2px, transparent 2px),
     linear-gradient(
       180deg,
       transparent 45%,
-      rgba(15, 63, 94, 0.96) 45%,
-      rgba(15, 63, 94, 0.96) 100%
+      rgba(15, 23, 42, 0.95) 45%,
+      rgba(15, 23, 42, 0.95) 100%
     );
 }
 
@@ -302,20 +391,17 @@ async function handleLogout() {
   letter-spacing: 0.1px;
 }
 
-@media (max-width: 960px) {
-  .app-sider {
-    width: 180px !important;
-    min-width: 180px !important;
-    max-width: 180px !important;
-    flex: 0 0 180px !important;
-  }
-
+@media (max-width: 768px) {
   .app-header {
-    padding: 0 12px;
+    padding: 0 10px;
   }
 
-  .header-title {
-    font-size: 16px;
+  .header-right {
+    gap: 8px;
+  }
+
+  .username {
+    display: none;
   }
 
   .content-shell {

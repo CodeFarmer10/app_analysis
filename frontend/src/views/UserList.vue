@@ -206,6 +206,30 @@ onMounted(async () => {
   gap: 10px;
 }
 
+.user-page :deep(.ant-table .ant-btn-link) {
+  color: #9ec5ff;
+}
+
+.user-page :deep(.ant-table .ant-btn-link:hover) {
+  color: #cfe2ff;
+  background: rgba(59, 130, 246, 0.12);
+}
+
+.user-page :deep(.ant-table .ant-btn-link.ant-btn-dangerous) {
+  color: #fda4af;
+}
+
+.user-page :deep(.ant-table .ant-btn-link.ant-btn-dangerous:hover) {
+  color: #fecdd3;
+  background: rgba(239, 68, 68, 0.14);
+}
+
+.user-page :deep(.ant-table .ant-btn-link[disabled]),
+.user-page :deep(.ant-table .ant-btn-link.ant-btn-dangerous[disabled]) {
+  color: #64748b !important;
+  background: transparent !important;
+}
+
 @media (max-width: 768px) {
   .table-header {
     flex-wrap: wrap;

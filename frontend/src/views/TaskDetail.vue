@@ -45,6 +45,24 @@ const currentTaskId = computed(() => String(route.params.taskId || ''))
 const currentStatus = computed(() => task.value?.status || '')
 const isTerminalStatus = computed(() => terminalStatusSet.has(currentStatus.value))
 const shouldShowProgressAlert = computed(() => Boolean(task.value && !isTerminalStatus.value))
+const taskIconUrl = computed(() => staticResult.value?.icon_url || task.value?.icon_url || '')
+const taskName = computed(() => staticResult.value?.app_name || task.value?.app_name || '分析任务')
+const taskPackage = computed(() => staticResult.value?.package_name || task.value?.package_name || '--')
+
+const overviewItems = computed(() => {
+  if (!task.value) {
+    return []
+  }
+
+  return [
+    { label: '任务ID', value: task.value.id || '--', mono: true },
+    { label: '文件MD5', value: task.value.file_md5 || '--', mono: true },
+    { label: '分配设备', value: task.value.device_serial || task.value.device_id || '--', mono: true },
+    { label: '文件大小', value: formatFileSize(task.value.file_size), mono: false },
+    { label: '提交时间', value: formatDateTime(task.value.created_at), mono: true },
+    { label: '更新时间', value: formatDateTime(task.value.updated_at), mono: true },
+  ]
+})
 
 const progressTextMap = {
   downloading: '任务正在下载 APK，请稍候。',
@@ -251,52 +269,52 @@ onBeforeUnmount(() => {
   <div class="task-detail-page">
     <a-card :bordered="false" class="section-card">
       <template #title>
-        <div class="header-row">
+        <div class="header-row page-header">
           <span>任务详情</span>
           <a-button @click="goBack">返回任务列表</a-button>
         </div>
       </template>
 
       <a-spin :spinning="taskLoading">
-        <a-descriptions
-          v-if="task"
-          :column="{ xs: 1, sm: 2, md: 3 }"
-          size="small"
-          class="task-base-desc"
-        >
-          <a-descriptions-item label="任务ID">
-            <span class="desc-value">{{ task.id }}</span>
-          </a-descriptions-item>
-          <a-descriptions-item label="批次号">
-            <span class="desc-value">{{ task.batch_id || '--' }}</span>
-          </a-descriptions-item>
-          <a-descriptions-item label="任务描述">
-            <span class="desc-value">{{ task.task_description || '--' }}</span>
-          </a-descriptions-item>
-          <a-descriptions-item label="来源" class="source-item">
-            <a-tooltip :title="task.source_name || '--'">
-              <span class="desc-value source-link-text">{{ task.source_name || '--' }}</span>
-            </a-tooltip>
-          </a-descriptions-item>
-          <a-descriptions-item label="状态">
-            <TaskStatusTag :status="task.status" />
-          </a-descriptions-item>
-          <a-descriptions-item label="文件MD5">
-            <span class="desc-value">{{ task.file_md5 || '--' }}</span>
-          </a-descriptions-item>
-          <a-descriptions-item label="文件大小">
-            <span class="desc-value">{{ formatFileSize(task.file_size) }}</span>
-          </a-descriptions-item>
-          <a-descriptions-item label="分配设备">
-            <span class="desc-value">{{ task.device_id || '--' }}</span>
-          </a-descriptions-item>
-          <a-descriptions-item label="提交时间">
-            <span class="desc-value">{{ formatDateTime(task.created_at) }}</span>
-          </a-descriptions-item>
-          <a-descriptions-item label="更新时间">
-            <span class="desc-value">{{ formatDateTime(task.updated_at) }}</span>
-          </a-descriptions-item>
-        </a-descriptions>
+        <div v-if="task" class="task-overview">
+          <div class="app-info">
+            <div class="app-icon-box">
+              <a-image v-if="taskIconUrl" :src="taskIconUrl" :width="80" :preview="false" />
+              <a-avatar v-else shape="square" :size="80" class="fallback-icon">
+                {{ taskName.slice(0, 1) }}
+              </a-avatar>
+            </div>
+            <div class="app-main">
+              <div class="app-title-row">
+                <h2 class="app-name title-text">{{ taskName }}</h2>
+                <TaskStatusTag :status="task.status" />
+              </div>
+              <div class="app-package mono-text">{{ taskPackage }}</div>
+              <div class="task-remark">
+                <span class="label">任务描述：</span>
+                <span>{{ task.task_description || '--' }}</span>
+              </div>
+            </div>
+          </div>
+          <div class="download-group">
+            <a-space wrap>
+              <a-button
+                v-for="button in downloadButtons.filter((item) => item.visible)"
+                :key="button.key"
+                :loading="downloadingType === button.key"
+                @click="handleDownload(button)"
+              >
+                {{ button.text }}
+              </a-button>
+            </a-space>
+          </div>
+          <div class="meta-grid">
+            <div v-for="item in overviewItems" :key="item.label" class="meta-item">
+              <div class="meta-label">{{ item.label }}</div>
+              <div class="meta-value" :class="{ 'mono-text': item.mono }">{{ item.value }}</div>
+            </div>
+          </div>
+        </div>
 
         <a-alert v-if="task?.error_message" type="error" show-icon :message="task.error_message" />
 
@@ -307,19 +325,6 @@ onBeforeUnmount(() => {
           :message="progressTextMap[currentStatus] || '任务处理中，请稍候。'"
           style="margin-top: 12px"
         />
-
-        <div class="download-row">
-          <a-space wrap>
-            <a-button
-              v-for="button in downloadButtons.filter((item) => item.visible)"
-              :key="button.key"
-              :loading="downloadingType === button.key"
-              @click="handleDownload(button)"
-            >
-              {{ button.text }}
-            </a-button>
-          </a-space>
-        </div>
       </a-spin>
     </a-card>
 
@@ -358,48 +363,111 @@ onBeforeUnmount(() => {
   align-items: center;
 }
 
-.download-row {
-  margin-top: 12px;
+.page-header {
+  font-family: var(--font-title);
+  font-size: 16px;
 }
 
-.source-link-text {
-  display: inline-block;
-  max-width: 240px;
-  vertical-align: middle;
+.task-overview {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 
-.task-detail-page :deep(.source-item .ant-descriptions-item-content) {
-  white-space: nowrap;
+.app-info {
+  display: flex;
+  gap: 16px;
+  align-items: center;
 }
 
-.task-base-desc :deep(.ant-descriptions-view table) {
-  table-layout: fixed;
+.app-icon-box {
+  width: 80px;
+  height: 80px;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--border-normal);
+  background: rgba(59, 130, 246, 0.12);
 }
 
-.task-base-desc :deep(.ant-descriptions-item-label) {
-  white-space: nowrap;
-  color: #4c627a;
-  padding-right: 1ch;
-  padding-bottom: 14px;
+.fallback-icon {
+  background: rgba(59, 130, 246, 0.22);
+  color: #dbeafe;
 }
 
-.task-base-desc :deep(.ant-descriptions-item-label::after) {
-  margin-inline: 0;
+.app-main {
+  min-width: 0;
+  flex: 1;
 }
 
-.task-base-desc :deep(.ant-descriptions-item-content) {
-  padding-right: 24px;
-  padding-bottom: 14px;
+.app-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 4px;
 }
 
-.desc-value {
-  display: inline-block;
-  width: 100%;
-  color: #1f334a;
-  vertical-align: middle;
+.app-name {
+  margin: 0;
+  font-size: 20px;
+  color: var(--text-primary);
+}
+
+.app-package {
+  color: #9fb4cb;
+  font-size: 13px;
+  margin-bottom: 6px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.task-remark {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.task-remark .label {
+  color: #7e95af;
+}
+
+.download-group {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.meta-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px 12px;
+}
+
+.meta-item {
+  border: 1px solid var(--border-subtle);
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.meta-label {
+  color: #7e95af;
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+
+.meta-value {
+  color: #e4edf8;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.task-detail-page :deep(.ant-tabs-tabpane) {
+  padding-top: 4px;
+}
+
+.task-detail-page :deep(.ant-tabs-tab) {
+  font-size: 14px;
 }
 
 @media (max-width: 768px) {
@@ -408,8 +476,22 @@ onBeforeUnmount(() => {
     flex-wrap: wrap;
   }
 
-  .task-base-desc :deep(.ant-descriptions-item-content) {
-    padding-right: 0;
+  .app-info {
+    align-items: flex-start;
+  }
+
+  .download-group {
+    justify-content: flex-start;
+  }
+
+  .meta-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .meta-grid {
+    grid-template-columns: 1fr;
   }
 }
 </style>

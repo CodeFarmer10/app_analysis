@@ -40,7 +40,7 @@ const TABLE_COLUMNS = [
   { title: '图标', key: 'icon', width: 70 },
   { title: 'APP名称/包名', key: 'app', width: 170 },
   { title: '来源', key: 'source', width: 180 },
-  { title: '任务描述', key: 'task_description', dataIndex: 'task_description', width: 220 },
+  { title: '任务描述', key: 'task_description', dataIndex: 'task_description', width: 150 },
   { title: '文件MD5', key: 'file_md5', dataIndex: 'file_md5', width: 180 },
   { title: '状态', key: 'status', dataIndex: 'status', width: 140 },
   { title: '提交时间', key: 'created_at', dataIndex: 'created_at', width: 160 },
@@ -66,6 +66,10 @@ const pagination = computed(() => ({
   showSizeChanger: true,
   showTotal: (total) => `共 ${total} 条`,
 }))
+
+function getRowClassName() {
+  return 'task-row'
+}
 
 const { start: startPolling, stop: stopPolling } = usePolling(async () => {
   await taskStore.fetchTasks()
@@ -266,12 +270,14 @@ onBeforeUnmount(() => {
       </template>
 
       <a-table
+        class="task-table"
         row-key="id"
         :columns="TABLE_COLUMNS"
         :data-source="taskStore.tasks"
         :loading="taskStore.loading"
         :pagination="pagination"
-        :scroll="{ x: 1540 }"
+        :scroll="{ x: 1470 }"
+        :row-class-name="getRowClassName"
         @change="handleTableChange"
       >
         <template #bodyCell="{ column, record, index }">
@@ -285,34 +291,35 @@ onBeforeUnmount(() => {
           </template>
 
           <template v-else-if="column.key === 'app'">
-            <div class="app-cell">
-              <a-typography-text class="app-name" :ellipsis="{ tooltip: record.app_name || '分析中' }">
-                {{ record.app_name || '分析中' }}
-              </a-typography-text>
-              <a-typography-text
-                class="app-package"
-                :ellipsis="{ tooltip: record.package_name || '--' }"
-              >
-                {{ record.package_name || '--' }}
-              </a-typography-text>
-            </div>
+            <a-tooltip placement="topLeft">
+              <template #title>
+                <div class="app-tooltip">
+                  <div>名称：{{ record.app_name || '分析中' }}</div>
+                  <div class="mono-text">包名：{{ record.package_name || '--' }}</div>
+                </div>
+              </template>
+              <div class="app-cell">
+                <div class="app-name">{{ record.app_name || '分析中' }}</div>
+                <div class="app-package mono-text">{{ record.package_name || '--' }}</div>
+              </div>
+            </a-tooltip>
           </template>
 
           <template v-else-if="column.key === 'source'">
             <a-tooltip :title="record.source_name || '--'">
-              <div class="source-text">{{ getSourceText(record) }}</div>
+              <div class="source-text mono-text">{{ getSourceText(record) }}</div>
             </a-tooltip>
           </template>
 
           <template v-else-if="column.key === 'task_description'">
-            <a-tooltip :title="record.task_description || '--'">
-              <div class="desc-text">{{ record.task_description || '--' }}</div>
-            </a-tooltip>
+            <a-typography-text class="desc-text" :ellipsis="{ tooltip: record.task_description || '--' }">
+              {{ record.task_description || '--' }}
+            </a-typography-text>
           </template>
 
           <template v-else-if="column.key === 'file_md5'">
             <a-tooltip :title="record.file_md5 || '--'">
-              <div class="md5-text">{{ record.file_md5 || '--' }}</div>
+              <div class="md5-text mono-text">{{ record.file_md5 || '--' }}</div>
             </a-tooltip>
           </template>
 
@@ -364,15 +371,23 @@ onBeforeUnmount(() => {
   gap: 16px;
 }
 
+.search-card {
+  background: var(--bg-card-deep);
+}
+
 .search-form {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 16px;
 }
 
 .search-row-top {
   display: grid;
-  grid-template-columns: minmax(170px, 1fr) minmax(190px, 1.15fr) minmax(220px, 1.35fr) minmax(190px, 1.15fr);
+  grid-template-columns:
+    minmax(176px, 1fr)
+    minmax(204px, 1.15fr)
+    minmax(240px, 1.3fr)
+    minmax(200px, 1.1fr);
   gap: 16px;
 }
 
@@ -411,7 +426,7 @@ onBeforeUnmount(() => {
 
 .search-form :deep(.ant-form-item-label) {
   padding: 0;
-  line-height: 32px;
+  line-height: 36px;
   flex: 0 0 auto;
 }
 
@@ -420,7 +435,13 @@ onBeforeUnmount(() => {
 }
 
 .search-form :deep(.ant-form-item-control-input) {
-  min-height: 32px;
+  min-height: 36px;
+}
+
+.search-form :deep(.ant-input),
+.search-form :deep(.ant-select-selector),
+.search-form :deep(.ant-picker) {
+  height: 36px;
 }
 
 @media (max-width: 1200px) {
@@ -479,12 +500,15 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  color: var(--text-primary);
+  font-family: var(--font-title);
+  font-size: 16px;
 }
 
 .task-icon {
-  background: #e3eefb;
-  color: #1d548a;
-  border: 1px solid #c2d6eb;
+  background: rgba(59, 130, 246, 0.14);
+  color: #bfdbfe;
+  border: 1px solid rgba(59, 130, 246, 0.42);
   font-weight: 600;
 }
 
@@ -505,12 +529,20 @@ onBeforeUnmount(() => {
 }
 
 .app-name {
-  color: #1e3249;
+  color: var(--text-primary);
 }
 
 .app-package {
-  color: #667a90;
+  color: var(--text-secondary);
   font-size: 12px;
+  font-family: var(--font-mono);
+}
+
+.app-tooltip {
+  max-width: 460px;
+  line-height: 1.6;
+  white-space: normal;
+  word-break: break-all;
 }
 
 .source-text {
@@ -518,13 +550,15 @@ onBeforeUnmount(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: #9fb4cb;
 }
 
 .desc-text {
-  width: 210px;
+  width: 140px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: #d7e3ef;
 }
 
 .md5-text {
@@ -532,5 +566,74 @@ onBeforeUnmount(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: #c8d9ec;
+  font-family: var(--font-mono);
+  letter-spacing: 0.2px;
+}
+
+.task-list-page :deep(.task-table .ant-table-expanded-row > td) {
+  background: rgba(59, 130, 246, 0.02) !important;
+}
+
+.task-list-page :deep(.task-table .ant-table-cell-fix-left),
+.task-list-page :deep(.task-table .ant-table-cell-fix-right) {
+  background: #151c2b !important;
+  z-index: 4;
+  background-clip: padding-box;
+}
+
+.task-list-page :deep(.task-table .ant-table-tbody > tr:hover .ant-table-cell-fix-left),
+.task-list-page :deep(.task-table .ant-table-tbody > tr:hover .ant-table-cell-fix-right) {
+  background: #1a2740 !important;
+}
+
+.task-list-page :deep(.task-table .ant-table-tbody > tr > td.ant-table-cell-row-hover) {
+  background: #1a2740 !important;
+}
+
+.task-list-page :deep(.task-table .ant-table-tbody > tr.ant-table-row-selected > td) {
+  background: #2a4f85 !important;
+  color: #eef5ff !important;
+}
+
+.task-list-page :deep(.task-table .ant-table-tbody > tr.ant-table-row-selected:hover > td),
+.task-list-page :deep(.task-table .ant-table-tbody > tr.ant-table-row-selected > td.ant-table-cell-row-hover) {
+  background: #315b97 !important;
+}
+
+.task-list-page :deep(.task-table .ant-table-tbody > tr.ant-table-row-selected .ant-table-cell-fix-left),
+.task-list-page :deep(.task-table .ant-table-tbody > tr.ant-table-row-selected .ant-table-cell-fix-right) {
+  background: #2a4f85 !important;
+  color: #eef5ff !important;
+}
+
+.task-list-page :deep(.task-table .ant-table-tbody > tr.ant-table-row-selected:hover .ant-table-cell-fix-left),
+.task-list-page :deep(.task-table .ant-table-tbody > tr.ant-table-row-selected:hover .ant-table-cell-fix-right),
+.task-list-page :deep(.task-table .ant-table-tbody > tr.ant-table-row-selected .ant-table-cell-fix-left.ant-table-cell-row-hover),
+.task-list-page :deep(.task-table .ant-table-tbody > tr.ant-table-row-selected .ant-table-cell-fix-right.ant-table-cell-row-hover) {
+  background: #315b97 !important;
+}
+
+.task-list-page :deep(.task-table .ant-table-tbody > tr > td.ant-table-cell-fix-left),
+.task-list-page :deep(.task-table .ant-table-tbody > tr > td.ant-table-cell-fix-right) {
+  background: #151c2b !important;
+}
+
+.task-list-page :deep(.task-table .ant-table-thead > tr > .ant-table-cell-fix-left),
+.task-list-page :deep(.task-table .ant-table-thead > tr > .ant-table-cell-fix-right) {
+  background: #1a2232 !important;
+}
+
+.task-list-page :deep(.task-table .ant-table-cell-fix-left-last::after),
+.task-list-page :deep(.task-table .ant-table-cell-fix-right-first::after) {
+  display: none !important;
+}
+
+.task-list-page :deep(.task-table .ant-btn-link) {
+  color: #9ec5ff;
+}
+
+.task-list-page :deep(.task-table .ant-btn-link:hover) {
+  color: #c7defd;
 }
 </style>

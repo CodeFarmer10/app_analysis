@@ -215,11 +215,20 @@ async function handleSubmit() {
 <style scoped>
 .upload-tip {
   margin-bottom: 8px;
-  color: #1f2d3d;
+  color: #d7e3ef;
 }
 
 .upload-desc {
   margin: 0;
-  color: #7a869a;
+  color: #8fa5be;
+}
+
+:deep(.ant-upload-drag) {
+  background: var(--bg-input) !important;
+  border-color: var(--border-normal) !important;
+}
+
+:deep(.ant-upload-drag:hover) {
+  border-color: var(--accent-blue) !important;
 }
 </style>

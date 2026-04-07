@@ -27,13 +27,34 @@ const props = defineProps({
 }
 
 .screenshot-item {
-  border: none;
-  padding: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 6px;
+  background: rgba(255, 255, 255, 0.02);
+  transition: transform var(--dur-hover) ease;
+}
+
+.screenshot-item :deep(.ant-image) {
+  display: block;
+  overflow: hidden;
+  border-radius: 6px;
+}
+
+.screenshot-item :deep(.ant-image-img) {
+  transition: transform var(--dur-expand) ease;
+}
+
+.screenshot-item:hover {
+  transform: translateY(-2px);
+}
+
+.screenshot-item:hover :deep(.ant-image-img) {
+  transform: scale(1.05);
 }
 
 .screenshot-label {
   margin-top: 6px;
-  color: #595959;
+  color: var(--text-secondary);
   font-size: 12px;
 }
 </style>

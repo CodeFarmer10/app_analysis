@@ -69,6 +69,21 @@ const soFileList = computed(() => {
     .filter(Boolean)
 })
 
+const soFileGroups = computed(() => {
+  const grouped = new Map()
+  for (const item of soFileList.value) {
+    const matched =
+      item.match(/(?:^|\/)(arm64-v8a|armeabi-v7a|armeabi|x86_64|x86|mips64|mips)(?:\/|$)/i)?.[1] ||
+      'unknown'
+    const key = matched.toLowerCase()
+    if (!grouped.has(key)) {
+      grouped.set(key, [])
+    }
+    grouped.get(key).push(item)
+  }
+  return Array.from(grouped.entries()).map(([arch, files]) => ({ arch, files }))
+})
+
 function getComponentCountText(count) {
   return `(${count} 项)`
 }
@@ -94,13 +109,13 @@ function getComponentCountText(count) {
                 {{ result.app_name || '--' }}
               </a-descriptions-item>
               <a-descriptions-item label="包名">
-                {{ result.package_name || '--' }}
+                <span class="mono-text">{{ result.package_name || '--' }}</span>
               </a-descriptions-item>
               <a-descriptions-item label="版本">
-                {{ result.version_name || '--' }} / {{ result.version_code || '--' }}
+                <span class="mono-text">{{ result.version_name || '--' }} / {{ result.version_code || '--' }}</span>
               </a-descriptions-item>
               <a-descriptions-item label="文件MD5">
-                {{ task.file_md5 || '--' }}
+                <span class="mono-text">{{ task.file_md5 || '--' }}</span>
               </a-descriptions-item>
               <a-descriptions-item label="文件大小">
                 {{ formatFileSize(task.file_size) }}
@@ -113,13 +128,13 @@ function getComponentCountText(count) {
       <a-card :bordered="false" class="section-card">
         <a-descriptions title="证书信息" :column="1" size="small">
           <a-descriptions-item label="证书MD5">
-            {{ result.cert_md5 || '--' }}
+            <span class="mono-text">{{ result.cert_md5 || '--' }}</span>
           </a-descriptions-item>
           <a-descriptions-item label="证书SHA1">
-            {{ result.cert_sha1 || '--' }}
+            <span class="mono-text">{{ result.cert_sha1 || '--' }}</span>
           </a-descriptions-item>
           <a-descriptions-item label="证书SHA256">
-            {{ result.cert_sha256 || '--' }}
+            <span class="mono-text">{{ result.cert_sha256 || '--' }}</span>
           </a-descriptions-item>
         </a-descriptions>
       </a-card>
@@ -128,13 +143,16 @@ function getComponentCountText(count) {
         <template #title>权限清单</template>
         <a-empty v-if="permissionList.length === 0" description="无权限数据" />
         <div v-else class="permission-list">
-          <a-tag
+          <div
             v-for="item in permissionList"
             :key="item.name"
-            :color="item.is_dangerous ? 'red' : 'default'"
+            class="permission-tag"
+            :class="{ dangerous: item.is_dangerous }"
           >
-            {{ item.name }}<span v-if="item.is_dangerous">（危险）</span>
-          </a-tag>
+            <span v-if="item.is_dangerous" class="shield-mini" aria-hidden="true" />
+            <span class="mono-text">{{ item.name }}</span>
+            <span v-if="item.is_dangerous">（危险）</span>
+          </div>
         </div>
       </a-card>
 
@@ -168,9 +186,16 @@ function getComponentCountText(count) {
 
       <a-card :bordered="false" class="section-card">
         <template #title>SO 文件</template>
-        <a-empty v-if="soFileList.length === 0" description="无 SO 文件" />
-        <div v-else class="component-list">
-          <a-tag v-for="item in soFileList" :key="item">{{ item }}</a-tag>
+        <a-empty v-if="soFileGroups.length === 0" description="无 SO 文件" />
+        <div v-else class="so-group-list">
+          <div v-for="group in soFileGroups" :key="group.arch" class="so-group">
+            <div class="so-group-title mono-text">{{ group.arch }}</div>
+            <div class="component-list">
+              <a-tag v-for="item in group.files" :key="item">
+                <span class="mono-text">{{ item }}</span>
+              </a-tag>
+            </div>
+          </div>
         </div>
       </a-card>
     </div>
@@ -194,10 +219,93 @@ function getComponentCountText(count) {
   margin-bottom: 12px;
 }
 
+.icon-wrap :deep(.ant-image-img) {
+  border-radius: 12px;
+  border: 1px solid var(--border-normal);
+}
+
+.section-card :deep(.ant-descriptions-title) {
+  color: var(--text-primary);
+}
+
+.section-card :deep(.ant-descriptions-item-content) {
+  color: #d7e3ef;
+}
+
 .permission-list,
 .component-list {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.component-list :deep(.ant-tag) {
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  background: rgba(148, 163, 184, 0.14);
+  color: #e2ebf5;
+}
+
+.component-list :deep(.ant-tag-blue) {
+  border-color: rgba(59, 130, 246, 0.45);
+  background: rgba(59, 130, 246, 0.18);
+  color: #bfdbfe;
+}
+
+.permission-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 2px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border-subtle);
+  background: rgba(148, 163, 184, 0.14);
+  color: #d7e3ef;
+  font-size: 12px;
+}
+
+.permission-tag.dangerous {
+  border-color: rgba(239, 68, 68, 0.44);
+  background: rgba(239, 68, 68, 0.14);
+  color: #fecaca;
+}
+
+.shield-mini {
+  width: 12px;
+  height: 12px;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  position: relative;
+}
+
+.shield-mini::after {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: 2px;
+  width: 4px;
+  height: 6px;
+  border: 1px solid currentColor;
+  clip-path: polygon(50% 0%, 100% 18%, 100% 64%, 50% 100%, 0 64%, 0 18%);
+}
+
+.so-group-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.so-group {
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.so-group-title {
+  color: #c4d6ea;
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 600;
 }
 </style>
