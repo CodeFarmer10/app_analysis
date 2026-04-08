@@ -57,7 +57,7 @@ const overviewItems = computed(() => {
   return [
     { label: '任务ID', value: task.value.id || '--', mono: true },
     { label: '文件MD5', value: task.value.file_md5 || '--', mono: true },
-    { label: '分配设备', value: task.value.device_serial || task.value.device_id || '--', mono: true },
+    { label: '分配设备', value: task.value.device_serial || '--', mono: true },
     { label: '文件大小', value: formatFileSize(task.value.file_size), mono: false },
     { label: '提交时间', value: formatDateTime(task.value.created_at), mono: true },
     { label: '更新时间', value: formatDateTime(task.value.updated_at), mono: true },

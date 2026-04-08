@@ -12,6 +12,7 @@ class TaskStatusResponse(BaseModel):
     id: str
     status: str
     device_id: str | None = None
+    device_serial: str | None = None
     error_message: str | None = None
 
 

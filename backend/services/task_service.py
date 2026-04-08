@@ -367,6 +367,7 @@ def get_task_status(task_id: str) -> dict[str, Any]:
         "id": task["id"],
         "status": task["status"],
         "device_id": task.get("device_id"),
+        "device_serial": task.get("device_serial"),
         "error_message": task.get("error_message"),
     }
 

@@ -166,7 +166,7 @@ async function handleSubmit() {
 <template>
   <a-modal
     :open="props.open"
-    title="上传/提交分析任务"
+    title="新建任务"
     width="680px"
     :confirm-loading="submitting"
     :ok-button-props="okButtonProps"

@@ -49,26 +49,28 @@ def create_task(data: dict[str, Any]) -> str:
 def get_task_by_id(task_id: str) -> dict | None:
     sql = """
         SELECT
-            id,
-            batch_id,
-            task_description,
-            priority,
-            source_type,
-            source_name,
-            user_id,
-            file_md5,
-            file_size,
-            status,
-            error_message,
-            apk_path,
-            pcap_path,
-            report_path,
-            run_log_path,
-            device_id,
-            created_at,
-            updated_at
-        FROM tasks
-        WHERE id = %s
+            t.id,
+            t.batch_id,
+            t.task_description,
+            t.priority,
+            t.source_type,
+            t.source_name,
+            t.user_id,
+            t.file_md5,
+            t.file_size,
+            t.status,
+            t.error_message,
+            t.apk_path,
+            t.pcap_path,
+            t.report_path,
+            t.run_log_path,
+            t.device_id,
+            d.serial AS device_serial,
+            t.created_at,
+            t.updated_at
+        FROM tasks t
+        LEFT JOIN devices d ON d.id = t.device_id
+        WHERE t.id = %s
         LIMIT 1
     """
     return fetch_one(sql, (task_id,))

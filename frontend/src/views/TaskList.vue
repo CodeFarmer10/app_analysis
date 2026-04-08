@@ -264,7 +264,7 @@ onBeforeUnmount(() => {
           <span>任务列表</span>
           <a-space>
             <a-button @click="fetchList">刷新</a-button>
-            <a-button type="primary" @click="showUploadModal = true">上传/提交分析</a-button>
+            <a-button type="primary" @click="showUploadModal = true">新建任务</a-button>
           </a-space>
         </div>
       </template>
