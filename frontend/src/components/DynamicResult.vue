@@ -99,16 +99,17 @@ function handleDynamicTableChange(pager) {
 }
 
 function renderExpandIcon({ expanded, onExpand, record }) {
+  const label = expanded ? '−' : '+'
   return h(
     'button',
     {
       type: 'button',
       class: ['custom-expand-btn', expanded ? 'is-expanded' : 'is-collapsed'],
       onClick: (event) => onExpand(record, event),
-      'aria-label': expanded ? '收起' : '展开',
-      title: expanded ? '收起' : '展开',
+      'aria-label': label,
+      title: label,
     },
-    [h('span', { class: ['expand-shape', expanded ? 'minus' : 'plus'] })]
+    [h('span', { class: 'expand-glyph', 'aria-hidden': 'true' }, label)]
   )
 }
 
@@ -134,7 +135,9 @@ function getDynamicRowClass(record) {
         :loading="loading"
         :pagination="dynamicPagination"
         :scroll="{ x: 960 }"
-        :expandable="{ rowExpandable, expandIcon: renderExpandIcon }"
+        :row-expandable="rowExpandable"
+        :expand-icon="renderExpandIcon"
+        :expand-column-width="46"
         :row-class-name="getDynamicRowClass"
         @change="handleDynamicTableChange"
       >
@@ -253,72 +256,59 @@ function getDynamicRowClass(record) {
 }
 
 .dynamic-result :deep(.custom-expand-btn) {
-  width: 34px;
-  height: 34px;
+  width: 20px;
+  min-width: 20px;
+  height: 20px;
   padding: 0;
   border-radius: 6px;
-  border: 3px solid #000000;
-  background: #ffffff !important;
+  border: 1px solid rgba(125, 160, 210, 0.4);
+  background: rgba(73, 121, 194, 0.28) !important;
+  color: rgba(226, 232, 240, 0.92) !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 800;
   line-height: 1;
-  cursor: pointer;
-  display: grid;
-  place-items: center;
   transition: all var(--dur-hover) ease;
-  box-shadow:
-    0 0 0 2px rgba(255, 255, 255, 0.95),
-    0 0 0 4px rgba(0, 0, 0, 0.85),
-    0 2px 8px rgba(2, 6, 23, 0.25);
   opacity: 1 !important;
+  visibility: visible !important;
+  box-shadow:
+    0 0 0 1px rgba(73, 121, 194, 0.08),
+    0 1px 4px rgba(15, 23, 42, 0.14);
 }
 
 .dynamic-result :deep(.custom-expand-btn:hover) {
-  background: #f8fafc !important;
-  border-color: #000000;
+  transform: translateY(-1px);
+  border-color: rgba(147, 197, 253, 0.5);
+  background: rgba(73, 121, 194, 0.4) !important;
+  box-shadow:
+    0 0 0 1px rgba(96, 165, 250, 0.12),
+    0 3px 8px rgba(15, 23, 42, 0.16);
 }
 
 .dynamic-result :deep(.custom-expand-btn.is-expanded) {
-  background: #000000 !important;
-  border-color: #ffffff;
-  box-shadow:
-    0 0 0 2px rgba(191, 219, 254, 0.95),
-    0 0 0 4px rgba(30, 64, 175, 0.82),
-    0 2px 8px rgba(2, 6, 23, 0.35);
+  transform: none;
+  border-color: rgba(125, 160, 210, 0.52);
+  background: rgba(96, 165, 250, 0.46) !important;
+  color: rgba(239, 246, 255, 0.96) !important;
 }
 
-.dynamic-result :deep(.expand-shape) {
-  position: relative;
+.dynamic-result :deep(.expand-glyph) {
   display: block;
-  width: 18px;
-  height: 18px;
+  min-width: 1ch;
+  text-align: center;
+  line-height: 1;
+  transform: translateY(-0.5px);
+  text-shadow: none;
 }
 
-.dynamic-result :deep(.expand-shape::before),
-.dynamic-result :deep(.expand-shape::after) {
-  content: '';
-  position: absolute;
-  border-radius: 99px;
-  background: #000000;
+.dynamic-result :deep(.ant-table-row-expand-icon-cell) {
+  text-align: center;
 }
 
-.dynamic-result :deep(.expand-shape::before) {
-  left: 0;
-  right: 0;
-  top: 50%;
-  height: 4px;
-  transform: translateY(-50%);
-}
-
-.dynamic-result :deep(.expand-shape.plus::after) {
-  top: 0;
-  bottom: 0;
-  left: 50%;
-  width: 4px;
-  transform: translateX(-50%);
-}
-
-.dynamic-result :deep(.custom-expand-btn.is-expanded .expand-shape::before),
-.dynamic-result :deep(.custom-expand-btn.is-expanded .expand-shape::after) {
-  background: #ffffff;
+.dynamic-result :deep(.ant-table-row-expand-icon-cell .custom-expand-btn) {
+  margin-inline: auto;
 }
 
 .dynamic-result :deep(.row-success td:first-child) {
