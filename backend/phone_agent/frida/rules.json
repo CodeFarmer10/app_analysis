@@ -1,53 +1,37 @@
 {
   "rules": [
     {
-      "id": "webview_load_url_args",
+      "id": "webview_load_url",
       "enabled": true,
       "class_name": "android.webkit.WebView",
       "method_name": "loadUrl",
       "arg_count": 1,
-      "hook_args": [0],
+      "hook_args": 0,
       "stringify_args": true,
       "stringify_retval": false
     },
     {
-      "id": "json_object_put",
+      "id": "webview_post_url",
       "enabled": true,
-      "class_name": "org.json.JSONObject",
-      "method_name": "put",
-      "stringify_args": true,
-      "stringify_retval": false
-    },
-    {
-      "id": "json_array_put",
-      "enabled": true,
-      "class_name": "org.json.JSONArray",
-      "method_name": "put",
-      "stringify_args": true,
-      "stringify_retval": false
-    },
-    {
-      "id": "okhttp_header",
-      "enabled": true,
-      "class_name": "okhttp3.Request$Builder",
-      "method_name": "header",
+      "class_name": "android.webkit.WebView",
+      "method_name": "postUrl",
       "arg_count": 2,
-      "hook_args": [0, 1],
+      "hook_args": 0,
       "stringify_args": true,
       "stringify_retval": false
     },
     {
-      "id": "okhttp_add_header",
+      "id": "webview_load_data_with_base_url",
       "enabled": true,
-      "class_name": "okhttp3.Request$Builder",
-      "method_name": "addHeader",
-      "arg_count": 2,
-      "hook_args": [0, 1],
+      "class_name": "android.webkit.WebView",
+      "method_name": "loadDataWithBaseURL",
+      "arg_count": 5,
+      "hook_args": 0,
       "stringify_args": true,
       "stringify_retval": false
     },
     {
-      "id": "okhttp_url",
+      "id": "okhttp_request_builder_url",
       "enabled": true,
       "class_name": "okhttp3.Request$Builder",
       "method_name": "url",
@@ -55,32 +39,23 @@
       "stringify_retval": false
     },
     {
-      "id": "okhttp_method",
+      "id": "java_net_url_init",
       "enabled": true,
-      "class_name": "okhttp3.Request$Builder",
-      "method_name": "method",
-      "arg_count": 2,
-      "hook_args": [0],
+      "class_name": "java.net.URL",
+      "method_name": "$init",
+      "arg_count": 1,
+      "hook_args": 0,
       "stringify_args": true,
       "stringify_retval": false
     },
     {
-      "id": "okhttp_form_body_add",
+      "id": "java_net_url_open_connection",
       "enabled": true,
-      "class_name": "okhttp3.FormBody$Builder",
-      "method_name": "add",
-      "arg_count": 2,
-      "hook_args": [0, 1],
-      "stringify_args": true,
-      "stringify_retval": false
-    },
-    {
-      "id": "okhttp_multipart_add_data_part",
-      "enabled": true,
-      "class_name": "okhttp3.MultipartBody$Builder",
-      "method_name": "addFormDataPart",
-      "stringify_args": true,
-      "stringify_retval": false
+      "class_name": "java.net.URL",
+      "method_name": "openConnection",
+      "arg_count": 0,
+      "stringify_args": false,
+      "stringify_retval": true
     }
   ]
 }

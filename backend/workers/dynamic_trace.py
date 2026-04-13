@@ -60,6 +60,37 @@ def _parse_action_time(value: Any) -> datetime | None:
     return None
 
 
+def _parse_frida_event_time(value: Any) -> datetime | None:
+    """解析 Frida 事件时间戳（秒级）为 datetime。"""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value
+    try:
+        timestamp = float(value)
+    except (TypeError, ValueError):
+        return None
+    if timestamp <= 0:
+        return None
+    # 兼容潜在毫秒级时间戳
+    if timestamp > 1_000_000_000_000:
+        timestamp = timestamp / 1000.0
+    try:
+        return datetime.fromtimestamp(timestamp)
+    except (OverflowError, OSError, ValueError):
+        return None
+
+
+def _to_json_text(value: Any) -> str | None:
+    """将任意值转换为 JSON 文本，失败时退化为字符串 JSON。"""
+    if value is None:
+        return None
+    try:
+        return json.dumps(value, ensure_ascii=False)
+    except (TypeError, ValueError):
+        return json.dumps(str(value), ensure_ascii=False)
+
+
 def _to_port(value: Any) -> int | None:
     """将端口字段安全转换为整数。"""
     if value is None:
@@ -201,6 +232,7 @@ def _persist_trace_results(
     run_log_path: str | None,
     dynamic_rows: list[dict],
     traffic_rows: list[dict],
+    frida_rows: list[dict],
 ) -> None:
     """在单事务中写入动态结果、流量日志并更新任务状态。"""
     dynamic_insert_sql = """
@@ -234,13 +266,80 @@ def _persist_trace_results(
         )
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     """
+    frida_insert_sql = """
+        INSERT INTO frida_logs (
+            id,
+            task_id,
+            dynamic_result_id,
+            seq,
+            event_time,
+            rule_id,
+            class_name,
+            method_name,
+            signature,
+            arg_index,
+            arg_value,
+            retval
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+    """
+    ensure_frida_logs_table_sql = """
+        CREATE TABLE IF NOT EXISTS frida_logs (
+            id VARCHAR(36) PRIMARY KEY,
+            task_id VARCHAR(36) NOT NULL,
+            dynamic_result_id VARCHAR(36) NULL,
+            seq INT NOT NULL,
+            event_time DATETIME NULL,
+            rule_id VARCHAR(128) NULL,
+            class_name VARCHAR(256) NULL,
+            method_name VARCHAR(128) NULL,
+            signature VARCHAR(512) NULL,
+            arg_index INT NULL,
+            arg_value TEXT NULL,
+            retval TEXT NULL,
+            KEY idx_frida_logs_task (task_id),
+            KEY idx_frida_logs_dynamic_result_id (dynamic_result_id),
+            CONSTRAINT fk_frida_logs_task_id
+                FOREIGN KEY (task_id) REFERENCES tasks(id)
+                ON DELETE CASCADE,
+            CONSTRAINT fk_frida_logs_dynamic_result_id
+                FOREIGN KEY (dynamic_result_id) REFERENCES dynamic_results(id)
+                ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    """
 
     with get_connection() as conn:
         with conn.cursor() as cursor:
             try:
+                cursor.execute(ensure_frida_logs_table_sql)
+                cursor.execute(
+                    """
+                    SELECT COUNT(*) AS total
+                    FROM information_schema.columns
+                    WHERE table_schema = DATABASE()
+                      AND table_name = 'frida_logs'
+                      AND column_name = 'arg_index'
+                    """
+                )
+                arg_index_row = cursor.fetchone() or {}
+                if int(arg_index_row.get("total") or 0) == 0:
+                    cursor.execute("ALTER TABLE frida_logs ADD COLUMN arg_index INT NULL AFTER signature")
+                cursor.execute(
+                    """
+                    SELECT COUNT(*) AS total
+                    FROM information_schema.columns
+                    WHERE table_schema = DATABASE()
+                      AND table_name = 'frida_logs'
+                      AND column_name = 'arg_value'
+                    """
+                )
+                arg_value_row = cursor.fetchone() or {}
+                if int(arg_value_row.get("total") or 0) == 0:
+                    cursor.execute("ALTER TABLE frida_logs ADD COLUMN arg_value TEXT NULL AFTER arg_index")
                 conn.begin()
                 cursor.execute("DELETE FROM dynamic_results WHERE task_id = %s", (task_id,))
                 cursor.execute("DELETE FROM traffic_logs WHERE task_id = %s", (task_id,))
+                cursor.execute("DELETE FROM frida_logs WHERE task_id = %s", (task_id,))
 
                 if dynamic_rows:
                     cursor.executemany(
@@ -281,6 +380,27 @@ def _persist_trace_results(
                             for item in traffic_rows
                         ],
                     )
+                if frida_rows:
+                    cursor.executemany(
+                        frida_insert_sql,
+                        [
+                            (
+                                item["id"],
+                                item["task_id"],
+                                item["dynamic_result_id"],
+                                item["seq"],
+                                item["event_time"],
+                                item["rule_id"],
+                                item["class_name"],
+                                item["method_name"],
+                                item["signature"],
+                                item["arg_index"],
+                                item["arg_value"],
+                                item["retval"],
+                            )
+                            for item in frida_rows
+                        ],
+                    )
                 cursor.execute(
                     """
                     UPDATE tasks
@@ -302,10 +422,11 @@ def _parse_operation_results(
     task_id: str,
     operation_results: list[dict],
     result_dir: Path,
-) -> tuple[list[dict], list[dict]]:
-    """解析 operation_results 为 dynamic_rows 与 traffic_rows。"""
+) -> tuple[list[dict], list[dict], list[dict]]:
+    """解析 operation_results 为 dynamic_rows、traffic_rows、frida_rows。"""
     dynamic_rows: list[dict] = []
     traffic_rows: list[dict] = []
+    frida_rows: list[dict] = []
 
     for index, item in enumerate(operation_results):
         if not isinstance(item, dict):
@@ -337,36 +458,69 @@ def _parse_operation_results(
         dynamic_result_id = dynamic_rows[-1]["id"]
 
         traffic_logs = item.get("traffic_logs") or []
-        if not isinstance(traffic_logs, list):
-            continue
-        for packet in traffic_logs:
-            if not isinstance(packet, dict):
-                continue
-            src_ip = str(packet.get("src_ip") or "").strip()
-            dst_ip = str(packet.get("dst_ip") or "").strip()
-            if not src_ip or not dst_ip:
-                continue
-            protocol = _clip_text(str(packet.get("protocol") or "UNKNOWN"), 32) or "UNKNOWN"
-            traffic_rows.append(
-                {
-                    "id": str(uuid4()),
-                    "task_id": task_id,
-                    "dynamic_result_id": dynamic_result_id,
-                    "seq": seq,
-                    "src_ip": _clip_text(src_ip, 45),
-                    "dst_ip": _clip_text(dst_ip, 45),
-                    "src_port": _to_port(packet.get("src_port")),
-                    "dst_port": _to_port(packet.get("dst_port")),
-                    "protocol": protocol,
-                    "domain": _clip_text(packet.get("domain"), 512),
-                    "url": packet.get("url"),
-                    "resolved_ip": _clip_text(packet.get("dns_ip"), 45),
-                }
-            )
+        if isinstance(traffic_logs, list):
+            for packet in traffic_logs:
+                if not isinstance(packet, dict):
+                    continue
+                src_ip = str(packet.get("src_ip") or "").strip()
+                dst_ip = str(packet.get("dst_ip") or "").strip()
+                if not src_ip or not dst_ip:
+                    continue
+                protocol = _clip_text(str(packet.get("protocol") or "UNKNOWN"), 32) or "UNKNOWN"
+                traffic_rows.append(
+                    {
+                        "id": str(uuid4()),
+                        "task_id": task_id,
+                        "dynamic_result_id": dynamic_result_id,
+                        "seq": seq,
+                        "src_ip": _clip_text(src_ip, 45),
+                        "dst_ip": _clip_text(dst_ip, 45),
+                        "src_port": _to_port(packet.get("src_port")),
+                        "dst_port": _to_port(packet.get("dst_port")),
+                        "protocol": protocol,
+                        "domain": _clip_text(packet.get("domain"), 512),
+                        "url": packet.get("url"),
+                        "resolved_ip": _clip_text(packet.get("dns_ip"), 45),
+                    }
+                )
+
+        frida_events = item.get("frida_events") or []
+        if isinstance(frida_events, list):
+            for event in frida_events:
+                if not isinstance(event, dict):
+                    continue
+                raw_arg_index = event.get("arg_index")
+                try:
+                    parsed_arg_index = int(raw_arg_index)
+                except (TypeError, ValueError):
+                    parsed_arg_index = None
+                if parsed_arg_index is not None and parsed_arg_index < 0:
+                    parsed_arg_index = None
+                raw_arg_value = event.get("args")
+                if isinstance(raw_arg_value, (dict, list)):
+                    arg_value = _clip_text(_to_json_text(raw_arg_value), 65535)
+                else:
+                    arg_value = _clip_text(raw_arg_value, 65535)
+                frida_rows.append(
+                    {
+                        "id": str(uuid4()),
+                        "task_id": task_id,
+                        "dynamic_result_id": dynamic_result_id,
+                        "seq": seq,
+                        "event_time": _parse_frida_event_time(event.get("timestamp")),
+                        "rule_id": _clip_text(event.get("rule_id"), 128),
+                        "class_name": _clip_text(event.get("class_name"), 256),
+                        "method_name": _clip_text(event.get("method_name"), 128),
+                        "signature": _clip_text(event.get("signature"), 512),
+                        "arg_index": parsed_arg_index,
+                        "arg_value": arg_value,
+                        "retval": _clip_text(event.get("retval"), 65535),
+                    }
+                )
 
     if not dynamic_rows:
         raise ValueError("未解析到动态操作记录")
-    return dynamic_rows, traffic_rows
+    return dynamic_rows, traffic_rows, frida_rows
 
 
 def _upload_trace_files(task_id: str, result_dir: Path) -> tuple[str | None, str | None]:
@@ -475,7 +629,7 @@ def trace_task(task_id: str, device_id: str):
         )
 
         operation_results = _load_operation_results(result_dir)
-        dynamic_rows, traffic_rows = _parse_operation_results(task_id, operation_results, result_dir)
+        dynamic_rows, traffic_rows, frida_rows = _parse_operation_results(task_id, operation_results, result_dir)
         pcap_path, run_log_path = _upload_trace_files(task_id, result_dir)
         _persist_trace_results(
             task_id=task_id,
@@ -483,6 +637,7 @@ def trace_task(task_id: str, device_id: str):
             run_log_path=run_log_path,
             dynamic_rows=dynamic_rows,
             traffic_rows=traffic_rows,
+            frida_rows=frida_rows,
         )
         try:
             generate_report.delay(task_id)

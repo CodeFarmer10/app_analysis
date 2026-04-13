@@ -15,33 +15,38 @@ class FridaHookRule:
     method_name: str
     enabled: bool = True
     arg_count: int | None = None
-    hook_args: list[int] | None = None
+    hook_args: int = 0
     stringify_args: bool = True
     stringify_retval: bool = True
     include_retval: bool = True
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> "FridaHookRule":
-        hook_args = payload.get("hook_args")
-        if isinstance(hook_args, list):
-            normalized_hook_args: list[int] | None = []
-            for item in hook_args:
+        raw_hook_arg = payload.get("hook_args", 0)
+        hook_arg = 0
+        if isinstance(raw_hook_arg, list):
+            for item in raw_hook_arg:
                 try:
                     index = int(item)
                 except (TypeError, ValueError):
                     continue
                 if index >= 0:
-                    normalized_hook_args.append(index)
-            hook_args = normalized_hook_args
+                    hook_arg = index
+                    break
         else:
-            hook_args = None
+            try:
+                parsed = int(raw_hook_arg)
+            except (TypeError, ValueError):
+                parsed = 0
+            if parsed >= 0:
+                hook_arg = parsed
         return cls(
             id=str(payload.get("id") or "").strip() or f"{payload.get('class_name')}#{payload.get('method_name')}",
             class_name=str(payload.get("class_name") or "").strip(),
             method_name=str(payload.get("method_name") or "").strip(),
             enabled=bool(payload.get("enabled", True)),
             arg_count=int(payload["arg_count"]) if payload.get("arg_count") is not None else None,
-            hook_args=hook_args,
+            hook_args=hook_arg,
             stringify_args=bool(payload.get("stringify_args", True)),
             stringify_retval=bool(payload.get("stringify_retval", True)),
             include_retval=bool(payload.get("include_retval", True)),

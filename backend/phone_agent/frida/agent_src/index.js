@@ -69,24 +69,20 @@ function installHooks() {
             .join(',');
 
           overload.implementation = function () {
-            const args = [];
+            let argIndex = null;
+            let args = null;
             if (rule.stringify_args) {
-              let targetIndexes = rule.hook_args;
-              if (!Array.isArray(targetIndexes) || targetIndexes.length === 0) {
-                targetIndexes = [];
-                for (let autoIndex = 0; autoIndex < arguments.length; autoIndex += 1) {
-                  targetIndexes.push(autoIndex);
+              const rawIndex = rule.hook_args;
+              let targetIndex = 0;
+              if (rawIndex !== null && rawIndex !== undefined) {
+                const parsed = Number(rawIndex);
+                if (Number.isFinite(parsed) && parsed >= 0) {
+                  targetIndex = Math.floor(parsed);
                 }
               }
-              for (let i = 0; i < targetIndexes.length; i += 1) {
-                const index = targetIndexes[i];
-                if (index < 0 || index >= arguments.length) {
-                  continue;
-                }
-                args.push({
-                  index,
-                  value: safeToString(arguments[index]),
-                });
+              if (targetIndex >= 0 && targetIndex < arguments.length) {
+                argIndex = targetIndex;
+                args = safeToString(arguments[targetIndex]);
               }
             }
 
@@ -102,6 +98,7 @@ function installHooks() {
                 method_name: rule.method_name,
                 signature,
                 timestamp: Date.now() / 1000,
+                arg_index: argIndex,
                 args,
                 retval: rule.include_retval && rule.stringify_retval ? safeToString(retval) : null,
               },

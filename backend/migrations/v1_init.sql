@@ -126,6 +126,29 @@ CREATE TABLE IF NOT EXISTS traffic_logs (
     ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS frida_logs (
+  id VARCHAR(36) PRIMARY KEY,
+  task_id VARCHAR(36) NOT NULL,
+  dynamic_result_id VARCHAR(36) NULL,
+  seq INT NOT NULL,
+  event_time DATETIME NULL,
+  rule_id VARCHAR(128) NULL,
+  class_name VARCHAR(256) NULL,
+  method_name VARCHAR(128) NULL,
+  signature VARCHAR(512) NULL,
+  arg_index INT NULL,
+  arg_value TEXT NULL,
+  retval TEXT NULL,
+  KEY idx_frida_logs_task (task_id),
+  KEY idx_frida_logs_dynamic_result_id (dynamic_result_id),
+  CONSTRAINT fk_frida_logs_task_id
+    FOREIGN KEY (task_id) REFERENCES tasks(id)
+    ON DELETE CASCADE,
+  CONSTRAINT fk_frida_logs_dynamic_result_id
+    FOREIGN KEY (dynamic_result_id) REFERENCES dynamic_results(id)
+    ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- Add foreign keys that create a circular reference, in an idempotent way.
 SET @fk_tasks_device := (
   SELECT COUNT(*) FROM information_schema.table_constraints
