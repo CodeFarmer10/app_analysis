@@ -1,0 +1,86 @@
+{
+  "rules": [
+    {
+      "id": "webview_load_url_args",
+      "enabled": true,
+      "class_name": "android.webkit.WebView",
+      "method_name": "loadUrl",
+      "arg_count": 1,
+      "hook_args": [0],
+      "stringify_args": true,
+      "stringify_retval": false
+    },
+    {
+      "id": "json_object_put",
+      "enabled": true,
+      "class_name": "org.json.JSONObject",
+      "method_name": "put",
+      "stringify_args": true,
+      "stringify_retval": false
+    },
+    {
+      "id": "json_array_put",
+      "enabled": true,
+      "class_name": "org.json.JSONArray",
+      "method_name": "put",
+      "stringify_args": true,
+      "stringify_retval": false
+    },
+    {
+      "id": "okhttp_header",
+      "enabled": true,
+      "class_name": "okhttp3.Request$Builder",
+      "method_name": "header",
+      "arg_count": 2,
+      "hook_args": [0, 1],
+      "stringify_args": true,
+      "stringify_retval": false
+    },
+    {
+      "id": "okhttp_add_header",
+      "enabled": true,
+      "class_name": "okhttp3.Request$Builder",
+      "method_name": "addHeader",
+      "arg_count": 2,
+      "hook_args": [0, 1],
+      "stringify_args": true,
+      "stringify_retval": false
+    },
+    {
+      "id": "okhttp_url",
+      "enabled": true,
+      "class_name": "okhttp3.Request$Builder",
+      "method_name": "url",
+      "stringify_args": true,
+      "stringify_retval": false
+    },
+    {
+      "id": "okhttp_method",
+      "enabled": true,
+      "class_name": "okhttp3.Request$Builder",
+      "method_name": "method",
+      "arg_count": 2,
+      "hook_args": [0],
+      "stringify_args": true,
+      "stringify_retval": false
+    },
+    {
+      "id": "okhttp_form_body_add",
+      "enabled": true,
+      "class_name": "okhttp3.FormBody$Builder",
+      "method_name": "add",
+      "arg_count": 2,
+      "hook_args": [0, 1],
+      "stringify_args": true,
+      "stringify_retval": false
+    },
+    {
+      "id": "okhttp_multipart_add_data_part",
+      "enabled": true,
+      "class_name": "okhttp3.MultipartBody$Builder",
+      "method_name": "addFormDataPart",
+      "stringify_args": true,
+      "stringify_retval": false
+    }
+  ]
+}

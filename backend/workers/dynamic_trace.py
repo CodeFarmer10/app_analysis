@@ -372,6 +372,7 @@ def _parse_operation_results(
 def _upload_trace_files(task_id: str, result_dir: Path) -> tuple[str | None, str | None]:
     """上传动态流程产物文件并返回关键对象路径。"""
     _upload_result_file(task_id, "dynamic", result_dir / "operation_results.json")
+    _upload_result_file(task_id, "dynamic", result_dir / "frida_events.json")
     pcap_path = _upload_result_file(task_id, "pcap", result_dir / "capture.pcap")
     run_log_path = _upload_result_file(task_id, "log", result_dir / "run.log")
     return pcap_path, run_log_path

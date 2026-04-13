@@ -12,6 +12,7 @@ import uuid
 
 from phone_agent.config import get_plan_system_prompt
 from phone_agent.device_factory import get_device_factory
+from phone_agent.frida import FridaHelper, FridaHelperConfig
 from phone_agent.model import ModelClient, ModelConfig
 from phone_agent.model.client import MessageBuilder
 from phone_agent.agent import PhoneAgent, AgentConfig
@@ -45,10 +46,13 @@ class PlanResult:
     message: str | None = None
     start_time: datetime = datetime.now()
     traffic_logs: list[PacketInfo] = None  # 流量日志
+    frida_events: list[dict[str, Any]] = None
     def __post_init__(self):
         # Initialize default list for traffic_logs
         if self.traffic_logs is None:
             self.traffic_logs = []
+        if self.frida_events is None:
+            self.frida_events = []
 
     def to_dict(self) -> dict:
         """Convert PlanResult to dictionary for JSON serialization."""
@@ -61,7 +65,8 @@ class PlanResult:
             "after_screenshot_path": self.after_screenshot_path,
             "message": self.message,
             "start_time": self.start_time.strftime("%Y-%m-%d %H:%M:%S.%f") if self.start_time else None,
-            "traffic_logs": [p.to_dict() for p in self.traffic_logs]
+            "traffic_logs": [p.to_dict() for p in self.traffic_logs],
+            "frida_events": self.frida_events,
         }
 
 
@@ -112,6 +117,7 @@ class PlanAgent:
         self._context: list[dict[str, Any]] = []
         self._execution_results: list[PlanResult] = []
         self._step_count = 0
+        self.frida_helper: FridaHelper | None = None
 
     def run(self,package: str, task: str) -> str:
         """
@@ -130,13 +136,19 @@ class PlanAgent:
         if not os.path.exists(self.plan_agent_config.result_dir):
             os.makedirs(self.plan_agent_config.result_dir, exist_ok=True)
         device_factory = get_device_factory()
-        plan_result=PlanResult(step_num=self._step_count,step="Launch app") 
+        self.frida_helper = self._build_frida_helper()
+        plan_result=PlanResult(step_num=self._step_count,step="打开应用") 
         self._execution_results.append(plan_result)
-        device_factory.launch_app_by_package(package, self.plan_agent_config.device_id)
+        launch_handled_by_frida = False
+        if self.frida_helper and self.frida_helper.mode == "spawn":
+            launch_handled_by_frida = self.frida_helper.start(package)
+        if not launch_handled_by_frida:
+            device_factory.launch_app_by_package(package, self.plan_agent_config.device_id)
         plan_result.successed=True
-        # Start traffic capture after launching app
         self.traffic_capture.package_name=package
         self.traffic_capture.start_capture()
+        if self.frida_helper and self.frida_helper.mode == "attach":
+            self.frida_helper.start(package)
 
         screenshot = device_factory.get_screenshot(self.plan_agent_config.device_id, self.plan_agent_config.result_dir)
         plan_result.after_screenshot_path=screenshot.path
@@ -297,12 +309,16 @@ class PlanAgent:
         return str(screenshot_path)
 
     def _save_results(self):
+        if self.frida_helper:
+            self.frida_helper.stop()
         # Stop traffic capture before saving results and get pcap file path
         pcap_path = self.traffic_capture.stop_capture()
 
         # Parse pcap file and map traffic logs to operations if pcap exists
         if pcap_path:
             self._map_traffic_to_operations(pcap_path)
+        if self.frida_helper:
+            self.frida_helper.map_events_to_results(self._execution_results)
 
         # Save operation results
         results_dict = [r.to_dict() for r in self._execution_results]
@@ -312,6 +328,15 @@ class PlanAgent:
             json.dump(results_dict, f, indent=4, ensure_ascii=False)
 
         print(f"Results saved to: {results_file}")
+
+    def _build_frida_helper(self) -> FridaHelper | None:
+        helper_config = FridaHelperConfig(
+            mode="spawn",
+            result_dir=self.plan_agent_config.result_dir,
+        )
+        if not helper_config.enabled:
+            return None
+        return FridaHelper(device_id=self.plan_agent_config.device_id, config=helper_config)
 
     def _map_traffic_to_operations(self, pcap_path: str) -> None:
         """
