@@ -47,10 +47,10 @@ const stepTrafficColumns = [
   { title: '域名', dataIndex: 'domain', key: 'domain', width: 180 },
   { title: 'URL', dataIndex: 'url', key: 'url', width: 300 },
   {
-    title: '解析IP',
-    dataIndex: 'resolved_ip',
-    key: 'resolved_ip',
-    width: 150,
+    title: '主控打标',
+    dataIndex: 'is_real_controller',
+    key: 'is_real_controller',
+    width: 120,
     customHeaderCell: () => ({ class: 'nowrap-header-cell' }),
   },
 ]
@@ -122,6 +122,14 @@ function getDynamicRowClass(record) {
   }
   return ''
 }
+
+function isRealController(value) {
+  if (value === true) {
+    return true
+  }
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed === 1
+}
 </script>
 
 <template>
@@ -181,8 +189,10 @@ function getDynamicRowClass(record) {
                       {{ text || '--' }}
                     </span>
                   </template>
-                  <template v-else-if="column.key === 'resolved_ip'">
-                    <span class="mono-text resolved-ip-text">{{ text || '--' }}</span>
+                  <template v-else-if="column.key === 'is_real_controller'">
+                    <span class="controller-tag" :class="isRealController(text) ? 'controller-yes' : 'controller-no'">
+                      {{ isRealController(text) ? '主控' : '非主控' }}
+                    </span>
                   </template>
                   <template v-else>
                     <span class="mono-text">{{ text || '--' }}</span>
@@ -425,9 +435,23 @@ function getDynamicRowClass(record) {
   background: rgba(59, 130, 246, 0.24);
 }
 
-.resolved-ip-text {
-  color: #67e8f9;
+.controller-tag {
+  display: inline-block;
+  min-width: 56px;
+  text-align: center;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
   font-weight: 700;
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  background: rgba(148, 163, 184, 0.15);
+  color: #d1d9e4;
+}
+
+.controller-yes {
+  border-color: rgba(239, 68, 68, 0.56);
+  background: rgba(239, 68, 68, 0.2);
+  color: #fecaca;
 }
 
 @media (max-width: 1200px) {

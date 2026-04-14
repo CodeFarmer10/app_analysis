@@ -42,6 +42,7 @@ class Settings(BaseSettings):
 
     DYNAMIC_TRACE_TASK_TEXT: str = "模拟操作探索APP功能"
     DYNAMIC_TRACE_RESULT_DIR: str = str(BASE_DIR / "data" / "dynamic_trace")
+    REAL_CONTROLLER_TAGGING_ENABLED: bool = True
 
     model_config = SettingsConfigDict(
         env_file=str(BASE_DIR / ".env"),

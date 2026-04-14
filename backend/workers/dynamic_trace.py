@@ -19,6 +19,7 @@ from phone_agent.model import ModelConfig
 from repositories.task_repo import get_static_result, get_task_by_id, update_task
 from services.storage_service import storage_service
 from workers.celery_app import celery_app
+from workers.real_controller_tagging import run_real_controller_tagging
 from workers.report import generate_report
 
 
@@ -262,9 +263,10 @@ def _persist_trace_results(
             protocol,
             domain,
             url,
-            resolved_ip
+            resolved_ip,
+            is_real_controller
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     """
     frida_insert_sql = """
         INSERT INTO frida_logs (
@@ -283,59 +285,9 @@ def _persist_trace_results(
         )
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     """
-    ensure_frida_logs_table_sql = """
-        CREATE TABLE IF NOT EXISTS frida_logs (
-            id VARCHAR(36) PRIMARY KEY,
-            task_id VARCHAR(36) NOT NULL,
-            dynamic_result_id VARCHAR(36) NULL,
-            seq INT NOT NULL,
-            event_time DATETIME NULL,
-            rule_id VARCHAR(128) NULL,
-            class_name VARCHAR(256) NULL,
-            method_name VARCHAR(128) NULL,
-            signature VARCHAR(512) NULL,
-            arg_index INT NULL,
-            arg_value TEXT NULL,
-            retval TEXT NULL,
-            KEY idx_frida_logs_task (task_id),
-            KEY idx_frida_logs_dynamic_result_id (dynamic_result_id),
-            CONSTRAINT fk_frida_logs_task_id
-                FOREIGN KEY (task_id) REFERENCES tasks(id)
-                ON DELETE CASCADE,
-            CONSTRAINT fk_frida_logs_dynamic_result_id
-                FOREIGN KEY (dynamic_result_id) REFERENCES dynamic_results(id)
-                ON DELETE CASCADE
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-    """
-
     with get_connection() as conn:
         with conn.cursor() as cursor:
             try:
-                cursor.execute(ensure_frida_logs_table_sql)
-                cursor.execute(
-                    """
-                    SELECT COUNT(*) AS total
-                    FROM information_schema.columns
-                    WHERE table_schema = DATABASE()
-                      AND table_name = 'frida_logs'
-                      AND column_name = 'arg_index'
-                    """
-                )
-                arg_index_row = cursor.fetchone() or {}
-                if int(arg_index_row.get("total") or 0) == 0:
-                    cursor.execute("ALTER TABLE frida_logs ADD COLUMN arg_index INT NULL AFTER signature")
-                cursor.execute(
-                    """
-                    SELECT COUNT(*) AS total
-                    FROM information_schema.columns
-                    WHERE table_schema = DATABASE()
-                      AND table_name = 'frida_logs'
-                      AND column_name = 'arg_value'
-                    """
-                )
-                arg_value_row = cursor.fetchone() or {}
-                if int(arg_value_row.get("total") or 0) == 0:
-                    cursor.execute("ALTER TABLE frida_logs ADD COLUMN arg_value TEXT NULL AFTER arg_index")
                 conn.begin()
                 cursor.execute("DELETE FROM dynamic_results WHERE task_id = %s", (task_id,))
                 cursor.execute("DELETE FROM traffic_logs WHERE task_id = %s", (task_id,))
@@ -376,6 +328,7 @@ def _persist_trace_results(
                                 item["domain"],
                                 item["url"],
                                 item["resolved_ip"],
+                                item["is_real_controller"],
                             )
                             for item in traffic_rows
                         ],
@@ -481,6 +434,7 @@ def _parse_operation_results(
                         "domain": _clip_text(packet.get("domain"), 512),
                         "url": packet.get("url"),
                         "resolved_ip": _clip_text(packet.get("dns_ip"), 45),
+                        "is_real_controller": 0,
                     }
                 )
 
@@ -527,6 +481,7 @@ def _upload_trace_files(task_id: str, result_dir: Path) -> tuple[str | None, str
     """上传动态流程产物文件并返回关键对象路径。"""
     _upload_result_file(task_id, "dynamic", result_dir / "operation_results.json")
     _upload_result_file(task_id, "dynamic", result_dir / "frida_events.json")
+    _upload_result_file(task_id, "dynamic", result_dir / "real_controller_tagging.json")
     pcap_path = _upload_result_file(task_id, "pcap", result_dir / "capture.pcap")
     run_log_path = _upload_result_file(task_id, "log", result_dir / "run.log")
     return pcap_path, run_log_path
@@ -630,6 +585,15 @@ def trace_task(task_id: str, device_id: str):
 
         operation_results = _load_operation_results(result_dir)
         dynamic_rows, traffic_rows, frida_rows = _parse_operation_results(task_id, operation_results, result_dir)
+        tagging_result, matched_traffic_count = run_real_controller_tagging(
+            operation_results=operation_results,
+            traffic_rows=traffic_rows,
+            result_dir=result_dir,
+            enabled=settings.REAL_CONTROLLER_TAGGING_ENABLED,
+            model_base_url=settings.PLAN_AGENT_BASE_URL,
+            model_api_key=settings.PLAN_AGENT_API_KEY,
+            model_name=settings.PLAN_AGENT_MODEL,
+        )
         pcap_path, run_log_path = _upload_trace_files(task_id, result_dir)
         _persist_trace_results(
             task_id=task_id,
@@ -649,6 +613,9 @@ def trace_task(task_id: str, device_id: str):
             "device_id": device_id,
             "status": "completed",
             "result": trace_result,
+            "c2_domains": tagging_result.get("c2_domains") or [],
+            "c2_domain_reasons": tagging_result.get("c2_domain_reasons") or [],
+            "real_controller_match_count": matched_traffic_count,
         }
     except Exception as exc:  # pragma: no cover - runtime dependent
         logger.exception("dynamic trace failed task_id=%s device_id=%s", task_id, device_id)

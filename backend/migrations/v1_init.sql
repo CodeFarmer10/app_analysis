@@ -116,6 +116,7 @@ CREATE TABLE IF NOT EXISTS traffic_logs (
   domain VARCHAR(512) NULL,
   url TEXT NULL,
   resolved_ip VARCHAR(45) NULL,
+  is_real_controller TINYINT(1) NOT NULL DEFAULT 0,
   KEY idx_traffic_logs_task (task_id),
   KEY idx_traffic_logs_dynamic_result_id (dynamic_result_id),
   CONSTRAINT fk_traffic_logs_task_id
@@ -252,6 +253,22 @@ SET @sql_fk_traffic_logs_dynamic_result := IF(
 PREPARE stmt_fk_traffic_logs_dynamic_result FROM @sql_fk_traffic_logs_dynamic_result;
 EXECUTE stmt_fk_traffic_logs_dynamic_result;
 DEALLOCATE PREPARE stmt_fk_traffic_logs_dynamic_result;
+
+-- Backward-compatible traffic_logs real-controller tagging columns.
+SET @traffic_logs_real_controller_col := (
+  SELECT COUNT(*) FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'traffic_logs'
+    AND column_name = 'is_real_controller'
+);
+SET @sql_traffic_logs_real_controller_col := IF(
+  @traffic_logs_real_controller_col = 0,
+  'ALTER TABLE traffic_logs ADD COLUMN is_real_controller TINYINT(1) NOT NULL DEFAULT 0 AFTER resolved_ip',
+  'SELECT 1'
+);
+PREPARE stmt_traffic_logs_real_controller_col FROM @sql_traffic_logs_real_controller_col;
+EXECUTE stmt_traffic_logs_real_controller_col;
+DEALLOCATE PREPARE stmt_traffic_logs_real_controller_col;
 
 -- Backward-compatible users.role upgrade for existing tables.
 SET @users_role_col := (
