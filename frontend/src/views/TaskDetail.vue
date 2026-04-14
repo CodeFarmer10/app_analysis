@@ -48,6 +48,33 @@ const shouldShowProgressAlert = computed(() => Boolean(task.value && !isTerminal
 const taskIconUrl = computed(() => staticResult.value?.icon_url || task.value?.icon_url || '')
 const taskName = computed(() => staticResult.value?.app_name || task.value?.app_name || '分析任务')
 const taskPackage = computed(() => staticResult.value?.package_name || task.value?.package_name || '--')
+const errorAlert = computed(() => {
+  const raw = String(task.value?.error_message || '').trim()
+  if (!raw) {
+    return null
+  }
+
+  if (raw.startsWith('动态溯源失败:')) {
+    const detail = raw.slice('动态溯源失败:'.length).trim()
+    return {
+      title: '动态溯源失败',
+      detail: detail || raw,
+    }
+  }
+
+  if (raw.startsWith('动态溯源失败：')) {
+    const detail = raw.slice('动态溯源失败：'.length).trim()
+    return {
+      title: '动态溯源失败',
+      detail: detail || raw,
+    }
+  }
+
+  return {
+    title: '任务执行异常',
+    detail: raw,
+  }
+})
 
 const overviewItems = computed(() => {
   if (!task.value) {
@@ -316,7 +343,10 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <a-alert v-if="task?.error_message" type="error" show-icon :message="task.error_message" />
+        <div v-if="errorAlert" class="task-error-panel" role="alert" aria-live="polite">
+          <div class="task-error-title">⚠ {{ errorAlert.title }}</div>
+          <div class="task-error-detail">{{ errorAlert.detail }}</div>
+        </div>
 
         <a-alert
           v-if="shouldShowProgressAlert"
@@ -468,6 +498,31 @@ onBeforeUnmount(() => {
 
 .task-detail-page :deep(.ant-tabs-tab) {
   font-size: 14px;
+}
+
+.task-error-panel {
+  margin-top: 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(248, 113, 113, 0.62);
+  background: rgba(127, 29, 29, 0.38);
+  padding: 10px 12px;
+  box-shadow: inset 0 0 0 1px rgba(239, 68, 68, 0.12);
+}
+
+.task-error-title {
+  color: #ffe4e6;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.55;
+  margin-bottom: 4px;
+}
+
+.task-error-detail {
+  color: #fff1f2;
+  font-size: 13px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.7;
 }
 
 @media (max-width: 768px) {

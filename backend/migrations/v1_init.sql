@@ -80,6 +80,8 @@ CREATE TABLE IF NOT EXISTS static_results (
   services JSON NULL,
   providers JSON NULL,
   so_files JSON NULL,
+  component_string LONGTEXT NULL,
+  component_md5 VARCHAR(32) NULL,
   KEY idx_static_results_package (package_name),
   CONSTRAINT fk_static_results_task_id
     FOREIGN KEY (task_id) REFERENCES tasks(id)
@@ -376,5 +378,36 @@ SET @sql_tasks_priority_idx := IF(
 PREPARE stmt_tasks_priority_idx FROM @sql_tasks_priority_idx;
 EXECUTE stmt_tasks_priority_idx;
 DEALLOCATE PREPARE stmt_tasks_priority_idx;
+
+-- Backward-compatible static_results component fingerprint columns.
+SET @static_results_component_string_col := (
+  SELECT COUNT(*) FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'component_string'
+);
+SET @sql_static_results_component_string_col := IF(
+  @static_results_component_string_col = 0,
+  'ALTER TABLE static_results ADD COLUMN component_string LONGTEXT NULL AFTER so_files',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_component_string_col FROM @sql_static_results_component_string_col;
+EXECUTE stmt_static_results_component_string_col;
+DEALLOCATE PREPARE stmt_static_results_component_string_col;
+
+SET @static_results_component_md5_col := (
+  SELECT COUNT(*) FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'component_md5'
+);
+SET @sql_static_results_component_md5_col := IF(
+  @static_results_component_md5_col = 0,
+  'ALTER TABLE static_results ADD COLUMN component_md5 VARCHAR(32) NULL AFTER component_string',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_component_md5_col FROM @sql_static_results_component_md5_col;
+EXECUTE stmt_static_results_component_md5_col;
+DEALLOCATE PREPARE stmt_static_results_component_md5_col;
 
 SET FOREIGN_KEY_CHECKS = 1;

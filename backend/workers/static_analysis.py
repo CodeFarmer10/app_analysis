@@ -18,6 +18,11 @@ def _build_error_message(exc: Exception) -> str:
     return f"静态分析失败: {text}" if text else "静态分析失败: 未知错误"
 
 
+def _normalize_optional_text(value: object) -> str | None:
+    text = str(value or "").strip()
+    return text or None
+
+
 def _guess_icon_extension(icon_name: str | None, icon_bytes: bytes) -> str:
     suffix = Path(icon_name or "").suffix.lower()
     if suffix in {".png", ".jpg", ".jpeg", ".webp", ".gif"}:
@@ -77,6 +82,10 @@ def analyze_apk(task_id: str):
     try:
         local_apk_path = storage_service.download_to_temp(apk_object_path)
         parsed = parse_apk(local_apk_path)
+        app_name = _normalize_optional_text(parsed.get("app_name"))
+        package_name = _normalize_optional_text(parsed.get("package_name"))
+        if not app_name and not package_name:
+            raise ValueError("静态结果缺少应用名称和包名")
 
         icon_path = None
         icon_bytes = parsed.get("icon_bytes")
@@ -98,8 +107,8 @@ def analyze_apk(task_id: str):
         upsert_static_result(
             task_id,
             {
-                "app_name": parsed.get("app_name"),
-                "package_name": parsed.get("package_name"),
+                "app_name": app_name,
+                "package_name": package_name,
                 "version_name": parsed.get("version_name"),
                 "version_code": str(parsed.get("version_code")) if parsed.get("version_code") is not None else None,
                 "icon_path": icon_path,
@@ -111,6 +120,8 @@ def analyze_apk(task_id: str):
                 "services": parsed.get("services") or [],
                 "providers": parsed.get("providers") or [],
                 "so_files": parsed.get("so_files") or [],
+                "component_string": parsed.get("component_string"),
+                "component_md5": parsed.get("component_md5"),
             },
         )
         update_task(
