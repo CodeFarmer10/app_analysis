@@ -46,8 +46,7 @@ def _build_real_controller_prompt(
             seq = len(step_summaries) + 1
 
         traffic_evidence: list[dict[str, str | None]] = []
-        seen_urls: set[str] = set()
-        seen_domains_no_url: set[str] = set()
+        seen_traffic_keys: set[tuple[str, str]] = set()
         traffic_logs = raw_step.get("traffic_logs") or []
         if not isinstance(traffic_logs, list):
             traffic_logs = []
@@ -56,28 +55,26 @@ def _build_real_controller_prompt(
                 continue
             domain = _clip_text(packet.get("domain"), 512)
             url = _clip_text(packet.get("url"), 1024)
-            if domain and str(domain).strip():
-                candidate_domain_set.add(str(domain).strip())
-            normalized_url = (url or "").strip()
             normalized_domain = (domain or "").strip()
-            if normalized_url:
-                if normalized_url in seen_urls:
-                    continue
-                seen_urls.add(normalized_url)
-            elif normalized_domain:
-                if normalized_domain in seen_domains_no_url:
-                    continue
-                seen_domains_no_url.add(normalized_domain)
+            normalized_url = (url or "").strip()
+            if not normalized_domain:
+                continue
+            candidate_domain_set.add(normalized_domain)
+            dedup_key = (normalized_domain, normalized_url)
+            if dedup_key in seen_traffic_keys:
+                continue
+            seen_traffic_keys.add(dedup_key)
             traffic_evidence.append(
                 {
-                    "domain": domain,
-                    "url": url,
+                    "domain": normalized_domain,
+                    "url": normalized_url or None,
                 }
             )
             if len(traffic_evidence) >= 30:
                 break
 
         hook_evidence: list[str] = []
+        seen_hook_values: set[str] = set()
         frida_events = raw_step.get("frida_events") or []
         if not isinstance(frida_events, list):
             frida_events = []
@@ -85,9 +82,13 @@ def _build_real_controller_prompt(
             if not isinstance(event, dict):
                 continue
             arg_value = _clip_text(event.get("args") or event.get("arg_value"), 1024)
-            if not arg_value:
+            normalized_arg_value = (arg_value or "").strip()
+            if not normalized_arg_value:
                 continue
-            hook_evidence.append(arg_value)
+            if normalized_arg_value in seen_hook_values:
+                continue
+            seen_hook_values.add(normalized_arg_value)
+            hook_evidence.append(normalized_arg_value)
             if len(hook_evidence) >= 40:
                 break
 

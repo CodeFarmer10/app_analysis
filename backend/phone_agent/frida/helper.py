@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import subprocess
 import time
 from dataclasses import dataclass
@@ -265,8 +266,9 @@ class FridaHelper:
             if payload_type == "event":
                 event = payload.get("payload") or {}
                 if isinstance(event, dict):
+                    normalized_event = self._normalize_event(event)
                     with self._lock:
-                        self._events.append(event)
+                        self._events.append(normalized_event)
                 return
             if payload_type == "state":
                 self._record_diagnostic(str(payload.get("status") or "state"), json.dumps(payload, ensure_ascii=False))
@@ -284,3 +286,25 @@ class FridaHelper:
                     "timestamp": time.time(),
                 }
             )
+
+    def _normalize_event(self, event: dict[str, Any]) -> dict[str, Any]:
+        normalized = dict(event)
+        normalized["retval"] = self._strip_retval_class_prefix(normalized.get("retval"))
+        return normalized
+
+    def _strip_retval_class_prefix(self, value: Any) -> Any:
+        if not isinstance(value, str):
+            return value
+        text = value.strip()
+        if not text:
+            return value
+        separator_index = text.find(":")
+        if separator_index <= 0:
+            return value
+        prefix = text[:separator_index]
+        suffix = text[separator_index + 1 :]
+        if not suffix:
+            return value
+        if not re.match(r"^[A-Za-z_$][\w$]*(\.[A-Za-z_$][\w$]*)+$", prefix):
+            return value
+        return suffix
