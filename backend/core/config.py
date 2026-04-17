@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     PLAN_AGENT_BASE_URL: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     PLAN_AGENT_MODEL: str = "qwen3-vl-235b-a22b-instruct"
     PLAN_AGENT_API_KEY: str = "sk-11c87318288d4bbbb102ab2a831a7b3c"
-    PLAN_AGENT_MAX_PLAN_STEPS: int = 10
+    PLAN_AGENT_MAX_PLAN_STEPS: int = 15
     PLAN_AGENT_ENABLE_THINKING: bool = False
     PLAN_AGENT_THINKING_BUDGET: int = 81920
 

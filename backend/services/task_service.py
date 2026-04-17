@@ -434,7 +434,7 @@ def get_task_dynamic_result(
             seq_num = int(seq_value)
         except (TypeError, ValueError):
             continue
-        if seq_num > 0:
+        if seq_num >= 0:
             if dynamic_id:
                 dynamic_id_to_seq[dynamic_id] = seq_num
             dynamic_seqs.append(seq_num)
@@ -459,7 +459,7 @@ def get_task_dynamic_result(
             seq_num = int(seq_value)
         except (TypeError, ValueError):
             continue
-        if seq_num <= 0:
+        if seq_num < 0:
             continue
         step_traffic_logs.setdefault(seq_num, []).append(packet)
 

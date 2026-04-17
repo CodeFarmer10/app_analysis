@@ -24,7 +24,7 @@ DEFAULT_FRIDA_RULES_PATH = str(Path(__file__).resolve().parent / "rules.json")
 
 @dataclass
 class FridaHelperConfig:
-    enabled: bool = True
+    enabled: bool = False
     mode: str = "spawn"
     rules_path: str = DEFAULT_FRIDA_RULES_PATH
     device_timeout_seconds: int = 5

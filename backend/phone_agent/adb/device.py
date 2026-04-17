@@ -1,6 +1,7 @@
 """Device control utilities for Android automation."""
 
 import os
+import re
 import subprocess
 import time
 from typing import List, Optional, Tuple
@@ -28,13 +29,20 @@ def get_current_app(device_id: str | None = None) -> str:
     if not output:
         raise ValueError("No output from dumpsys window")
     packages = get_package_name(device_id)
+    focused_package: str | None = None
     # Parse window focus info
     for line in output.split("\n"):
         if "mCurrentFocus" in line or "mFocusedApp" in line:
-            #for app_name, package in APP_PACKAGES.items():
+            if focused_package is None:
+                match = re.search(r"\s([A-Za-z0-9._$]+)/(?:[A-Za-z0-9._$]+)", line)
+                if match:
+                    focused_package = match.group(1)
             for package in packages:
                 if package in line:
                     return package
+
+    if focused_package:
+        return focused_package
 
     return "System Home"
 

@@ -365,7 +365,7 @@ def get_traffic_logs(task_id: str, page: int, size: int) -> tuple[list[dict], in
 
 
 def get_traffic_logs_by_seqs(task_id: str, seqs: list[int]) -> list[dict]:
-    normalized_seqs = sorted({int(seq) for seq in seqs if isinstance(seq, int) and seq > 0})
+    normalized_seqs = sorted({int(seq) for seq in seqs if isinstance(seq, int) and seq >= 0})
     if not normalized_seqs:
         return []
 

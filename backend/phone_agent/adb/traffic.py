@@ -229,6 +229,41 @@ class TrafficCapture:
         except:
             pass
 
+    def _is_tcpdump_running(self) -> bool:
+        """
+        Check whether tcpdump process is alive on device.
+
+        Returns:
+            bool: True if tcpdump process exists, False otherwise
+        """
+        adb_prefix = self._get_adb_prefix()
+
+        try:
+            pidof_result = subprocess.run(
+                adb_prefix + ["shell", "su", "-c", "pidof tcpdump"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+            if pidof_result.returncode == 0 and pidof_result.stdout.strip():
+                return True
+        except Exception:
+            pass
+
+        try:
+            ps_result = subprocess.run(
+                adb_prefix + ["shell", "su", "-c", "ps -A | grep -w tcpdump"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+            return ps_result.returncode == 0 and bool(ps_result.stdout.strip())
+        except Exception as e:
+            print(f"Error checking tcpdump process status: {e}")
+            return False
+
     def start_capture(self) -> bool:
         """
         Start packet capture on device.
@@ -301,6 +336,9 @@ class TrafficCapture:
         if not self._is_capturing:
             print("No capture in progress")
             return None
+
+        if not self._is_tcpdump_running():
+            print("ERROR: tcpdump is not running before stop_capture, capture may have exited unexpectedly")
 
         # Stop all tcpdump processes
         self._stop_all_tcpdump()

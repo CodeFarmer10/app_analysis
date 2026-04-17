@@ -137,7 +137,8 @@ class PlanAgent:
             os.makedirs(self.plan_agent_config.result_dir, exist_ok=True)
         device_factory = get_device_factory()
         self.frida_helper = self._build_frida_helper()
-        plan_result=PlanResult(step_num=self._step_count,step="打开应用") 
+        plan_result=PlanResult(step_num=self._step_count,step="打开应用")
+        plan_result.start_time = datetime.now()
         self._execution_results.append(plan_result)
         launch_handled_by_frida = False
         if self.frida_helper and self.frida_helper.mode == "spawn":
@@ -199,7 +200,7 @@ class PlanAgent:
         device_factory = get_device_factory()
         screenshot = device_factory.get_screenshot(self.plan_agent_config.device_id, self.plan_agent_config.result_dir)
         current_app = device_factory.get_current_app(self.plan_agent_config.device_id)
-        if current_app != package:
+        if current_app != package and not self._is_system_dialog_or_permission_app(current_app):
             self._execution_results[-1].successed=False
             self._execution_results[-1].message=f"APP闪退"
             return self._execution_results[-1]
@@ -232,8 +233,21 @@ class PlanAgent:
             # Parse plan response
         except Exception as e:
             traceback.print_exc()
+            error_message = f"Plan Model error: {e}"
+            print(
+                json.dumps(
+                    {
+                        "analysis": "PlanAgent 调用模型失败，无法生成下一步规划。",
+                        "status": "failed",
+                        "next_step": "",
+                        "message": error_message,
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
             plan_result.successed=False
-            plan_result.message=f"Plan Model error: {e}"
+            plan_result.message=error_message
             return plan_result
         try:
             plan_response = json.loads(response)
@@ -247,7 +261,9 @@ class PlanAgent:
 
         if status=="finished":
             plan_result.finished=True
+            plan_result.step="完成"
             plan_result.message=message
+            plan_result.start_time=datetime.now()
             return plan_result
 
         self._context[-1] = MessageBuilder.remove_images_from_message(self._context[-1])
@@ -273,6 +289,41 @@ class PlanAgent:
         plan_result.after_screenshot_path=self._save_screenshot(result.base64_data)
 
         return plan_result
+
+    @staticmethod
+    def _is_system_dialog_or_permission_app(package_name: str | None) -> bool:
+        if not package_name:
+            return False
+        normalized = str(package_name).strip().lower()
+        if not normalized:
+            return False
+
+        exact_matches = {
+            "com.android.permissioncontroller",
+            "com.google.android.permissioncontroller",
+            "com.android.packageinstaller",
+            "com.google.android.packageinstaller",
+            "com.android.systemui",
+            "com.coloros.securitypermission",
+            "com.oplus.securitypermission",
+            "com.coloros.safecenter",
+            "com.miui.securitycenter",
+            "com.huawei.systemmanager",
+            "com.vivo.permissionmanager",
+        }
+        if normalized in exact_matches:
+            return True
+
+        keyword_matches = (
+            "permissioncontroller",
+            "packageinstaller",
+            "systemui",
+            "securitypermission",
+            "permissionmanager",
+            "safecenter",
+            ".permission.",
+        )
+        return any(keyword in normalized for keyword in keyword_matches)
 
     @property
     def context(self) -> list[dict[str, Any]]:
