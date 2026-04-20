@@ -166,6 +166,11 @@ def list_tasks(filters: dict[str, Any], page: int, size: int) -> tuple[list[dict
         where_clauses.append("t.created_at <= %s")
         params.append(end)
 
+    owner_user_id = filters.get("owner_user_id")
+    if owner_user_id:
+        where_clauses.append("t.user_id = %s")
+        params.append(owner_user_id)
+
     where_sql = " AND ".join(where_clauses)
 
     total_sql = f"""

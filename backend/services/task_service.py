@@ -16,6 +16,7 @@ try:
 except ImportError:  # pragma: no cover - depends on runtime system library
     magic = None
 
+from core.config import settings
 from repositories.task_repo import (
     create_task,
     get_dynamic_result_by_seq,
@@ -29,6 +30,7 @@ from repositories.task_repo import (
     list_traffic_logs,
     update_task,
 )
+from repositories.user_repo import get_user_by_id, get_user_by_username
 from services.storage_service import storage_service
 from workers.download import download_apk
 from workers.static_analysis import analyze_apk
@@ -129,6 +131,34 @@ def _dispatch_download(task_id: str, url: str) -> None:
 def _normalize_task_description(task_description: str | None) -> str:
     normalized = (task_description or "").strip()
     return normalized[:255]
+
+
+def _resolve_backend_import_user_id() -> str:
+    preferred_user_id = str(settings.BACKEND_IMPORT_USER_ID or "").strip()
+    if preferred_user_id:
+        user = get_user_by_id(preferred_user_id)
+        if user:
+            return str(user["id"])
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"后台导入用户ID不存在: {preferred_user_id}",
+        )
+
+    preferred_username = str(settings.BACKEND_IMPORT_USERNAME or "").strip()
+    if not preferred_username:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="后台导入用户未配置: BACKEND_IMPORT_USER_ID/BACKEND_IMPORT_USERNAME",
+        )
+
+    user = get_user_by_username(preferred_username)
+    if user:
+        return str(user["id"])
+
+    raise HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail=f"后台导入用户名不存在: {preferred_username}",
+    )
 
 
 def create_upload_tasks(
@@ -295,6 +325,74 @@ def create_url_tasks(
     return batch_id, results
 
 
+def create_backend_import_tasks(
+    items: list[dict[str, Any]],
+) -> tuple[str, list[dict[str, Any]]]:
+    if not items:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="至少传入一个导入任务",
+        )
+
+    backend_user_id = _resolve_backend_import_user_id()
+    batch_id = str(uuid4())
+    seen_urls: set[str] = set()
+    results: list[dict[str, Any]] = []
+
+    for item in items:
+        source_url = str(item.get("minio_download_url") or "").strip()
+        if source_url in seen_urls:
+            results.append(
+                {
+                    "source_name": source_url,
+                    "success": False,
+                    "reason": "同一批次检测到重复minio下载链接，已自动忽略",
+                }
+            )
+            continue
+        seen_urls.add(source_url)
+
+        try:
+            task_id = str(uuid4())
+            task_description = _normalize_task_description(item.get("source_desc"))
+            create_task(
+                {
+                    "id": task_id,
+                    "batch_id": batch_id,
+                    "task_description": task_description or None,
+                    "priority": int(item.get("priority", TASK_PRIORITY_HIGHEST)),
+                    "source_type": "url_download",
+                    "source_name": source_url,
+                    "user_id": backend_user_id,
+                    "status": "static_analyzing",
+                    "file_md5": str(item.get("md5") or "").strip().lower(),
+                    "file_size": int(item.get("file_size") or 0),
+                    "apk_path": source_url,
+                    "error_message": None,
+                }
+            )
+            _dispatch_static_analysis(task_id)
+            results.append(
+                {
+                    "source_name": source_url,
+                    "success": True,
+                    "task_id": task_id,
+                    "status": "static_analyzing",
+                }
+            )
+        except Exception as exc:
+            logger.exception("create backend import task failed: %s", exc)
+            results.append(
+                {
+                    "source_name": source_url,
+                    "success": False,
+                    "reason": "任务创建失败",
+                }
+            )
+
+    return batch_id, results
+
+
 def get_task_list(
     filters: dict[str, Any],
     page: int,
@@ -311,6 +409,7 @@ def get_task_list(
         "status": filters.get("status"),
         "start": filters.get("start"),
         "end": filters.get("end"),
+        "owner_user_id": filters.get("owner_user_id"),
     }
     items, total = list_tasks(normalized_filters, normalized_page, normalized_size)
 
@@ -334,6 +433,25 @@ def get_task_list(
         enriched_items.append(row)
 
     return enriched_items, total, normalized_page, normalized_size
+
+
+def assert_task_access(task_id: str, current_user: dict[str, Any]) -> dict[str, Any]:
+    task = get_task_by_id(task_id)
+    if not task:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="任务不存在",
+        )
+
+    role = str(current_user.get("role") or "").strip().lower()
+    current_user_id = str(current_user.get("id") or "").strip()
+    task_user_id = str(task.get("user_id") or "").strip()
+    if role != "admin" and task_user_id != current_user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="无权限访问该任务",
+        )
+    return task
 
 
 def get_task_detail(task_id: str) -> dict[str, Any]:

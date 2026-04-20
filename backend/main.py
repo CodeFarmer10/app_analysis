@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse
 from api.auth import router as auth_router
 from api.dashboard import router as dashboard_router
 from api.devices import router as devices_router
+from api.internal_tasks import router as internal_tasks_router
 from api.tasks import router as tasks_router
 from api.users import router as users_router
 from core.config import settings
@@ -98,5 +99,6 @@ async def health_check():
 app.include_router(auth_router)
 app.include_router(users_router)
 app.include_router(tasks_router)
+app.include_router(internal_tasks_router)
 app.include_router(devices_router)
 app.include_router(dashboard_router)

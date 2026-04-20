@@ -27,6 +27,8 @@ class Settings(BaseSettings):
     JWT_EXPIRE_MINUTES: int = 120
 
     ALLOWED_ORIGINS: str = "http://localhost:5173,http://127.0.0.1:5173"
+    BACKEND_IMPORT_USER_ID: str = ""
+    BACKEND_IMPORT_USERNAME: str = "yahong"
 
     PLAN_AGENT_BASE_URL: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     PLAN_AGENT_MODEL: str = "qwen3-vl-235b-a22b-instruct"

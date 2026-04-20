@@ -7,6 +7,7 @@ from datetime import timedelta
 from pathlib import Path
 from typing import Optional
 from urllib.parse import quote, unquote, urlparse
+from urllib.request import Request, urlopen
 
 from minio import Minio
 
@@ -68,6 +69,20 @@ class StorageService:
             return raw_path.split("/", 1)[1]
         return raw_path
 
+    def _download_http_to_temp(self, url: str) -> str:
+        parsed = urlparse(url)
+        file_name = os.path.basename(unquote(parsed.path or "")) or "download.bin"
+        temp_dir = tempfile.mkdtemp(prefix="fraud_app_")
+        target_path = os.path.join(temp_dir, file_name)
+        request = Request(url, method="GET")
+        with urlopen(request, timeout=120) as response, open(target_path, "wb") as target_file:
+            while True:
+                chunk = response.read(1024 * 1024)
+                if not chunk:
+                    break
+                target_file.write(chunk)
+        return target_path
+
     def get_download_url(self, object_ref: str | None, bucket: Optional[str] = None) -> str | None:
         raw = str(object_ref or "").strip()
         if not raw:
@@ -115,6 +130,8 @@ class StorageService:
         )
 
     def download_to_temp(self, object_name: str, bucket: Optional[str] = None) -> str:
+        if self._is_http_url(object_name):
+            return self._download_http_to_temp(object_name)
         target_bucket = bucket or self.bucket_name
         normalized_object_name = self.parse_object_name(object_name, bucket=target_bucket)
         temp_dir = tempfile.mkdtemp(prefix="fraud_app_")
@@ -123,6 +140,10 @@ class StorageService:
         return target_path
 
     def get_object_bytes(self, object_name: str, bucket: Optional[str] = None) -> bytes:
+        if self._is_http_url(object_name):
+            request = Request(object_name, method="GET")
+            with urlopen(request, timeout=120) as response:
+                return response.read()
         target_bucket = bucket or self.bucket_name
         normalized_object_name = self.parse_object_name(object_name, bucket=target_bucket)
         response = self.client.get_object(target_bucket, normalized_object_name)

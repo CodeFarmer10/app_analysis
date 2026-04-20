@@ -5,6 +5,7 @@ from core.response import success_response
 from core.security import get_current_user
 from schemas.task import TaskListResponse, TaskStatusResponse, UrlSubmitRequest
 from services.task_service import (
+    assert_task_access,
     create_upload_tasks,
     get_task_dynamic_result,
     get_task_file_download_url,
@@ -71,7 +72,8 @@ async def list_task_items(
     size: int = Query(default=20, ge=1, le=100),
     current_user: dict = Depends(get_current_user),
 ):
-    _ = current_user
+    current_role = str(current_user.get("role") or "").strip().lower()
+    owner_user_id = None if current_role == "admin" else current_user.get("id")
     filters = {
         "md5": md5,
         "name": name,
@@ -80,6 +82,7 @@ async def list_task_items(
         "status": status,
         "start": parse_datetime_filter(start, "start"),
         "end": parse_datetime_filter(end, "end"),
+        "owner_user_id": owner_user_id,
     }
     items, total, normalized_page, normalized_size = get_task_list(filters, page, size)
     data = TaskListResponse(
@@ -93,13 +96,13 @@ async def list_task_items(
 
 @router.get("/{task_id}")
 async def get_task(task_id: str, current_user: dict = Depends(get_current_user)):
-    _ = current_user
+    assert_task_access(task_id, current_user)
     return success_response(get_task_detail(task_id))
 
 
 @router.get("/{task_id}/status")
 async def get_task_current_status(task_id: str, current_user: dict = Depends(get_current_user)):
-    _ = current_user
+    assert_task_access(task_id, current_user)
     data = TaskStatusResponse(**get_task_status(task_id)).model_dump()
     return success_response(data)
 
@@ -111,7 +114,7 @@ async def get_task_dynamic(
     dynamic_size: int = Query(default=20, ge=1, le=200),
     current_user: dict = Depends(get_current_user),
 ):
-    _ = current_user
+    assert_task_access(task_id, current_user)
     return success_response(
         get_task_dynamic_result(
             task_id=task_id,
@@ -127,30 +130,30 @@ async def redirect_task_screenshot(
     seq: int,
     current_user: dict = Depends(get_current_user),
 ):
-    _ = current_user
+    assert_task_access(task_id, current_user)
     url = get_task_screenshot_redirect_url(task_id, seq)
     return RedirectResponse(url=url, status_code=302)
 
 
 @router.get("/{task_id}/static")
 async def get_task_static(task_id: str, current_user: dict = Depends(get_current_user)):
-    _ = current_user
+    assert_task_access(task_id, current_user)
     return success_response(get_task_static_result(task_id))
 
 
 @router.get("/{task_id}/apk")
 async def get_task_apk_download(task_id: str, current_user: dict = Depends(get_current_user)):
-    _ = current_user
+    assert_task_access(task_id, current_user)
     return success_response(get_task_file_download_url(task_id, "apk"))
 
 
 @router.get("/{task_id}/report")
 async def get_task_report_download(task_id: str, current_user: dict = Depends(get_current_user)):
-    _ = current_user
+    assert_task_access(task_id, current_user)
     return success_response(get_task_file_download_url(task_id, "report"))
 
 
 @router.get("/{task_id}/pcap")
 async def get_task_pcap_download(task_id: str, current_user: dict = Depends(get_current_user)):
-    _ = current_user
+    assert_task_access(task_id, current_user)
     return success_response(get_task_file_download_url(task_id, "pcap"))
