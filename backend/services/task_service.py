@@ -189,12 +189,13 @@ def create_upload_tasks(
                 }
             )
 
-            object_path = storage_service.build_task_object_name(task_id, "apk", f"{file_md5}.apk")
-            storage_service.upload_file(object_name=object_path, file_path=temp_path)
+            object_name = storage_service.build_task_object_name(task_id, "apk", f"{file_md5}.apk")
+            storage_service.upload_file(object_name=object_name, file_path=temp_path)
+            object_url = storage_service.build_object_url(object_name)
             update_task(
                 task_id,
                 {
-                    "apk_path": object_path,
+                    "apk_path": object_url,
                     "file_md5": file_md5,
                     "file_size": file_size,
                     "error_message": None,
@@ -323,7 +324,7 @@ def get_task_list(
         row["icon_url"] = None
         if icon_path:
             try:
-                row["icon_url"] = storage_service.get_presigned_url(icon_path)
+                row["icon_url"] = storage_service.get_download_url(icon_path)
             except Exception as exc:  # pragma: no cover - depends on storage runtime
                 logger.warning(
                     "build task list icon url failed task_id=%s: %s",
@@ -391,7 +392,7 @@ def get_task_static_result(task_id: str) -> dict[str, Any]:
     icon_url = None
     if icon_path:
         try:
-            icon_url = storage_service.get_presigned_url(icon_path)
+            icon_url = storage_service.get_download_url(icon_path)
         except Exception as exc:  # pragma: no cover - depends on storage runtime
             logger.warning("build icon url failed for task_id=%s: %s", task_id, exc)
 
@@ -468,14 +469,14 @@ def get_task_dynamic_result(
         after_path = item.get("screenshot_after")
         try:
             item["screenshot_before_url"] = (
-                storage_service.get_presigned_url(before_path) if before_path else None
+                storage_service.get_download_url(before_path) if before_path else None
             )
         except Exception as exc:  # pragma: no cover - depends on storage runtime
             logger.warning("build screenshot_before url failed task_id=%s seq=%s: %s", task_id, item.get("seq"), exc)
             item["screenshot_before_url"] = None
         try:
             item["screenshot_after_url"] = (
-                storage_service.get_presigned_url(after_path) if after_path else None
+                storage_service.get_download_url(after_path) if after_path else None
             )
         except Exception as exc:  # pragma: no cover - depends on storage runtime
             logger.warning("build screenshot_after url failed task_id=%s seq=%s: %s", task_id, item.get("seq"), exc)
@@ -516,7 +517,10 @@ def get_task_screenshot_redirect_url(task_id: str, seq: int) -> str:
             detail="截图不存在",
         )
     try:
-        return storage_service.get_presigned_url(screenshot_path)
+        download_url = storage_service.get_download_url(screenshot_path)
+        if not download_url:
+            raise ValueError("empty screenshot url")
+        return download_url
     except Exception as exc:  # pragma: no cover - depends on storage runtime
         logger.warning("build screenshot redirect url failed task_id=%s seq=%s: %s", task_id, seq, exc)
         raise HTTPException(
@@ -549,7 +553,9 @@ def get_task_file_download_url(task_id: str, file_type: str) -> dict[str, Any]:
         )
 
     try:
-        download_url = storage_service.get_presigned_url(object_path)
+        download_url = storage_service.get_download_url(object_path)
+        if not download_url:
+            raise ValueError("empty download url")
     except Exception as exc:  # pragma: no cover - depends on storage runtime
         logger.warning("build %s download url failed task_id=%s: %s", target_type, task_id, exc)
         raise HTTPException(

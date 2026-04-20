@@ -525,4 +525,4 @@ def generate_pdf(task_id: str) -> str:
         data=pdf_bytes,
         content_type="application/pdf",
     )
-    return object_name
+    return storage_service.build_object_url(object_name)

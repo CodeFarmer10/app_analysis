@@ -6,6 +6,7 @@ import tempfile
 from datetime import timedelta
 from pathlib import Path
 from typing import Optional
+from urllib.parse import quote, unquote, urlparse
 
 from minio import Minio
 
@@ -30,6 +31,50 @@ class StorageService:
         safe_type = file_type.strip().strip("/").replace("\\", "/")
         safe_name = os.path.basename(file_name)
         return f"{task_id}/{safe_type}/{safe_name}"
+
+    @staticmethod
+    def _is_http_url(value: str) -> bool:
+        text = (value or "").strip().lower()
+        return text.startswith("http://") or text.startswith("https://")
+
+    def _base_download_url(self) -> str:
+        endpoint = str(settings.MINIO_ENDPOINT or "").strip().rstrip("/")
+        if endpoint.startswith("http://") or endpoint.startswith("https://"):
+            return endpoint
+        scheme = "https" if settings.MINIO_SECURE else "http"
+        return f"{scheme}://{endpoint}"
+
+    def build_object_url(self, object_name: str, bucket: Optional[str] = None) -> str:
+        target_bucket = bucket or self.bucket_name
+        normalized_object = quote(str(object_name or "").strip().lstrip("/"), safe="/")
+        return f"{self._base_download_url()}/{target_bucket}/{normalized_object}"
+
+    def parse_object_name(self, object_ref: str, bucket: Optional[str] = None) -> str:
+        normalized_ref = str(object_ref or "").strip()
+        if not normalized_ref:
+            return ""
+        if not self._is_http_url(normalized_ref):
+            return normalized_ref.lstrip("/")
+
+        parsed = urlparse(normalized_ref)
+        raw_path = unquote((parsed.path or "").strip()).lstrip("/")
+        if not raw_path:
+            return ""
+        target_bucket = bucket or self.bucket_name
+        bucket_prefix = f"{target_bucket}/"
+        if raw_path.startswith(bucket_prefix):
+            return raw_path[len(bucket_prefix):]
+        if "/" in raw_path:
+            return raw_path.split("/", 1)[1]
+        return raw_path
+
+    def get_download_url(self, object_ref: str | None, bucket: Optional[str] = None) -> str | None:
+        raw = str(object_ref or "").strip()
+        if not raw:
+            return None
+        if self._is_http_url(raw):
+            return raw
+        return self.build_object_url(raw, bucket=bucket)
 
     def upload_file(self, object_name: str, file_path: str, bucket: Optional[str] = None) -> None:
         target_bucket = bucket or self.bucket_name
@@ -59,23 +104,28 @@ class StorageService:
         expires_seconds: int = 3600,
         bucket: Optional[str] = None,
     ) -> str:
+        if self._is_http_url(object_name):
+            return object_name
         target_bucket = bucket or self.bucket_name
+        normalized_object_name = self.parse_object_name(object_name, bucket=target_bucket)
         return self.client.presigned_get_object(
             bucket_name=target_bucket,
-            object_name=object_name,
+            object_name=normalized_object_name,
             expires=timedelta(seconds=expires_seconds),
         )
 
     def download_to_temp(self, object_name: str, bucket: Optional[str] = None) -> str:
         target_bucket = bucket or self.bucket_name
+        normalized_object_name = self.parse_object_name(object_name, bucket=target_bucket)
         temp_dir = tempfile.mkdtemp(prefix="fraud_app_")
-        target_path = os.path.join(temp_dir, os.path.basename(object_name) or "download.bin")
-        self.client.fget_object(target_bucket, object_name, target_path)
+        target_path = os.path.join(temp_dir, os.path.basename(normalized_object_name) or "download.bin")
+        self.client.fget_object(target_bucket, normalized_object_name, target_path)
         return target_path
 
     def get_object_bytes(self, object_name: str, bucket: Optional[str] = None) -> bytes:
         target_bucket = bucket or self.bucket_name
-        response = self.client.get_object(target_bucket, object_name)
+        normalized_object_name = self.parse_object_name(object_name, bucket=target_bucket)
+        response = self.client.get_object(target_bucket, normalized_object_name)
         try:
             return response.read()
         finally:
@@ -85,7 +135,7 @@ class StorageService:
     def upload_task_file(self, task_id: str, file_type: str, file_path: str) -> str:
         object_name = self.build_task_object_name(task_id, file_type, os.path.basename(file_path))
         self.upload_file(object_name=object_name, file_path=file_path)
-        return object_name
+        return self.build_object_url(object_name)
 
     def upload_task_bytes(
         self,
@@ -101,7 +151,7 @@ class StorageService:
             data=data,
             content_type=content_type,
         )
-        return object_name
+        return self.build_object_url(object_name)
 
 
 storage_service = StorageService()

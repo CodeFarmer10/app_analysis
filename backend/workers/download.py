@@ -131,10 +131,11 @@ def download_apk(self, task_id: str, url: str):  # pylint: disable=unused-argume
 
         object_name = storage_service.build_task_object_name(task_id, "apk", f"{file_md5}.apk")
         storage_service.upload_file(object_name=object_name, file_path=str(temp_file))
+        object_url = storage_service.build_object_url(object_name)
         update_task(
             task_id,
             {
-                "apk_path": object_name,
+                "apk_path": object_url,
                 "file_md5": file_md5,
                 "file_size": file_size,
                 "status": "static_analyzing",
