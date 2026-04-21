@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import lzma
 import logging
+import shutil
 import subprocess
+import time
 from datetime import datetime
+from pathlib import Path
 from uuid import uuid4
 
 from fastapi import HTTPException, status
 
+from phone_agent.adb.device import install_apk
 from repositories.device_repo import (
     count_in_progress_tasks,
     create_device as create_device_record,
@@ -20,6 +25,15 @@ from repositories.device_repo import (
 ADB_COMMAND_TIMEOUT_SECONDS = 10
 ADB_HEARTBEAT_TIMEOUT_SECONDS = 3
 HEARTBEAT_REFRESH_INTERVAL_SECONDS = 5 * 60
+ADB_PUSH_TIMEOUT_SECONDS = 120
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+DEVICE_BOOTSTRAP_DIR = PROJECT_ROOT / "tools" / "device_bootstrap"
+ADB_KEYBOARD_APK_PATH = DEVICE_BOOTSTRAP_DIR / "ADBKeyboard.apk"
+ADB_KEYBOARD_PACKAGE = "com.android.adbkeyboard"
+ADB_KEYBOARD_IME = "com.android.adbkeyboard/.AdbIME"
+FRIDA_SERVER_DIR = PROJECT_ROOT / "tools" / "frida"
+FRIDA_SERVER_REMOTE_PATH = "/data/local/tmp/frida-server"
+FRIDA_SERVER_START_WAIT_SECONDS = 1.0
 
 logger = logging.getLogger(__name__)
 
@@ -140,6 +154,179 @@ def _collect_device_info(serial: str) -> dict[str, str | None]:
     }
 
 
+def _is_valid_apk_file(path: Path) -> bool:
+    if not path.exists() or not path.is_file():
+        return False
+    try:
+        with path.open("rb") as file_obj:
+            magic = file_obj.read(4)
+    except OSError:
+        return False
+    return magic == b"PK\x03\x04"
+
+
+def _ensure_adb_keyboard_apk_file() -> Path:
+    if _is_valid_apk_file(ADB_KEYBOARD_APK_PATH):
+        return ADB_KEYBOARD_APK_PATH
+
+    if not ADB_KEYBOARD_APK_PATH.exists():
+        detail = f"缺少文件: {ADB_KEYBOARD_APK_PATH}"
+    else:
+        detail = f"文件格式无效: {ADB_KEYBOARD_APK_PATH}"
+    raise HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail=f"ADBKeyboard.apk 未打包或损坏，请补充本地文件后重试: {detail}",
+    )
+
+
+def _get_device_primary_abi(serial: str) -> str:
+    abi = _run_command_optional(["adb", "-s", serial, "shell", "getprop", "ro.product.cpu.abi"])
+    normalized = str(abi or "").strip().lower()
+    if normalized:
+        return normalized
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="读取设备 CPU ABI 失败，无法匹配 frida-server",
+    )
+
+
+def _frida_abi_keywords(abi: str) -> list[str]:
+    normalized = abi.lower()
+    if normalized.startswith("arm64"):
+        return ["android-arm64", "android-aarch64"]
+    if normalized.startswith("armeabi") or normalized.startswith("arm"):
+        return ["android-arm"]
+    if normalized.startswith("x86_64"):
+        return ["android-x86_64"]
+    if normalized.startswith("x86"):
+        return ["android-x86"]
+    return []
+
+
+def _decompress_xz_file(source_path: Path, target_path: Path) -> Path:
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    with lzma.open(source_path, "rb") as src, target_path.open("wb") as dst:
+        shutil.copyfileobj(src, dst)
+    return target_path
+
+
+def _resolve_frida_server_binary(serial: str) -> Path:
+    if not FRIDA_SERVER_DIR.exists():
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"frida-server 目录不存在: {FRIDA_SERVER_DIR}",
+        )
+
+    candidates = sorted(
+        path
+        for path in FRIDA_SERVER_DIR.iterdir()
+        if path.is_file() and path.name.startswith("frida-server-") and "android" in path.name
+    )
+    if not candidates:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"未找到 frida-server 文件: {FRIDA_SERVER_DIR}",
+        )
+
+    abi = _get_device_primary_abi(serial)
+    keywords = _frida_abi_keywords(abi)
+
+    def _pick(prefer_xz: bool) -> Path | None:
+        for keyword in keywords:
+            for candidate in candidates:
+                is_xz = candidate.suffix == ".xz"
+                if keyword in candidate.name and is_xz == prefer_xz:
+                    return candidate
+        return None
+
+    binary = _pick(prefer_xz=False)
+    if binary is None:
+        xz_binary = _pick(prefer_xz=True)
+        if xz_binary is not None:
+            extracted = xz_binary.with_suffix("")
+            binary = extracted if extracted.exists() else _decompress_xz_file(xz_binary, extracted)
+
+    if binary is None:
+        fallback = next((candidate for candidate in candidates if candidate.suffix != ".xz"), None)
+        if fallback is None:
+            xz_fallback = next((candidate for candidate in candidates if candidate.suffix == ".xz"), None)
+            if xz_fallback is not None:
+                extracted = xz_fallback.with_suffix("")
+                fallback = extracted if extracted.exists() else _decompress_xz_file(xz_fallback, extracted)
+        binary = fallback
+
+    if binary is None or not binary.exists():
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"未找到可用 frida-server，可用目录: {FRIDA_SERVER_DIR}",
+        )
+
+    return binary
+
+
+def _ensure_adb_keyboard_installed(serial: str) -> None:
+    apk_path = _ensure_adb_keyboard_apk_file()
+    package_path = _run_command_optional(["adb", "-s", serial, "shell", "pm", "path", ADB_KEYBOARD_PACKAGE])
+    if not package_path:
+        installed, install_msg = install_apk(str(apk_path), device_id=serial, replace_existing=True)
+        if not installed:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"安装 ADBKeyboard 失败: {install_msg}",
+            )
+
+    try:
+        _run_command(["adb", "-s", serial, "shell", "ime", "enable", ADB_KEYBOARD_IME])
+    except HTTPException as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"启用 ADBKeyboard 输入法失败: {exc.detail}",
+        ) from exc
+
+
+def _is_frida_server_running(serial: str) -> bool:
+    output = _run_command_optional(["adb", "-s", serial, "shell", "su", "-c", "pidof frida-server"])
+    return bool(str(output or "").strip())
+
+
+def _ensure_frida_server_ready(serial: str) -> None:
+    frida_binary = _resolve_frida_server_binary(serial)
+    _run_command(
+        ["adb", "-s", serial, "push", str(frida_binary), FRIDA_SERVER_REMOTE_PATH],
+        timeout=ADB_PUSH_TIMEOUT_SECONDS,
+    )
+    _run_command(
+        ["adb", "-s", serial, "shell", "su", "-c", f"chmod 755 {FRIDA_SERVER_REMOTE_PATH}"],
+    )
+    if _is_frida_server_running(serial):
+        return
+
+    _run_command(
+        [
+            "adb",
+            "-s",
+            serial,
+            "shell",
+            "su",
+            "-c",
+            f"nohup {FRIDA_SERVER_REMOTE_PATH} >/dev/null 2>&1 &",
+        ],
+    )
+    if FRIDA_SERVER_START_WAIT_SECONDS > 0:
+        time.sleep(FRIDA_SERVER_START_WAIT_SECONDS)
+
+    if not _is_frida_server_running(serial):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="frida-server 启动失败，请确认设备已 root 且 su 可用",
+        )
+
+
+def _bootstrap_device_tools(serial: str) -> None:
+    _ensure_adb_keyboard_installed(serial)
+    _ensure_frida_server_ready(serial)
+
+
 def _refresh_device_runtime(device: dict) -> dict:
     serial = str(device.get("serial") or "").strip()
     online_state = _detect_device_online(serial)
@@ -215,6 +402,7 @@ def create_new_device(serial: str, name: str | None = None) -> dict:
         )
 
     _ensure_device_reachable(normalized_serial)
+    _bootstrap_device_tools(normalized_serial)
     device_info = _collect_device_info(normalized_serial)
     normalized_name = (name or "").strip() or device_info.get("model") or normalized_serial
     device_id = str(uuid4())
