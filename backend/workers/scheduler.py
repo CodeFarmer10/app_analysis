@@ -91,7 +91,7 @@ def _allocate_one_task_device_pair() -> tuple[str, str] | None:
                     SELECT id
                     FROM tasks
                     WHERE status = 'waiting_device'
-                    ORDER BY COALESCE(priority, 0) DESC, created_at ASC
+                    ORDER BY COALESCE(priority, 1000000) ASC, created_at ASC
                     LIMIT 1
                     FOR UPDATE
                     """

@@ -32,9 +32,15 @@ async def tasks_ping(current_user: dict = Depends(get_current_user)):
 async def upload_tasks(
     files: list[UploadFile] = File(...),
     task_description: str = Form(default=""),
+    priority: int = Form(default=1, ge=1, le=1_000_000),
     current_user: dict = Depends(get_current_user),
 ):
-    batch_id, results = create_upload_tasks(files, current_user["id"], task_description=task_description)
+    batch_id, results = create_upload_tasks(
+        files,
+        current_user["id"],
+        task_description=task_description,
+        priority=priority,
+    )
     return success_response({"batch_id": batch_id, "items": results, "total": len(results)})
 
 
@@ -47,6 +53,7 @@ async def submit_task_urls(
         payload.urls,
         current_user["id"],
         task_description=payload.task_description,
+        priority=payload.priority,
     )
     task_ids = [item["task_id"] for item in results if item.get("success")]
     return success_response(

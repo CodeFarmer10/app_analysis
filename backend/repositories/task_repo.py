@@ -31,7 +31,7 @@ def create_task(data: dict[str, Any]) -> str:
             data["id"],
             data.get("batch_id"),
             data.get("task_description"),
-            int(data.get("priority", 100)),
+            int(data.get("priority", 1)),
             data["source_type"],
             data["source_name"],
             data.get("user_id"),
@@ -207,7 +207,7 @@ def list_tasks(filters: dict[str, Any], page: int, size: int) -> tuple[list[dict
         LEFT JOIN static_results sr ON sr.task_id = t.id
         LEFT JOIN devices d ON d.id = t.device_id
         WHERE {where_sql}
-        ORDER BY t.priority DESC, t.created_at DESC
+        ORDER BY COALESCE(t.priority, 1000000) ASC, t.created_at DESC
         LIMIT %s OFFSET %s
     """
     items = fetch_all(list_sql, tuple([*params, size, offset]))

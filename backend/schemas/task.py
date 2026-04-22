@@ -8,11 +8,12 @@ from pydantic import BaseModel, Field, field_validator
 class UrlSubmitRequest(BaseModel):
     urls: list[str] = Field(..., min_length=1, max_length=100)
     task_description: str = Field(default="", max_length=255)
+    priority: int = Field(default=1, ge=1, le=1_000_000)
 
 
 class BackendImportItem(BaseModel):
     minio_download_url: str = Field(..., min_length=1, max_length=512)
-    priority: int = Field(default=100, ge=1, le=1_000_000)
+    priority: int = Field(default=1, ge=1, le=1_000_000)
     source_desc: str = Field(default="", max_length=255)
     md5: str = Field(..., min_length=32, max_length=32)
     file_size: int = Field(..., gt=0)
@@ -56,7 +57,7 @@ class TaskListItem(BaseModel):
     id: str
     batch_id: str | None = None
     task_description: str | None = None
-    priority: int = 100
+    priority: int = 1
     source_type: str
     source_name: str
     app_name: str | None = None

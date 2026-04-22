@@ -39,7 +39,8 @@ from workers.static_analysis import analyze_apk
 logger = logging.getLogger(__name__)
 
 MAX_APK_SIZE = 500 * 1024 * 1024
-TASK_PRIORITY_HIGHEST = 100
+TASK_PRIORITY_HIGHEST = 1
+TASK_PRIORITY_LOWEST = 1_000_000
 STATIC_READY_STATUSES = {"waiting_device", "dynamic_tracing", "dynamic_failed", "completed"}
 DYNAMIC_READY_STATUSES = {"dynamic_tracing", "dynamic_failed", "completed"}
 DOWNLOAD_FIELD_MAP = {
@@ -133,6 +134,26 @@ def _normalize_task_description(task_description: str | None) -> str:
     return normalized[:255]
 
 
+def _normalize_task_priority(priority: int | None) -> int:
+    if priority is None:
+        return TASK_PRIORITY_HIGHEST
+
+    try:
+        normalized = int(priority)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="优先级必须是整数",
+        ) from exc
+
+    if normalized < TASK_PRIORITY_HIGHEST or normalized > TASK_PRIORITY_LOWEST:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"优先级必须在 {TASK_PRIORITY_HIGHEST}-{TASK_PRIORITY_LOWEST} 之间",
+        )
+    return normalized
+
+
 def _resolve_backend_import_user_id() -> str:
     preferred_user_id = str(settings.BACKEND_IMPORT_USER_ID or "").strip()
     if preferred_user_id:
@@ -165,6 +186,7 @@ def create_upload_tasks(
     files: list[UploadFile],
     user_id: str,
     task_description: str | None = None,
+    priority: int | None = None,
 ) -> tuple[str, list[dict[str, Any]]]:
     if not files:
         raise HTTPException(
@@ -174,6 +196,7 @@ def create_upload_tasks(
 
     batch_id = str(uuid4())
     normalized_description = _normalize_task_description(task_description)
+    normalized_priority = _normalize_task_priority(priority)
     results: list[dict[str, Any]] = []
     seen_file_md5: set[str] = set()
 
@@ -211,7 +234,7 @@ def create_upload_tasks(
                     "id": task_id,
                     "batch_id": batch_id,
                     "task_description": normalized_description or None,
-                    "priority": TASK_PRIORITY_HIGHEST,
+                    "priority": normalized_priority,
                     "source_type": "apk_upload",
                     "source_name": filename,
                     "user_id": user_id,
@@ -271,9 +294,11 @@ def create_url_tasks(
     urls: list[str],
     user_id: str,
     task_description: str | None = None,
+    priority: int | None = None,
 ) -> tuple[str, list[dict[str, Any]]]:
     batch_id = str(uuid4())
     normalized_description = _normalize_task_description(task_description)
+    normalized_priority = _normalize_task_priority(priority)
     results: list[dict[str, Any]] = []
     seen_urls: set[str] = set()
 
@@ -306,7 +331,7 @@ def create_url_tasks(
                 "id": task_id,
                 "batch_id": batch_id,
                 "task_description": normalized_description or None,
-                "priority": TASK_PRIORITY_HIGHEST,
+                "priority": normalized_priority,
                 "source_type": "url_download",
                 "source_name": source,
                 "user_id": user_id,
@@ -360,7 +385,7 @@ def create_backend_import_tasks(
                     "id": task_id,
                     "batch_id": batch_id,
                     "task_description": task_description or None,
-                    "priority": int(item.get("priority", TASK_PRIORITY_HIGHEST)),
+                    "priority": _normalize_task_priority(item.get("priority", TASK_PRIORITY_HIGHEST)),
                     "source_type": "url_download",
                     "source_name": source_url,
                     "user_id": backend_user_id,

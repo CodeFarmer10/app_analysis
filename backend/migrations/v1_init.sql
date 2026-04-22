@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   id VARCHAR(36) PRIMARY KEY,
   batch_id VARCHAR(36) NULL,
   task_description VARCHAR(255) NULL,
-  priority INT NOT NULL DEFAULT 100,
+  priority INT NOT NULL DEFAULT 1,
   source_type ENUM('apk_upload', 'url_download') NOT NULL,
   source_name VARCHAR(512) NOT NULL,
   user_id VARCHAR(36) NULL,
@@ -357,7 +357,7 @@ SET @tasks_priority_col := (
 );
 SET @sql_tasks_priority_col := IF(
   @tasks_priority_col = 0,
-  'ALTER TABLE tasks ADD COLUMN priority INT NOT NULL DEFAULT 100 AFTER task_description',
+  'ALTER TABLE tasks ADD COLUMN priority INT NOT NULL DEFAULT 1 AFTER task_description',
   'SELECT 1'
 );
 PREPARE stmt_tasks_priority_col FROM @sql_tasks_priority_col;

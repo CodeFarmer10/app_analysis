@@ -1,6 +1,14 @@
 import request from './request'
 
-export function uploadTaskFiles(files, taskDescription = '') {
+function normalizeTaskPriority(priority) {
+  const parsed = Number.parseInt(priority, 10)
+  if (!Number.isFinite(parsed) || parsed < 1) {
+    return 1
+  }
+  return parsed
+}
+
+export function uploadTaskFiles(files, taskDescription = '', priority = 1) {
   const formData = new FormData()
   files.forEach((file) => {
     const rawFile = file?.originFileObj || file
@@ -11,6 +19,7 @@ export function uploadTaskFiles(files, taskDescription = '') {
     formData.append('files', rawFile, filename)
   })
   formData.append('task_description', String(taskDescription || '').trim())
+  formData.append('priority', String(normalizeTaskPriority(priority)))
   return request.post('/tasks/upload', formData, {
     headers: {
       'Content-Type': 'multipart/form-data',
@@ -18,10 +27,11 @@ export function uploadTaskFiles(files, taskDescription = '') {
   })
 }
 
-export function submitTaskUrls(urls, taskDescription = '') {
+export function submitTaskUrls(urls, taskDescription = '', priority = 1) {
   return request.post('/tasks/url', {
     urls,
     task_description: String(taskDescription || '').trim(),
+    priority: normalizeTaskPriority(priority),
   })
 }
 
