@@ -67,6 +67,7 @@ class TrafficParser:
         'tcp.dstport',                   # TCP destination port
         'udp.dstport',                   # UDP destination port
         '_ws.col.Protocol',              # Protocol column
+        'frame.protocols',               # Protocol stack
         'http.host',                     # HTTP Host header
         'tls.handshake.extensions_server_name',  # TLS SNI
         'http.request.full_uri',        # Full HTTP URI
@@ -202,7 +203,11 @@ class TrafficParser:
         timestamp_str = row.get('frame.time_epoch', '0')
         src_ip = row.get('ip.src')
         dst_ip = row.get('ip.dst')
-        protocol = row.get('_ws.col.protocol')
+        protocol = (row.get('_ws.col.Protocol') or row.get('_ws.col.protocol') or '').strip()
+        if not protocol:
+            protocol_stack = (row.get('frame.protocols') or '').strip()
+            if protocol_stack:
+                protocol = protocol_stack.split(':')[-1].upper()
 
         # Skip rows without basic info
         if not src_ip or not dst_ip:

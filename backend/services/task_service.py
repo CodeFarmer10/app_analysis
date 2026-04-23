@@ -120,6 +120,7 @@ def _dispatch_static_analysis(task_id: str) -> None:
         analyze_apk.delay(task_id)
     except Exception as exc:
         logger.warning("dispatch static task failed for task_id=%s: %s", task_id, exc)
+        raise RuntimeError("静态分析任务投递失败") from exc
 
 
 def _dispatch_download(task_id: str, url: str) -> None:
@@ -127,6 +128,7 @@ def _dispatch_download(task_id: str, url: str) -> None:
         download_apk.delay(task_id, url)
     except Exception as exc:
         logger.warning("dispatch download task failed for task_id=%s: %s", task_id, exc)
+        raise RuntimeError("下载任务投递失败") from exc
 
 
 def _normalize_task_description(task_description: str | None) -> str:
@@ -254,7 +256,17 @@ def create_upload_tasks(
                     "error_message": None,
                 },
             )
-            _dispatch_static_analysis(task_id)
+            try:
+                _dispatch_static_analysis(task_id)
+            except Exception:
+                update_task(
+                    task_id,
+                    {
+                        "status": "static_failed",
+                        "error_message": "静态分析任务投递失败，请稍后重试",
+                    },
+                )
+                raise
 
             results.append(
                 {
@@ -338,7 +350,26 @@ def create_url_tasks(
                 "status": "downloading",
             }
         )
-        _dispatch_download(task_id, source)
+        try:
+            _dispatch_download(task_id, source)
+        except Exception:
+            update_task(
+                task_id,
+                {
+                    "status": "download_failed",
+                    "error_message": "下载任务投递失败，请稍后重试",
+                },
+            )
+            results.append(
+                {
+                    "url": source,
+                    "success": False,
+                    "task_id": task_id,
+                    "status": "download_failed",
+                    "reason": "下载任务投递失败，请稍后重试",
+                }
+            )
+            continue
         results.append(
             {
                 "url": source,
@@ -396,7 +427,17 @@ def create_backend_import_tasks(
                     "error_message": None,
                 }
             )
-            _dispatch_static_analysis(task_id)
+            try:
+                _dispatch_static_analysis(task_id)
+            except Exception:
+                update_task(
+                    task_id,
+                    {
+                        "status": "static_failed",
+                        "error_message": "静态分析任务投递失败，请稍后重试",
+                    },
+                )
+                raise
             results.append(
                 {
                     "source_name": source_url,

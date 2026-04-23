@@ -1,14 +1,20 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import re
 import shutil
 import subprocess
 import zipfile
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
 
 from androguard.core.apk import APK
+try:
+    from apkInspector.axml import parse_apk_for_manifest
+except Exception:  # pragma: no cover - optional runtime dependency behavior
+    parse_apk_for_manifest = None
 
 try:
     from loguru import logger as loguru_logger
@@ -16,6 +22,8 @@ try:
     loguru_logger.disable("androguard")
 except Exception:  # pragma: no cover - optional runtime dependency behavior
     pass
+
+logger = logging.getLogger(__name__)
 
 
 ANDROID_DANGEROUS_PERMISSIONS = {
@@ -689,10 +697,82 @@ def _merge_result(base: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]
 
 
 def _has_core_fields(parsed: dict[str, Any]) -> bool:
-    has_base = bool(parsed.get("app_name")) and bool(parsed.get("package_name"))
-    has_permissions = bool(parsed.get("permissions"))
-    has_components = bool(parsed.get("activities") or parsed.get("services") or parsed.get("providers"))
-    return has_base and has_permissions and has_components
+    return bool(parsed.get("app_name")) and bool(parsed.get("package_name"))
+
+
+def _normalize_component_name(name: str | None, package_name: str | None) -> str | None:
+    text = str(name or "").strip()
+    if not text:
+        return None
+    package = str(package_name or "").strip()
+    if text.startswith(".") and package:
+        return f"{package}{text}"
+    return text
+
+
+def _parse_manifest_with_apkinspector(apk_path: str, package_name: str | None) -> dict[str, Any]:
+    if parse_apk_for_manifest is None:
+        return {}
+
+    manifest_xml = parse_apk_for_manifest(apk_path)
+    root = ET.fromstring(manifest_xml)
+    android_ns = "{http://schemas.android.com/apk/res/android}"
+    manifest_package = str(root.attrib.get("package") or "").strip() or None
+    effective_package = manifest_package or package_name
+    app_name = None
+    application_node = root.find("application")
+    if application_node is not None:
+        app_name = str(application_node.attrib.get(f"{android_ns}label") or "").strip() or None
+
+    permission_names: list[str] = []
+    activity_names: list[str] = []
+    service_names: list[str] = []
+    provider_names: list[str] = []
+    receiver_names: list[str] = []
+    library_names: list[str] = []
+    feature_names: list[str] = []
+    declared_permission_names: list[str] = []
+
+    for node in root.iter():
+        tag = str(node.tag).split("}", 1)[-1]
+        name = _normalize_component_name(node.attrib.get(f"{android_ns}name"), effective_package)
+        if tag == "uses-permission":
+            if name:
+                permission_names.append(name)
+        elif tag in {"activity", "activity-alias"}:
+            if name:
+                activity_names.append(name)
+        elif tag == "service":
+            if name:
+                service_names.append(name)
+        elif tag == "provider":
+            if name:
+                provider_names.append(name)
+        elif tag == "receiver":
+            if name:
+                receiver_names.append(name)
+        elif tag == "uses-library":
+            if name:
+                library_names.append(name)
+        elif tag == "uses-feature":
+            if name:
+                feature_names.append(name)
+        elif tag == "permission":
+            if name:
+                declared_permission_names.append(name)
+
+    return {
+        "app_name": app_name,
+        "package_name": effective_package,
+        "permissions": _build_permissions(permission_names),
+        "activities": _build_activities(activity_names, set()),
+        "services": sorted(set(service_names)),
+        "providers": sorted(set(provider_names)),
+        "_receivers": sorted(set(receiver_names)),
+        "_libraries": sorted(set(library_names)),
+        "_features": sorted(set(feature_names)),
+        "_declared_permissions": sorted(set(declared_permission_names)),
+    }
 
 
 def _build_component_fingerprint(
@@ -763,7 +843,19 @@ def parse_apk(apk_path: str) -> dict[str, Any]:
             pass
 
     if not _has_core_fields(result):
-        result = _merge_result(result, _parse_with_androguard(str(path)))
+        try:
+            result = _merge_result(result, _parse_with_androguard(str(path)))
+        except Exception as exc:
+            logger.warning("androguard parse failed for %s: %s", path, exc)
+    if not _has_core_fields(result):
+        try:
+            apkinspector_result = _parse_manifest_with_apkinspector(str(path), result.get("package_name"))
+            result = _merge_result(result, apkinspector_result)
+        except Exception as fallback_exc:
+            logger.warning("apkinspector parse failed for %s: %s", path, fallback_exc)
+
+    if not result.get("app_name") and result.get("package_name"):
+        result["app_name"] = str(result.get("package_name"))
 
     component_string, component_md5 = _build_component_fingerprint(
         result.get("package_name"),

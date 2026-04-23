@@ -117,6 +117,7 @@ class PlanAgent:
         self._context: list[dict[str, Any]] = []
         self._execution_results: list[PlanResult] = []
         self._step_count = 0
+        self._launch_retry_used = False
         self.frida_helper: FridaHelper | None = None
 
     def run(self,package: str, task: str) -> str:
@@ -133,6 +134,7 @@ class PlanAgent:
         self._step_count = 0
         self._current_plan = ""
         self._execution_results = []
+        self._launch_retry_used = False
         if not os.path.exists(self.plan_agent_config.result_dir):
             os.makedirs(self.plan_agent_config.result_dir, exist_ok=True)
         device_factory = get_device_factory()
@@ -144,6 +146,7 @@ class PlanAgent:
         if self.frida_helper and self.frida_helper.mode == "spawn":
             launch_handled_by_frida = self.frida_helper.start(package)
         if not launch_handled_by_frida:
+            device_factory.home(self.plan_agent_config.device_id)
             device_factory.launch_app_by_package(package, self.plan_agent_config.device_id)
         plan_result.successed=True
         self.traffic_capture.package_name=package
@@ -200,10 +203,26 @@ class PlanAgent:
         device_factory = get_device_factory()
         screenshot = device_factory.get_screenshot(self.plan_agent_config.device_id, self.plan_agent_config.result_dir)
         current_app = device_factory.get_current_app(self.plan_agent_config.device_id)
-        if current_app != package and not self._is_system_dialog_or_permission_app(current_app):
-            self._execution_results[-1].successed=False
-            self._execution_results[-1].message=f"APP闪退"
-            return self._execution_results[-1]
+        if self._is_system_launcher_app(current_app):
+            if not self._launch_retry_used:
+                self._launch_retry_used = True
+                device_factory.home(self.plan_agent_config.device_id)
+                device_factory.launch_app_by_package(package, self.plan_agent_config.device_id)
+                screenshot = device_factory.get_screenshot(
+                    self.plan_agent_config.device_id,
+                    self.plan_agent_config.result_dir,
+                )
+                current_app = device_factory.get_current_app(self.plan_agent_config.device_id)
+                if not self._is_system_launcher_app(current_app):
+                    pass
+                else:
+                    self._execution_results[-1].successed=False
+                    self._execution_results[-1].message=f"APP闪退"
+                    return self._execution_results[-1]
+            else:
+                self._execution_results[-1].successed=False
+                self._execution_results[-1].message=f"APP闪退"
+                return self._execution_results[-1]
         
         plan_result=PlanResult() 
         self._execution_results.append(plan_result)
@@ -325,6 +344,40 @@ class PlanAgent:
         )
         return any(keyword in normalized for keyword in keyword_matches)
 
+    @staticmethod
+    def _is_system_launcher_app(package_name: str | None) -> bool:
+        if not package_name:
+            return False
+        normalized = str(package_name).strip().lower()
+        if not normalized:
+            return False
+
+        exact_matches = {
+            "com.android.launcher",
+            "com.android.launcher2",
+            "com.android.launcher3",
+            "com.google.android.apps.nexuslauncher",
+            "com.miui.home",
+            "com.huawei.android.launcher",
+            "com.oppo.launcher",
+            "com.coloros.launcher",
+            "com.vivo.launcher",
+            "com.transsion.itel.launcher",
+            "com.transsion.infinix.launcher",
+            "com.transsion.phoenix",
+            "com.samsung.android.app.launcher",
+            "net.oneplus.launcher",
+            "org.nova.launcher",
+        }
+        if normalized in exact_matches:
+            return True
+
+        keyword_matches = (
+            "launcher",
+            ".home",
+        )
+        return any(keyword in normalized for keyword in keyword_matches)
+
     @property
     def context(self) -> list[dict[str, Any]]:
         """Get the current conversation context."""
@@ -382,6 +435,7 @@ class PlanAgent:
 
     def _build_frida_helper(self) -> FridaHelper | None:
         helper_config = FridaHelperConfig(
+            enabled=False,
             mode="spawn",
             result_dir=self.plan_agent_config.result_dir,
         )

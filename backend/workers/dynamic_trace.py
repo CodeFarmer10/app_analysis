@@ -477,6 +477,17 @@ def _parse_operation_results(
     return dynamic_rows, traffic_rows, frida_rows
 
 
+def _raise_if_launch_crash(dynamic_rows: list[dict]) -> None:
+    if not dynamic_rows:
+        return
+    first_row = dynamic_rows[0]
+    action = str(first_row.get("action") or "").strip()
+    action_result = str(first_row.get("action_result") or "").strip()
+    is_success = int(first_row.get("is_success") or 0)
+    if action == "打开应用" and is_success == 0 and "APP闪退" in action_result:
+        raise RuntimeError("打开应用闪退")
+
+
 def _upload_trace_files(task_id: str, result_dir: Path) -> tuple[str | None, str | None]:
     """上传动态流程产物文件并返回关键对象路径。"""
     _upload_result_file(task_id, "dynamic", result_dir / "operation_results.json")
@@ -585,6 +596,7 @@ def trace_task(task_id: str, device_id: str):
 
         operation_results = _load_operation_results(result_dir)
         dynamic_rows, traffic_rows, frida_rows = _parse_operation_results(task_id, operation_results, result_dir)
+        _raise_if_launch_crash(dynamic_rows)
         tagging_result, matched_traffic_count = run_real_controller_tagging(
             operation_results=operation_results,
             traffic_rows=traffic_rows,
