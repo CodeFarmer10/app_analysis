@@ -8,6 +8,7 @@ import mimetypes
 import shutil
 import subprocess
 import tempfile
+import time
 from collections import Counter, defaultdict
 from datetime import datetime
 from html import escape
@@ -414,36 +415,79 @@ def _build_pdf_with_headless_browser(rendered_html: str) -> bytes:
         temp_root = Path(temp_dir)
         html_path = temp_root / "report.html"
         pdf_path = temp_root / "report.pdf"
+        user_data_dir = temp_root / "chrome-profile"
         html_path.write_text(rendered_html, encoding="utf-8")
 
         cmd = [
             browser_path,
             "--headless=new",
             "--disable-gpu",
+            "--disable-dev-shm-usage",
+            "--disable-background-networking",
+            "--disable-component-update",
+            "--disable-default-apps",
+            "--disable-sync",
+            "--metrics-recording-only",
+            "--mute-audio",
             "--no-first-run",
             "--no-default-browser-check",
             "--allow-file-access-from-files",
             "--run-all-compositor-stages-before-draw",
             "--virtual-time-budget=2000",
+            f"--user-data-dir={user_data_dir}",
             f"--print-to-pdf={pdf_path}",
             "--no-pdf-header-footer",
             html_path.resolve().as_uri(),
         ]
-        completed = subprocess.run(
+        process = subprocess.Popen(
             cmd,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
             encoding="utf-8",
             errors="replace",
-            check=False,
-            timeout=120,
         )
-        if completed.returncode != 0:
-            error_text = (completed.stderr or completed.stdout or "").strip()
-            raise RuntimeError(f"headless browser print failed: {error_text or completed.returncode}")
-        if not pdf_path.exists():
-            raise RuntimeError("headless browser print failed: PDF 文件未生成")
-        return pdf_path.read_bytes()
+        stable_rounds = 0
+        previous_size = -1
+        max_rounds = 120
+        try:
+            for _ in range(max_rounds):
+                if pdf_path.exists():
+                    current_size = pdf_path.stat().st_size
+                    if current_size > 0 and current_size == previous_size:
+                        stable_rounds += 1
+                    else:
+                        stable_rounds = 0
+                    previous_size = current_size
+                    if stable_rounds >= 2:
+                        break
+                if process.poll() is not None:
+                    break
+                time.sleep(1)
+
+            if pdf_path.exists() and pdf_path.stat().st_size > 0:
+                try:
+                    process.terminate()
+                except Exception:
+                    pass
+                try:
+                    process.wait(timeout=5)
+                except Exception:
+                    try:
+                        process.kill()
+                    except Exception:
+                        pass
+                return pdf_path.read_bytes()
+
+            stdout_text, stderr_text = process.communicate(timeout=5)
+            error_text = (stderr_text or stdout_text or "").strip()
+            raise RuntimeError(f"headless browser print failed: {error_text or 'PDF 文件未生成'}")
+        finally:
+            if process.poll() is None:
+                try:
+                    process.kill()
+                except Exception:
+                    pass
 
 
 def _build_pdf_with_reportlab(context: dict[str, Any]) -> bytes:
@@ -455,7 +499,6 @@ def _build_pdf_with_reportlab(context: dict[str, Any]) -> bytes:
     from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
     from reportlab.pdfbase import pdfmetrics
     from reportlab.pdfbase.cidfonts import UnicodeCIDFont
-    from reportlab.pdfbase.ttfonts import TTFont
 
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -497,25 +540,12 @@ def _build_pdf_with_reportlab(context: dict[str, Any]) -> bytes:
 
     font_name = "Helvetica"
     heading_font_name = "Helvetica-Bold"
-    for regular_name, regular_path, regular_index, bold_name, bold_path, bold_index in [
-        ("SystemChineseRegular", "/System/Library/Fonts/STHeiti Light.ttc", 0, "SystemChineseBold", "/System/Library/Fonts/STHeiti Medium.ttc", 0),
-        ("SystemSongtiRegular", "/System/Library/Fonts/Supplemental/Songti.ttc", 0, "SystemSongtiBold", "/System/Library/Fonts/Supplemental/Songti.ttc", 1),
-    ]:
-        try:
-            pdfmetrics.registerFont(TTFont(regular_name, regular_path, subfontIndex=regular_index))
-            pdfmetrics.registerFont(TTFont(bold_name, bold_path, subfontIndex=bold_index))
-            font_name = regular_name
-            heading_font_name = bold_name
-            break
-        except Exception:  # pragma: no cover - runtime dependent
-            continue
     try:
-        if font_name == "Helvetica":
-            pdfmetrics.registerFont(UnicodeCIDFont("STSong-Light"))
-            font_name = "STSong-Light"
-            heading_font_name = "STSong-Light"
-    except Exception:  # pragma: no cover - runtime dependent
-        pass
+        pdfmetrics.registerFont(UnicodeCIDFont("STSong-Light"))
+        font_name = "STSong-Light"
+        heading_font_name = "STSong-Light"
+    except Exception as exc:  # pragma: no cover - runtime dependent
+        logger.warning("register reportlab cid font failed, fallback to Helvetica: %s", exc)
 
     for style in (body_style, small_style, meta_style):
         style.fontName = font_name
@@ -771,19 +801,10 @@ def _build_pdf_with_reportlab(context: dict[str, Any]) -> bytes:
 def generate_pdf(task_id: str) -> str:
     context = _build_report_context(task_id)
     rendered_html = _render_report_html(context)
-    try:
-        pdf_bytes = _build_pdf_with_headless_browser(rendered_html)
-    except Exception as browser_exc:  # pragma: no cover - runtime dependent
-        logger.warning("headless browser unavailable, fallback to weasyprint: %s", browser_exc)
-        try:
-            from weasyprint import HTML  # 延迟导入，避免运行环境缺少系统库时影响服务启动
+    pdf_bytes = _build_pdf_with_headless_browser(rendered_html)
 
-            pdf_bytes = HTML(string=rendered_html, base_url=str(TEMPLATE_DIR)).write_pdf()
-        except Exception as exc:  # pragma: no cover - runtime dependent
-            logger.warning("weasyprint unavailable, fallback to reportlab: %s", exc)
-            pdf_bytes = _build_pdf_with_reportlab(context)
-
-    object_name = storage_service.build_task_object_name(task_id, "report", f"{task_id}.pdf")
+    timestamp = datetime.now().strftime("%Y%m%d%H%M%S") + f"{int(time.time() * 1000) % 1000:03d}"
+    object_name = storage_service.build_task_object_name(task_id, "report", f"{task_id}-{timestamp}.pdf")
     storage_service.upload_bytes(
         object_name=object_name,
         data=pdf_bytes,
