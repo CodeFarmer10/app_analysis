@@ -2,388 +2,1011 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8" />
-    <title>诈骗APP分析报告</title>
+    <title>APP分析报告</title>
     <style>
         @page {
             size: A4;
-            margin: 16mm 14mm;
+            margin: 14mm;
+            @bottom-right {
+                content: "第 " counter(page) " 页";
+                color: #64748b;
+                font-size: 10px;
+            }
         }
+
+        :root {
+            --bg: #f4f7fb;
+            --paper: #ffffff;
+            --line: #d8e1ee;
+            --line-soft: #e9eff7;
+            --text: #0f172a;
+            --muted: #475569;
+            --subtle: #64748b;
+            --primary: #1d4ed8;
+            --primary-soft: #e8f0ff;
+            --danger: #dc2626;
+            --danger-soft: #fee2e2;
+            --success: #16a34a;
+            --success-soft: #dcfce7;
+            --gray-soft: #f8fafc;
+        }
+
+        * {
+            box-sizing: border-box;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
+
         body {
-            font-family: "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
-            font-size: 12px;
-            color: #1f2937;
             margin: 0;
+            font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+            font-size: 12px;
             line-height: 1.65;
-            background: #ffffff;
+            color: var(--text);
+            background: var(--bg);
         }
-        .page-title {
-            margin: 0 0 18px;
-            font-size: 26px;
-            font-weight: 800;
-            text-align: center;
-            color: #111827;
-        }
-        .section {
-            margin-top: 22px;
-        }
-        .section-title {
-            margin: 0 0 12px;
-            font-size: 19px;
-            font-weight: 800;
-            color: #ffffff;
-            background: linear-gradient(90deg, #1d4ed8 0%, #2563eb 100%);
-            padding: 10px 14px;
-            border-radius: 10px;
-            box-shadow: inset 0 -1px 0 rgba(255,255,255,0.15);
-        }
-        .panel {
-            border: 1px solid #dbe3ef;
-            border-radius: 10px;
-            background: #ffffff;
-            overflow: hidden;
-            margin-bottom: 14px;
-        }
-        .panel-body {
-            padding: 14px 16px;
-        }
-        .summary-grid {
+
+        .report {
             width: 100%;
-            border-collapse: separate;
-            border-spacing: 0;
         }
-        .summary-grid td {
-            width: 50%;
-            padding: 10px 12px;
-            border-bottom: 1px solid #edf2f7;
-            vertical-align: top;
+
+        .page {
+            background: var(--paper);
+            border: 1px solid var(--line-soft);
+            border-radius: 18px;
+            padding: 18px 18px 20px;
+            margin-bottom: 14px;
+            box-shadow: 0 8px 24px rgba(15, 23, 42, 0.05);
+            page-break-inside: avoid;
         }
-        .summary-grid tr:last-child td {
-            border-bottom: none;
+
+        .page:last-child {
+            margin-bottom: 0;
         }
+
+        .cover-title {
+            margin: 0 0 6px;
+            font-size: 28px;
+            font-weight: 800;
+            letter-spacing: 0.5px;
+            color: var(--text);
+        }
+
+        .cover-subtitle {
+            margin: 0 0 18px;
+            font-size: 13px;
+            color: var(--subtle);
+        }
+
+        .section-title {
+            margin: 0 0 14px;
+            padding: 10px 14px;
+            background: linear-gradient(90deg, #1d4ed8 0%, #2563eb 100%);
+            color: #fff;
+            font-size: 17px;
+            font-weight: 800;
+            border-radius: 12px;
+            break-after: avoid-page;
+            page-break-after: avoid;
+        }
+
+        .panel {
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            background: var(--paper);
+            overflow: hidden;
+        }
+
+        .panel + .panel {
+            margin-top: 12px;
+        }
+
+        .panel-title {
+            margin: 0;
+            padding: 10px 14px;
+            background: var(--primary-soft);
+            color: #1e3a8a;
+            font-size: 13px;
+            font-weight: 800;
+            border-bottom: 1px solid var(--line);
+            break-after: avoid-page;
+            page-break-after: avoid;
+        }
+
+        .panel-body {
+            padding: 14px;
+        }
+
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            border-top: 1px solid var(--line);
+            border-left: 1px solid var(--line);
+        }
+
+        .info-item {
+            min-height: 68px;
+            padding: 12px 14px;
+            border-right: 1px solid var(--line);
+            border-bottom: 1px solid var(--line);
+        }
+
         .label {
+            margin-bottom: 5px;
             font-size: 11px;
             font-weight: 700;
-            color: #6b7280;
-            margin-bottom: 4px;
+            color: var(--subtle);
         }
+
         .value {
             font-size: 13px;
-            font-weight: 500;
-            color: #111827;
+            font-weight: 600;
+            color: var(--text);
             word-break: break-all;
         }
-        .static-layout {
-            display: table;
-            width: 100%;
-            table-layout: fixed;
+
+        .static-top {
+            display: grid;
+            grid-template-columns: 132px minmax(0, 1fr);
+            gap: 16px;
+            align-items: start;
         }
-        .static-side,
-        .static-main {
-            display: table-cell;
-            vertical-align: top;
+
+        .icon-wrap {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
         }
-        .static-side {
-            width: 140px;
-            padding-right: 16px;
-        }
+
         .icon-box {
             width: 120px;
             height: 120px;
-            border: 1px solid #dbe3ef;
-            border-radius: 12px;
-            background: #f8fafc;
+            border: 1px solid var(--line);
+            border-radius: 18px;
+            background: var(--gray-soft);
             display: flex;
             align-items: center;
             justify-content: center;
             overflow: hidden;
         }
+
         .icon-box img {
             max-width: 100%;
             max-height: 100%;
             display: block;
         }
-        .empty-box {
+
+        .empty {
             color: #94a3b8;
             font-size: 12px;
             text-align: center;
-            padding: 12px;
         }
-        .kv-table {
-            width: 100%;
-            border-collapse: collapse;
-            table-layout: fixed;
-        }
-        .kv-table th,
-        .kv-table td {
-            border: 1px solid #e5e7eb;
-            padding: 8px 10px;
-            text-align: left;
-            vertical-align: top;
-            word-break: break-all;
-        }
-        .kv-table th {
-            width: 108px;
-            background: #f8fafc;
-            color: #475569;
-            font-weight: 600;
-        }
-        .block-title {
-            margin: 14px 0 8px;
-            font-size: 15px;
-            font-weight: 800;
-            color: #1e3a8a;
-            background: #dbeafe;
-            padding: 6px 10px;
-            border-radius: 8px;
-        }
-        .permission-list {
-            margin: 0;
-            padding-left: 18px;
-            columns: 2;
-            column-gap: 24px;
-        }
-        .permission-list li {
-            margin: 0 0 6px;
-            break-inside: avoid;
-        }
-        .dynamic-card {
-            page-break-inside: avoid;
-        }
-        .dynamic-head {
-            padding: 12px 16px;
-            background: #f8fafc;
-            border-bottom: 1px solid #e5e7eb;
-        }
-        .step-title {
-            font-size: 17px;
-            font-weight: 800;
-            color: #111827;
-            margin: 0 0 4px;
-        }
-        .step-subtitle {
-            color: #475569;
-            font-size: 12px;
-            font-weight: 600;
-        }
-        .screenshot-box {
-            margin-top: 12px;
-            border: 1px solid #dbe3ef;
-            border-radius: 10px;
-            background: #f8fafc;
-            padding: 12px;
-            text-align: center;
-        }
-        .screenshot-box img {
-            max-width: 100%;
-            max-height: 520px;
-            display: inline-block;
-            border-radius: 8px;
-        }
-        .muted {
-            color: #6b7280;
-        }
-        .traffic-summary {
-            margin-top: 10px;
-            font-size: 12px;
-            font-weight: 700;
-            color: #1e3a8a;
-        }
+
+        .kv-table,
         .traffic-table {
-            margin-top: 10px;
             width: 100%;
             border-collapse: collapse;
             table-layout: fixed;
         }
+
+        .kv-table th,
+        .kv-table td,
         .traffic-table th,
         .traffic-table td {
-            border: 1px solid #e5e7eb;
-            padding: 7px 8px;
-            text-align: left;
+            border: 1px solid var(--line);
+            padding: 8px 10px;
             vertical-align: top;
+            text-align: left;
             word-break: break-all;
+        }
+
+        .kv-table th,
+        .traffic-table th {
+            background: var(--gray-soft);
+            color: var(--muted);
+            font-weight: 700;
+        }
+
+        .kv-table th {
+            width: 120px;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 12px;
+        }
+
+        .stat-card {
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            padding: 14px;
+            background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+        }
+
+        .stat-label {
+            margin-bottom: 6px;
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--subtle);
+        }
+
+        .stat-value {
+            font-size: 24px;
+            font-weight: 800;
+            color: var(--text);
+        }
+
+        .permission-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 12px;
+        }
+
+        .tag-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .tag {
+            display: inline-flex;
+            align-items: center;
+            padding: 5px 9px;
+            border-radius: 999px;
+            background: #edf2f7;
+            color: #334155;
+            font-size: 11px;
+            font-weight: 700;
+            max-width: 100%;
+        }
+
+        .tag-danger {
+            background: var(--danger-soft);
+            color: #991b1b;
+        }
+
+        .tag-neutral {
+            background: #eef2f7;
+            color: #334155;
+        }
+
+        .component-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 12px;
+        }
+
+        .component-card {
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            background: var(--gray-soft);
+            padding: 14px;
+        }
+
+        .component-name {
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--subtle);
+            margin-bottom: 6px;
+        }
+
+        .component-value {
+            font-size: 22px;
+            font-weight: 800;
+            color: var(--text);
+        }
+
+        .ratio-layout {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 12px;
+        }
+
+        .ratio-card {
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            overflow: hidden;
+            background: var(--paper);
+        }
+
+        .ratio-title {
+            margin: 0;
+            padding: 10px 14px;
+            background: var(--primary-soft);
+            color: #1e3a8a;
+            font-size: 13px;
+            font-weight: 800;
+            border-bottom: 1px solid var(--line);
+        }
+
+        .ratio-body {
+            padding: 12px 14px;
+        }
+
+        .ratio-empty {
+            color: var(--subtle);
+            font-size: 12px;
+        }
+
+        .ratio-row + .ratio-row {
+            margin-top: 10px;
+        }
+
+        .ratio-meta {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 5px;
             font-size: 11px;
         }
-        .traffic-table th {
-            background: #f8fafc;
-            color: #334155;
+
+        .ratio-label {
+            flex: 1;
+            color: var(--text);
+            font-weight: 700;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .ratio-number {
+            color: var(--subtle);
+            white-space: nowrap;
+        }
+
+        .ratio-bar {
+            width: 100%;
+            height: 8px;
+            border-radius: 999px;
+            background: #e8eef9;
+            overflow: hidden;
+        }
+
+        .ratio-fill {
+            height: 100%;
+            border-radius: 999px;
+            background: linear-gradient(90deg, #2563eb 0%, #60a5fa 100%);
+        }
+
+        .operation-page {
+            page-break-before: auto;
+        }
+
+        .operation-head {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 12px;
+            break-after: avoid-page;
+            page-break-after: avoid;
+        }
+
+        .operation-title {
+            margin: 0;
+            font-size: 18px;
             font-weight: 800;
+            color: var(--text);
+        }
+
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 5px 10px;
+            border-radius: 999px;
+            font-size: 11px;
+            font-weight: 800;
+        }
+
+        .status-success {
+            background: var(--success-soft);
+            color: #166534;
+        }
+
+        .status-failed {
+            background: var(--danger-soft);
+            color: #991b1b;
+        }
+
+        .operation-layout {
+            display: block;
+        }
+
+        .operation-visual {
+            width: 220px;
+            max-width: 220px;
+            margin-bottom: 10px;
+            break-after: avoid-page;
+            page-break-after: avoid;
+        }
+
+        .screenshot-box {
+            border: 1px solid var(--line);
+            border-radius: 16px;
+            background: var(--gray-soft);
+            padding: 10px;
+            text-align: left;
+        }
+
+        .screenshot-box img {
+            display: inline-block;
+            max-width: 100%;
+            max-height: 520px;
+            border-radius: 12px;
+            object-fit: contain;
+        }
+
+        .traffic-table th,
+        .traffic-table td {
+            font-size: 10px;
+            line-height: 1.45;
+        }
+
+        .traffic-table .col-no {
+            width: 42px;
+        }
+
+        .traffic-table .col-protocol {
+            width: 60px;
+        }
+
+        .traffic-table .col-endpoint {
+            width: 112px;
+        }
+
+        .traffic-table .col-domain {
+            width: 132px;
+        }
+
+        .traffic-table .col-controller {
+            width: 62px;
+        }
+
+        .yes-pill,
+        .no-pill {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 28px;
+            padding: 2px 8px;
+            border-radius: 999px;
+            font-size: 10px;
+            font-weight: 800;
+        }
+
+        .yes-pill {
+            background: var(--danger-soft);
+            color: #991b1b;
+        }
+
+        .no-pill {
+            background: #eef2f7;
+            color: #475569;
+        }
+
+        .list-block + .list-block {
+            margin-top: 12px;
+        }
+
+        .simple-list {
+            margin: 0;
+            padding-left: 18px;
+        }
+
+        .simple-list li + li {
+            margin-top: 4px;
+        }
+
+        .traffic-table thead {
+            display: table-header-group;
+        }
+
+        .traffic-table tfoot {
+            display: table-footer-group;
+        }
+
+        .traffic-table tr,
+        .kv-table tr,
+        .simple-list li {
+            break-inside: avoid;
+            page-break-inside: avoid;
+        }
+
+        .panel,
+        .ratio-card,
+        .stat-card,
+        .component-card,
+        .screenshot-box {
+            break-inside: avoid;
+            page-break-inside: avoid;
+        }
+
+        @media print {
+            :root {
+                --bg: #ffffff;
+                --line-soft: #dfe7f2;
+            }
+
+            @page {
+                margin: 12mm 12mm 14mm;
+            }
+
+            body {
+                background: #ffffff;
+                color: #000000;
+            }
+
+            .report {
+                background: #ffffff;
+            }
+
+            .page {
+                background: #ffffff;
+                border: none;
+                border-radius: 0;
+                box-shadow: none;
+                margin-bottom: 8mm;
+                padding: 0;
+                break-inside: auto;
+                page-break-inside: auto;
+            }
+
+            .cover-title {
+                margin-bottom: 4px;
+            }
+
+            .cover-subtitle {
+                margin-bottom: 12px;
+            }
+
+            .section-title {
+                border-radius: 8px;
+                margin-bottom: 10px;
+                padding: 8px 12px;
+            }
+
+            .panel,
+            .ratio-card,
+            .stat-card,
+            .component-card {
+                box-shadow: none;
+            }
+
+            .panel-body,
+            .ratio-body {
+                padding: 10px 12px;
+            }
+
+            .stats-grid {
+                gap: 8px;
+            }
+
+            .stat-card {
+                padding: 10px 12px;
+            }
+
+            .stat-value {
+                font-size: 20px;
+            }
+
+            .component-grid {
+                gap: 8px;
+            }
+
+            .component-card {
+                padding: 10px 12px;
+            }
+
+            .component-value {
+                font-size: 18px;
+            }
+
+            .ratio-layout {
+                gap: 8px;
+            }
+
+            .ratio-row + .ratio-row {
+                margin-top: 8px;
+            }
+
+            .operation-layout {
+                display: block;
+            }
+
+            .operation-visual {
+                width: 46mm;
+                max-width: 46mm;
+                margin-bottom: 8px;
+            }
+
+            .screenshot-box {
+                padding: 6px;
+                background: #ffffff;
+            }
+
+            .screenshot-box img {
+                max-height: 88mm;
+                border-radius: 8px;
+            }
+
+            .kv-table th,
+            .kv-table td,
+            .traffic-table th,
+            .traffic-table td {
+                padding: 6px 7px;
+            }
+
+            .traffic-table {
+                font-size: 9px;
+            }
+
+            .traffic-table th,
+            .traffic-table td {
+                font-size: 9px;
+                line-height: 1.35;
+            }
+
+            .traffic-table .col-no {
+                width: 28px;
+            }
+
+            .traffic-table .col-protocol {
+                width: 44px;
+            }
+
+            .traffic-table .col-endpoint {
+                width: 92px;
+            }
+
+            .traffic-table .col-domain {
+                width: 110px;
+            }
+
+            .traffic-table .col-controller {
+                width: 48px;
+            }
         }
     </style>
 </head>
 <body>
-    <h1 class="page-title">诈骗APP分析报告</h1>
+<div class="report">
+    <section class="page">
+        <h1 class="cover-title">APP分析报告</h1>
+        <p class="cover-subtitle">任务级分析结果</p>
 
-    <div class="section">
         <h2 class="section-title">任务信息</h2>
         <div class="panel">
-            <div class="panel-body">
-                <table class="summary-grid">
-                    <tr>
-                        <td>
-                            <div class="label">任务ID</div>
-                            <div class="value">{{ task_id }}</div>
-                        </td>
-                        <td>
-                            <div class="label">样本MD5</div>
-                            <div class="value">{{ file_md5 }}</div>
-                        </td>
-                    </tr>
-                    <tr>
-                        <td>
-                            <div class="label">任务状态</div>
-                            <div class="value">{{ task.status or "-" }}</div>
-                        </td>
-                        <td>
-                            <div class="label">分析时间</div>
-                            <div class="value">{{ analysis_time }}</div>
-                        </td>
-                    </tr>
-                    <tr>
-                        <td colspan="2">
-                            <div class="label">报告生成时间</div>
-                            <div class="value">{{ generated_at }}</div>
-                        </td>
-                    </tr>
-                </table>
+            <div class="info-grid">
+                <div class="info-item">
+                    <div class="label">任务ID</div>
+                    <div class="value">{{ task_info.task_id }}</div>
+                </div>
+                <div class="info-item">
+                    <div class="label">样本MD5</div>
+                    <div class="value">{{ task_info.file_md5 }}</div>
+                </div>
+                <div class="info-item">
+                    <div class="label">来源</div>
+                    <div class="value">{{ task_info.source }}</div>
+                </div>
+                <div class="info-item">
+                    <div class="label">大小</div>
+                    <div class="value">{{ task_info.file_size }}</div>
+                </div>
+                <div class="info-item">
+                    <div class="label">任务状态</div>
+                    <div class="value">{{ task_info.status }}</div>
+                </div>
+                <div class="info-item">
+                    <div class="label">分析时间</div>
+                    <div class="value">{{ task_info.analysis_time }}</div>
+                </div>
             </div>
         </div>
-    </div>
+    </section>
 
-    <div class="section">
-        <h2 class="section-title">静态分析</h2>
+    <section class="page">
+        <h2 class="section-title">静态信息</h2>
+
         <div class="panel">
             <div class="panel-body">
-                <div class="static-layout">
-                    <div class="static-side">
+                <div class="static-top">
+                    <div class="icon-wrap">
                         <div class="label">应用图标</div>
                         <div class="icon-box">
-                            {% if static_result.icon_data_uri %}
-                            <img src="{{ static_result.icon_data_uri }}" alt="icon" />
+                            {% if static_info.icon_data_uri %}
+                                <img src="{{ static_info.icon_data_uri }}" alt="应用图标" />
                             {% else %}
-                            <div class="empty-box">无图标</div>
+                                <div class="empty">无图标</div>
                             {% endif %}
                         </div>
                     </div>
-                    <div class="static-main">
-                        <table class="kv-table">
-                            <tr>
-                                <th>应用名称</th>
-                                <td>{{ static_result.app_name or "-" }}</td>
-                            </tr>
-                            <tr>
-                                <th>包名</th>
-                                <td>{{ static_result.package_name or "-" }}</td>
-                            </tr>
-                            <tr>
-                                <th>版本</th>
-                                <td>{{ static_result.version_name or "-" }} ({{ static_result.version_code or "-" }})</td>
-                            </tr>
-                            <tr>
-                                <th>权限数量</th>
-                                <td>{{ static_result.permissions_count }}</td>
-                            </tr>
-                        </table>
 
-                        <div class="block-title">证书信息</div>
-                        <table class="kv-table">
-                            <tr>
-                                <th>证书MD5</th>
-                                <td>{{ static_result.cert_md5 or "-" }}</td>
-                            </tr>
-                            <tr>
-                                <th>证书SHA1</th>
-                                <td>{{ static_result.cert_sha1 or "-" }}</td>
-                            </tr>
-                            <tr>
-                                <th>证书SHA256</th>
-                                <td>{{ static_result.cert_sha256 or "-" }}</td>
-                            </tr>
-                        </table>
-                    </div>
+                    <table class="kv-table">
+                        <tr><th>应用名称</th><td>{{ static_info.app_name }}</td></tr>
+                        <tr><th>包名</th><td>{{ static_info.package_name }}</td></tr>
+                        <tr><th>版本名</th><td>{{ static_info.version_name }}</td></tr>
+                        <tr><th>版本号</th><td>{{ static_info.version_code }}</td></tr>
+                        <tr><th>证书MD5</th><td>{{ static_info.cert_md5 }}</td></tr>
+                        <tr><th>证书SHA1</th><td>{{ static_info.cert_sha1 }}</td></tr>
+                        <tr><th>证书SHA256</th><td>{{ static_info.cert_sha256 }}</td></tr>
+                    </table>
                 </div>
-
-                <div class="block-title">权限信息</div>
-                {% if static_result.permissions %}
-                <ul class="permission-list">
-                    {% for item in static_result.permissions %}
-                    <li>{{ item.name or "-" }}{% if item.is_dangerous %}（危险）{% endif %}</li>
-                    {% endfor %}
-                </ul>
-                {% else %}
-                <div class="muted">无权限信息</div>
-                {% endif %}
             </div>
         </div>
-    </div>
 
-    <div class="section">
-        <h2 class="section-title">动态操作</h2>
-        {% if dynamic_results %}
-            {% for item in dynamic_results %}
-            <div class="panel dynamic-card">
-                <div class="dynamic-head">
-                    <div class="step-title">步骤 {{ item.seq }} - {{ item.action or "-" }}</div>
-                    <div class="step-subtitle">时间：{{ item.action_time_text }}　|　状态：{% if item.is_success %}成功{% else %}失败{% endif %}</div>
-                </div>
-                <div class="panel-body">
-                    <table class="kv-table">
-                        <tr>
-                            <th>执行结果</th>
-                            <td>{{ item.action_result or "-" }}</td>
-                        </tr>
-                        <tr>
-                            <th>关联流量日志</th>
-                            <td>{{ item.step_traffic_log_count }} 条</td>
-                        </tr>
-                    </table>
-
-                    <div class="block-title">操作截图</div>
-                    <div class="screenshot-box">
-                        {% if item.operation_screenshot_data_uri %}
-                        <img src="{{ item.operation_screenshot_data_uri }}" alt="operation-screenshot" />
+        <div class="permission-grid" style="margin-top: 12px;">
+            <div class="ratio-card">
+                <h3 class="ratio-title">权限清单（危险权限）</h3>
+                <div class="ratio-body">
+                    <div class="tag-list">
+                        {% if static_info.dangerous_permissions %}
+                            {% for item in static_info.dangerous_permissions %}
+                                <span class="tag tag-danger">{{ item.name }}</span>
+                            {% endfor %}
                         {% else %}
-                        <div class="empty-box">未采集到操作截图</div>
+                            <span class="tag tag-neutral">无</span>
                         {% endif %}
                     </div>
+                </div>
+            </div>
 
-                    <div class="block-title">关联流量日志</div>
-                    {% if item.step_traffic_logs %}
-                    <div class="traffic-summary">当前步骤关联 {{ item.step_traffic_log_count }} 条日志</div>
-                    <table class="traffic-table">
-                        <thead>
-                            <tr>
-                                <th style="width: 8%;">序号</th>
-                                <th style="width: 10%;">协议</th>
-                                <th style="width: 24%;">域名</th>
-                                <th style="width: 26%;">URL</th>
-                                <th style="width: 16%;">源地址</th>
-                                <th style="width: 16%;">目的地址</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for packet in item.step_traffic_logs %}
-                            <tr>
-                                <td>{{ loop.index }}</td>
-                                <td>{{ packet.protocol or "-" }}</td>
-                                <td>{{ packet.domain or "-" }}</td>
-                                <td>{{ packet.url or "-" }}</td>
-                                <td>{{ packet.src_endpoint }}</td>
-                                <td>{{ packet.dst_endpoint }}</td>
-                            </tr>
+            <div class="ratio-card">
+                <h3 class="ratio-title">权限清单（普通权限）</h3>
+                <div class="ratio-body">
+                    <div class="tag-list">
+                        {% if static_info.normal_permissions %}
+                            {% for item in static_info.normal_permissions %}
+                                <span class="tag tag-neutral">{{ item.name }}</span>
                             {% endfor %}
-                        </tbody>
-                    </table>
+                        {% else %}
+                            <span class="tag tag-neutral">无</span>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="panel" style="margin-top: 12px;">
+            <h3 class="panel-title">组件统计</h3>
+            <div class="panel-body">
+                <div class="component-grid">
+                    <div class="component-card">
+                        <div class="component-name">Activity 数量</div>
+                        <div class="component-value">{{ static_info.activity_count }}</div>
+                    </div>
+                    <div class="component-card">
+                        <div class="component-name">Service 数量</div>
+                        <div class="component-value">{{ static_info.service_count }}</div>
+                    </div>
+                    <div class="component-card">
+                        <div class="component-name">Provider 数量</div>
+                        <div class="component-value">{{ static_info.provider_count }}</div>
+                    </div>
+                    <div class="component-card">
+                        <div class="component-name">so 文件数量</div>
+                        <div class="component-value">{{ static_info.so_count }}</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="page">
+        <h2 class="section-title">动态溯源</h2>
+
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-label">步骤总数</div>
+                <div class="stat-value">{{ dynamic_summary.step_count }}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">成功步骤数</div>
+                <div class="stat-value">{{ dynamic_summary.success_step_count }}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">失败步骤数</div>
+                <div class="stat-value">{{ dynamic_summary.failed_step_count }}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">上行流量总条数</div>
+                <div class="stat-value">{{ dynamic_summary.uplink_log_count }}</div>
+            </div>
+        </div>
+
+        <div class="ratio-layout" style="margin-top: 12px;">
+            <div class="ratio-card">
+                <h3 class="ratio-title">协议占比</h3>
+                <div class="ratio-body">
+                    {% if dynamic_summary.protocol_ratio_items %}
+                        {% for item in dynamic_summary.protocol_ratio_items %}
+                            <div class="ratio-row">
+                                <div class="ratio-meta">
+                                    <div class="ratio-label">{{ item.label }}</div>
+                                    <div class="ratio-number">{{ item.count }} / {{ item.percent_text }}</div>
+                                </div>
+                                <div class="ratio-bar"><div class="ratio-fill" style="width: {{ item.bar_width }}%;"></div></div>
+                            </div>
+                        {% endfor %}
                     {% else %}
-                    <div class="muted">当前步骤无关联流量日志</div>
+                        <div class="ratio-empty">暂无上行流量统计</div>
                     {% endif %}
                 </div>
             </div>
-            {% endfor %}
-        {% else %}
-            <div class="panel">
-                <div class="panel-body muted">无动态操作记录</div>
+
+            <div class="ratio-card">
+                <h3 class="ratio-title">域名占比</h3>
+                <div class="ratio-body">
+                    {% if dynamic_summary.domain_ratio_items %}
+                        {% for item in dynamic_summary.domain_ratio_items %}
+                            <div class="ratio-row">
+                                <div class="ratio-meta">
+                                    <div class="ratio-label">{{ item.label }}</div>
+                                    <div class="ratio-number">{{ item.count }} / {{ item.percent_text }}</div>
+                                </div>
+                                <div class="ratio-bar"><div class="ratio-fill" style="width: {{ item.bar_width }}%;"></div></div>
+                            </div>
+                        {% endfor %}
+                    {% else %}
+                        <div class="ratio-empty">暂无上行流量统计</div>
+                    {% endif %}
+                </div>
             </div>
-        {% endif %}
-    </div>
+
+            <div class="ratio-card">
+                <h3 class="ratio-title">IP占比</h3>
+                <div class="ratio-body">
+                    {% if dynamic_summary.ip_ratio_items %}
+                        {% for item in dynamic_summary.ip_ratio_items %}
+                            <div class="ratio-row">
+                                <div class="ratio-meta">
+                                    <div class="ratio-label">{{ item.label }}</div>
+                                    <div class="ratio-number">{{ item.count }} / {{ item.percent_text }}</div>
+                                </div>
+                                <div class="ratio-bar"><div class="ratio-fill" style="width: {{ item.bar_width }}%;"></div></div>
+                            </div>
+                        {% endfor %}
+                    {% else %}
+                        <div class="ratio-empty">暂无上行流量统计</div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </section>
+
+    {% for item in operation_items %}
+    <section class="page operation-page">
+        <h2 class="section-title">操作明细</h2>
+
+        <div class="operation-head">
+            <div>
+                <h3 class="operation-title">步骤 {{ item.seq_text }}｜{{ item.action_text }}</h3>
+            </div>
+            <div class="status-badge status-{{ item.status_class }}">{{ item.status_text }}</div>
+        </div>
+
+        <div class="operation-layout">
+            <div class="operation-visual">
+                <div class="screenshot-box">
+                    {% if item.operation_screenshot_data_uri %}
+                        <img src="{{ item.operation_screenshot_data_uri }}" alt="操作截图" />
+                    {% else %}
+                        <div class="empty">未采集到截图</div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="panel" style="margin-top: 0;">
+                <h3 class="panel-title">流量日志</h3>
+                <div class="panel-body">
+                    <table class="traffic-table">
+                        <thead>
+                            <tr>
+                                <th class="col-no">序号</th>
+                                <th class="col-protocol">协议</th>
+                                <th class="col-endpoint">源IP端口</th>
+                                <th class="col-endpoint">目的IP端口</th>
+                                <th class="col-domain">域名</th>
+                                <th>URL</th>
+                                <th class="col-controller">主控</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% if item.step_traffic_logs %}
+                                {% for log in item.step_traffic_logs %}
+                                    <tr>
+                                        <td>{{ log.row_no }}</td>
+                                        <td>{{ log.protocol or '-' }}</td>
+                                        <td>{{ log.src_endpoint }}</td>
+                                        <td>{{ log.dst_endpoint }}</td>
+                                        <td>{{ log.domain or '-' }}</td>
+                                        <td>{{ log.url or '-' }}</td>
+                                        <td>
+                                            {% if log.is_real_controller_text == '是' %}
+                                                <span class="yes-pill">是</span>
+                                            {% else %}
+                                                <span class="no-pill">否</span>
+                                            {% endif %}
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                            {% else %}
+                                <tr>
+                                    <td colspan="7">当前步骤无关联流量日志</td>
+                                </tr>
+                            {% endif %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </section>
+    {% endfor %}
+
+    <section class="page">
+        <h2 class="section-title">附录</h2>
+
+        <div class="panel list-block">
+            <h3 class="panel-title">Activity 列表</h3>
+            <div class="panel-body">
+                <ul class="simple-list">
+                    {% if appendix.activities %}
+                        {% for item in appendix.activities %}
+                            <li>{{ item }}</li>
+                        {% endfor %}
+                    {% else %}
+                        <li>无</li>
+                    {% endif %}
+                </ul>
+            </div>
+        </div>
+
+        <div class="panel list-block">
+            <h3 class="panel-title">Service 列表</h3>
+            <div class="panel-body">
+                <ul class="simple-list">
+                    {% if appendix.services %}
+                        {% for item in appendix.services %}
+                            <li>{{ item }}</li>
+                        {% endfor %}
+                    {% else %}
+                        <li>无</li>
+                    {% endif %}
+                </ul>
+            </div>
+        </div>
+
+        <div class="panel list-block">
+            <h3 class="panel-title">Provider 列表</h3>
+            <div class="panel-body">
+                <ul class="simple-list">
+                    {% if appendix.providers %}
+                        {% for item in appendix.providers %}
+                            <li>{{ item }}</li>
+                        {% endfor %}
+                    {% else %}
+                        <li>无</li>
+                    {% endif %}
+                </ul>
+            </div>
+        </div>
+
+        <div class="panel list-block">
+            <h3 class="panel-title">so 文件列表</h3>
+            <div class="panel-body">
+                <ul class="simple-list">
+                    {% if appendix.so_files %}
+                        {% for item in appendix.so_files %}
+                            <li>{{ item }}</li>
+                        {% endfor %}
+                    {% else %}
+                        <li>无</li>
+                    {% endif %}
+                </ul>
+            </div>
+        </div>
+    </section>
+</div>
 </body>
 </html>
