@@ -421,6 +421,7 @@ def _build_pdf_with_headless_browser(rendered_html: str) -> bytes:
         cmd = [
             browser_path,
             "--headless=new",
+            "--no-sandbox",
             "--disable-gpu",
             "--disable-dev-shm-usage",
             "--disable-background-networking",
