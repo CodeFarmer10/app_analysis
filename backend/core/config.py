@@ -45,6 +45,9 @@ class Settings(BaseSettings):
     DYNAMIC_TRACE_TASK_TEXT: str = "模拟操作探索APP功能"
     DYNAMIC_TRACE_RESULT_DIR: str = str(BASE_DIR / "data" / "dynamic_trace")
     REAL_CONTROLLER_TAGGING_ENABLED: bool = True
+    REAL_CONTROLLER_TAGGING_BASE_URL: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    REAL_CONTROLLER_TAGGING_MODEL: str = "qwen3-vl-235b-a22b-instruct"
+    REAL_CONTROLLER_TAGGING_API_KEY: str = "sk-11c87318288d4bbbb102ab2a831a7b3c"
 
     model_config = SettingsConfigDict(
         env_file=str(BASE_DIR / ".env"),

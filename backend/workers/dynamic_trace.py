@@ -602,9 +602,9 @@ def trace_task(task_id: str, device_id: str):
             traffic_rows=traffic_rows,
             result_dir=result_dir,
             enabled=settings.REAL_CONTROLLER_TAGGING_ENABLED,
-            model_base_url=settings.PLAN_AGENT_BASE_URL,
-            model_api_key=settings.PLAN_AGENT_API_KEY,
-            model_name=settings.PLAN_AGENT_MODEL,
+            model_base_url=settings.REAL_CONTROLLER_TAGGING_BASE_URL,
+            model_api_key=settings.REAL_CONTROLLER_TAGGING_API_KEY,
+            model_name=settings.REAL_CONTROLLER_TAGGING_MODEL,
         )
         pcap_path, run_log_path = _upload_trace_files(task_id, result_dir)
         _persist_trace_results(
