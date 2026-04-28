@@ -1,6 +1,7 @@
 """PCAP traffic parser using tshark fields mode (efficient streaming)."""
 
 import csv
+import logging
 import subprocess
 import time
 from dataclasses import dataclass
@@ -87,16 +88,42 @@ class TrafficParser:
 
     def _check_tshark(self) -> bool:
         """Check if tshark is available."""
-        try:
-            subprocess.run(
-                [self.tshark_path, '-v'],
-                capture_output=True,
-                timeout=5,
-                check=True
-            )
-            return True
-        except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
-            return False
+        timeout_seconds = 15
+        max_attempts = 2
+        for attempt in range(1, max_attempts + 1):
+            try:
+                subprocess.run(
+                    [self.tshark_path, '-v'],
+                    capture_output=True,
+                    timeout=timeout_seconds,
+                    check=True,
+                )
+                return True
+            except FileNotFoundError as exc:
+                logger.warning(
+                    "tshark check failed attempt=%s/%s type=FileNotFoundError path=%s err=%s",
+                    attempt,
+                    max_attempts,
+                    self.tshark_path,
+                    exc,
+                )
+            except subprocess.TimeoutExpired as exc:
+                logger.warning(
+                    "tshark check failed attempt=%s/%s type=TimeoutExpired timeout=%ss err=%s",
+                    attempt,
+                    max_attempts,
+                    timeout_seconds,
+                    exc,
+                )
+            except subprocess.CalledProcessError as exc:
+                logger.warning(
+                    "tshark check failed attempt=%s/%s type=CalledProcessError returncode=%s err=%s",
+                    attempt,
+                    max_attempts,
+                    exc.returncode,
+                    exc,
+                )
+        return False
 
     def parse_pcap(self, pcap_path: str, filter_expr: Optional[str] = None) -> List[PacketInfo]:
         """
@@ -296,3 +323,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+logger = logging.getLogger(__name__)
