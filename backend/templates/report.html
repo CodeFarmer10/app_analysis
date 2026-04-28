@@ -211,6 +211,12 @@
             width: 120px;
         }
 
+        .kv-table td.app-name-cell {
+            word-break: normal;
+            overflow-wrap: anywhere;
+            white-space: normal;
+        }
+
         .stats-grid {
             display: grid;
             grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -726,7 +732,7 @@
                     </div>
 
                     <table class="kv-table">
-                        <tr><th>应用名称</th><td>{{ static_info.app_name }}</td></tr>
+                        <tr><th>应用名称</th><td class="app-name-cell">{{ static_info.app_name }}</td></tr>
                         <tr><th>包名</th><td>{{ static_info.package_name }}</td></tr>
                         <tr><th>版本名</th><td>{{ static_info.version_name }}</td></tr>
                         <tr><th>版本号</th><td>{{ static_info.version_code }}</td></tr>

@@ -43,7 +43,7 @@
    nohup uvicorn main:app --host 0.0.0.0 --port 8000 --app-dir /home/yxh/app_analysis/backend > /home/yxh/app_analysis/run_logs/backend.log 2>&1 &
 
    # Worker
-   nohup celery -A workers.celery_app worker --loglevel=info > /home/yxh/app_analysis/run_logs/celery_worker.log 2>&1 &
+   nohup celery -A workers.celery_app worker --loglevel=info -c 10 > /home/yxh/app_analysis/run_logs/celery_worker.log 2>&1 &
 
    # Scheduler
    nohup python -m workers.scheduler > /home/yxh/app_analysis/run_logs/scheduler.log 2>&1 &

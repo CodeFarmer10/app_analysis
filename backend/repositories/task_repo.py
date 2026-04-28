@@ -207,7 +207,7 @@ def list_tasks(filters: dict[str, Any], page: int, size: int) -> tuple[list[dict
         LEFT JOIN static_results sr ON sr.task_id = t.id
         LEFT JOIN devices d ON d.id = t.device_id
         WHERE {where_sql}
-        ORDER BY COALESCE(t.priority, 1000000) ASC, t.created_at DESC
+        ORDER BY t.created_at DESC, t.id DESC
         LIMIT %s OFFSET %s
     """
     items = fetch_all(list_sql, tuple([*params, size, offset]))

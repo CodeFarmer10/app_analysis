@@ -5,6 +5,7 @@ import io
 import ipaddress
 import logging
 import mimetypes
+import re
 import shutil
 import subprocess
 import tempfile
@@ -70,6 +71,20 @@ def _text(value: Any) -> str:
         return value.strftime("%Y-%m-%d %H:%M:%S")
     text = str(value).strip()
     return text or "-"
+
+
+def _inline_text(value: Any) -> str:
+    text = _text(value)
+    if text == "-":
+        return text
+    sanitized = text.replace("\r\n", "\n").replace("\r", "\n")
+    sanitized = "".join(
+        ch if ch in "\n\t" or ord(ch) >= 32 else " "
+        for ch in sanitized
+    )
+    sanitized = sanitized.replace("\n", " ").replace("\t", " ")
+    sanitized = re.sub(r"\s+", " ", sanitized).strip()
+    return sanitized or "-"
 
 
 def _format_datetime(value: Any) -> str:
@@ -346,7 +361,7 @@ def _build_report_context(task_id: str) -> dict[str, Any]:
         "static_info": {
             "icon_path": static_result.get("icon_path"),
             "icon_data_uri": _build_image_data_uri(static_result.get("icon_path")),
-            "app_name": _text(static_result.get("app_name")),
+            "app_name": _inline_text(static_result.get("app_name")),
             "package_name": _text(static_result.get("package_name")),
             "version_name": _text(static_result.get("version_name")),
             "version_code": _text(static_result.get("version_code")),

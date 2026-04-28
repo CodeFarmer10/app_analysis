@@ -12,6 +12,13 @@ from workers.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
 
+STATIC_RESULT_TEXT_LIMITS = {
+    "app_name": 256,
+    "package_name": 256,
+    "version_name": 64,
+    "version_code": 32,
+}
+
 
 def _build_error_message(exc: Exception) -> str:
     text = str(exc).strip()
@@ -21,6 +28,13 @@ def _build_error_message(exc: Exception) -> str:
 def _normalize_optional_text(value: object) -> str | None:
     text = str(value or "").strip()
     return text or None
+
+
+def _normalize_limited_text(value: object, *, limit: int) -> str | None:
+    text = _normalize_optional_text(value)
+    if text is None:
+        return None
+    return text[:limit]
 
 
 def _guess_icon_extension(icon_name: str | None, icon_bytes: bytes) -> str:
@@ -82,8 +96,14 @@ def analyze_apk(task_id: str):
     try:
         local_apk_path = storage_service.download_to_temp(apk_object_path)
         parsed = parse_apk(local_apk_path)
-        app_name = _normalize_optional_text(parsed.get("app_name"))
-        package_name = _normalize_optional_text(parsed.get("package_name"))
+        app_name = _normalize_limited_text(
+            parsed.get("app_name"),
+            limit=STATIC_RESULT_TEXT_LIMITS["app_name"],
+        )
+        package_name = _normalize_limited_text(
+            parsed.get("package_name"),
+            limit=STATIC_RESULT_TEXT_LIMITS["package_name"],
+        )
         if not app_name and not package_name:
             raise ValueError("静态结果缺少应用名称和包名")
 
@@ -109,8 +129,14 @@ def analyze_apk(task_id: str):
             {
                 "app_name": app_name,
                 "package_name": package_name,
-                "version_name": parsed.get("version_name"),
-                "version_code": str(parsed.get("version_code")) if parsed.get("version_code") is not None else None,
+                "version_name": _normalize_limited_text(
+                    parsed.get("version_name"),
+                    limit=STATIC_RESULT_TEXT_LIMITS["version_name"],
+                ),
+                "version_code": _normalize_limited_text(
+                    parsed.get("version_code"),
+                    limit=STATIC_RESULT_TEXT_LIMITS["version_code"],
+                ),
                 "icon_path": icon_path,
                 "cert_md5": parsed.get("cert_md5"),
                 "cert_sha1": parsed.get("cert_sha1"),
