@@ -663,6 +663,10 @@ def _has_core_fields(parsed: dict[str, Any]) -> bool:
     return bool(parsed.get("app_name")) and bool(parsed.get("package_name"))
 
 
+def _has_component_fields(parsed: dict[str, Any]) -> bool:
+    return bool(parsed.get("activities") or parsed.get("services") or parsed.get("providers"))
+
+
 def _normalize_component_name(name: str | None, package_name: str | None) -> str | None:
     text = str(name or "").strip()
     if not text:
@@ -791,10 +795,12 @@ def parse_apk(apk_path: str) -> dict[str, Any]:
 
     result = _default_result()
     aapt2_path = _detect_build_tool("aapt2")
+    used_aapt2 = False
 
     if aapt2_path:
         try:
             result = _merge_result(result, _parse_with_aapt2(str(path), aapt2_path))
+            used_aapt2 = True
         except Exception:
             pass
 
@@ -804,12 +810,28 @@ def parse_apk(apk_path: str) -> dict[str, Any]:
         except Exception as exc:
             logger.warning("certificate extract failed for %s: %s", path, exc)
 
-    if not _has_core_fields(result):
+    need_androguard_fallback = (
+        not _has_core_fields(result)
+        or not result.get("icon_bytes")
+        or (used_aapt2 and not _has_component_fields(result))
+    )
+    if need_androguard_fallback:
         try:
             result = _merge_result(result, _parse_with_androguard(str(path)))
         except Exception as exc:
             logger.warning("androguard parse failed for %s: %s", path, exc)
-    if not _has_core_fields(result):
+
+    apkinspector_attempted = False
+    need_apkinspector_component_fallback = used_aapt2 and not _has_component_fields(result)
+    if need_apkinspector_component_fallback:
+        try:
+            apkinspector_result = _parse_manifest_with_apkinspector(str(path), result.get("package_name"))
+            result = _merge_result(result, apkinspector_result)
+            apkinspector_attempted = True
+        except Exception as fallback_exc:
+            logger.warning("apkinspector parse failed for %s: %s", path, fallback_exc)
+
+    if not _has_core_fields(result) and not apkinspector_attempted:
         try:
             apkinspector_result = _parse_manifest_with_apkinspector(str(path), result.get("package_name"))
             result = _merge_result(result, apkinspector_result)
