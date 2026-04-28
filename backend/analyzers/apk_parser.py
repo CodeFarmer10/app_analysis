@@ -84,6 +84,16 @@ def _pick_certificate_der(apk: APK) -> bytes | None:
     return None
 
 
+def _extract_certificate_digests(apk_path: str | None = None, apk: APK | None = None) -> dict[str, str | None]:
+    effective_apk = apk or APK(str(apk_path))
+    cert_der = _pick_certificate_der(effective_apk)
+    return {
+        "cert_md5": hashlib.md5(cert_der).hexdigest() if cert_der else None,
+        "cert_sha1": hashlib.sha1(cert_der).hexdigest() if cert_der else None,
+        "cert_sha256": hashlib.sha256(cert_der).hexdigest() if cert_der else None,
+    }
+
+
 def _build_permissions(permission_names: list[str]) -> list[dict[str, Any]]:
     seen: set[str] = set()
     normalized: list[dict[str, Any]] = []
@@ -463,7 +473,6 @@ def _resolve_resource_id_to_entry(
     resource_id: str,
     *,
     aapt2_path: str | None,
-    aapt_path: str | None,
 ) -> str | None:
     if aapt2_path:
         try:
@@ -471,15 +480,6 @@ def _resolve_resource_id_to_entry(
             from_aapt2 = _extract_resource_entry_by_id(aapt2_resources, resource_id)
             if from_aapt2:
                 return from_aapt2
-        except Exception:
-            pass
-
-    if aapt_path:
-        try:
-            aapt_resources = _run_tool([aapt_path, "dump", "--values", "resources", apk_path])
-            from_aapt = _extract_resource_entry_by_id(aapt_resources, resource_id)
-            if from_aapt:
-                return from_aapt
         except Exception:
             pass
     return None
@@ -490,7 +490,6 @@ def _extract_icon_bytes_from_entry(
     entry: str | None,
     *,
     aapt2_path: str | None,
-    aapt_path: str | None,
     depth: int = 0,
     visited: set[str] | None = None,
 ) -> tuple[bytes | None, str | None]:
@@ -525,7 +524,6 @@ def _extract_icon_bytes_from_entry(
             apk_path,
             ref,
             aapt2_path=aapt2_path,
-            aapt_path=aapt_path,
         )
         if not resolved_entry:
             continue
@@ -533,7 +531,6 @@ def _extract_icon_bytes_from_entry(
             apk_path,
             resolved_entry,
             aapt2_path=aapt2_path,
-            aapt_path=aapt_path,
             depth=depth + 1,
             visited=visited,
         )
@@ -542,7 +539,7 @@ def _extract_icon_bytes_from_entry(
     return None, None
 
 
-def _parse_with_aapt2(apk_path: str, aapt2_path: str, aapt_path: str | None) -> dict[str, Any]:
+def _parse_with_aapt2(apk_path: str, aapt2_path: str) -> dict[str, Any]:
     parsed = _default_result()
 
     badging_output = _run_tool([aapt2_path, "dump", "badging", apk_path])
@@ -570,58 +567,6 @@ def _parse_with_aapt2(apk_path: str, aapt2_path: str, aapt_path: str | None) -> 
         apk_path,
         parsed.get("icon_name"),
         aapt2_path=aapt2_path,
-        aapt_path=aapt_path,
-    )
-    if icon_bytes:
-        parsed["icon_bytes"] = icon_bytes
-        parsed["icon_name"] = resolved_icon_name or parsed.get("icon_name")
-
-    parsed["so_files"] = _extract_so_files(apk_path)
-    return parsed
-
-
-def _parse_with_aapt(apk_path: str, aapt_path: str, aapt2_path: str | None) -> dict[str, Any]:
-    parsed = _default_result()
-
-    badging_output = _run_tool([aapt_path, "dump", "badging", apk_path])
-    badging_info = _parse_badging_output(badging_output)
-    parsed["app_name"] = badging_info.get("app_name")
-    parsed["package_name"] = badging_info.get("package_name")
-    parsed["version_name"] = badging_info.get("version_name")
-    parsed["version_code"] = badging_info.get("version_code")
-    parsed["icon_name"] = badging_info.get("icon_name")
-
-    try:
-        manifest_output = _run_tool([aapt_path, "dump", "xmltree", apk_path, "AndroidManifest.xml"])
-        manifest_info = _parse_manifest_xmltree(manifest_output)
-    except Exception:
-        manifest_info = {
-            "permission_names": [],
-            "activity_names": [],
-            "launcher_activities": set(),
-            "service_names": [],
-            "provider_names": [],
-            "receiver_names": [],
-            "library_names": [],
-            "feature_names": [],
-            "declared_permission_names": [],
-        }
-
-    permission_names = manifest_info["permission_names"] or badging_info.get("permission_names", [])
-    parsed["permissions"] = _build_permissions(permission_names)
-    parsed["activities"] = _build_activities(manifest_info["activity_names"], manifest_info["launcher_activities"])
-    parsed["services"] = sorted({item for item in manifest_info["service_names"] if item})
-    parsed["providers"] = sorted({item for item in manifest_info["provider_names"] if item})
-    parsed["_receivers"] = sorted({item for item in manifest_info["receiver_names"] if item})
-    parsed["_libraries"] = sorted({item for item in manifest_info["library_names"] if item})
-    parsed["_features"] = sorted({item for item in manifest_info["feature_names"] if item})
-    parsed["_declared_permissions"] = sorted({item for item in manifest_info["declared_permission_names"] if item})
-
-    icon_bytes, resolved_icon_name = _extract_icon_bytes_from_entry(
-        apk_path,
-        parsed.get("icon_name"),
-        aapt2_path=aapt2_path,
-        aapt_path=aapt_path,
     )
     if icon_bytes:
         parsed["icon_bytes"] = icon_bytes
@@ -634,7 +579,6 @@ def _parse_with_aapt(apk_path: str, aapt_path: str, aapt2_path: str | None) -> d
 def _parse_with_androguard(apk_path: str) -> dict[str, Any]:
     parsed = _default_result()
     apk = APK(apk_path)
-    cert_der = _pick_certificate_der(apk)
 
     app_icon_name = _safe_call(apk.get_app_icon)
     icon_bytes: bytes | None = None
@@ -649,6 +593,7 @@ def _parse_with_androguard(apk_path: str) -> dict[str, Any]:
     services = sorted({item for item in (_safe_call(apk.get_services, []) or []) if item})
     providers = sorted({item for item in (_safe_call(apk.get_providers, []) or []) if item})
     receivers = sorted({item for item in (_safe_call(apk.get_receivers, []) or []) if item})
+    cert_result = _extract_certificate_digests(apk=apk)
 
     parsed.update(
         {
@@ -656,9 +601,9 @@ def _parse_with_androguard(apk_path: str) -> dict[str, Any]:
             "package_name": _safe_call(apk.get_package),
             "version_name": _safe_android_version(apk, "Name"),
             "version_code": _safe_android_version(apk, "Code"),
-            "cert_md5": hashlib.md5(cert_der).hexdigest() if cert_der else None,
-            "cert_sha1": hashlib.sha1(cert_der).hexdigest() if cert_der else None,
-            "cert_sha256": hashlib.sha256(cert_der).hexdigest() if cert_der else None,
+            "cert_md5": cert_result.get("cert_md5"),
+            "cert_sha1": cert_result.get("cert_sha1"),
+            "cert_sha256": cert_result.get("cert_sha256"),
             "permissions": permissions,
             "activities": activities,
             "services": services,
@@ -828,19 +773,18 @@ def parse_apk(apk_path: str) -> dict[str, Any]:
 
     result = _default_result()
     aapt2_path = _detect_build_tool("aapt2")
-    aapt_path = _detect_build_tool("aapt")
 
     if aapt2_path:
         try:
-            result = _merge_result(result, _parse_with_aapt2(str(path), aapt2_path, aapt_path))
+            result = _merge_result(result, _parse_with_aapt2(str(path), aapt2_path))
         except Exception:
             pass
 
-    if aapt_path and not _has_core_fields(result):
+    if not (result.get("cert_md5") and result.get("cert_sha1") and result.get("cert_sha256")):
         try:
-            result = _merge_result(result, _parse_with_aapt(str(path), aapt_path, aapt2_path))
-        except Exception:
-            pass
+            result = _merge_result(result, _extract_certificate_digests(str(path)))
+        except Exception as exc:
+            logger.warning("certificate extract failed for %s: %s", path, exc)
 
     if not _has_core_fields(result):
         try:
