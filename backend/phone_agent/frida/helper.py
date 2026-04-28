@@ -12,14 +12,16 @@ from typing import Any
 
 from phone_agent.frida.registry import build_frida_script, load_frida_rules
 
-try:  # pragma: no cover - optional runtime dependency
-    import frida
-except ImportError:  # pragma: no cover - optional runtime dependency
-    frida = None
-
-
 logger = logging.getLogger(__name__)
 DEFAULT_FRIDA_RULES_PATH = str(Path(__file__).resolve().parent / "rules.json")
+
+
+def _load_frida_module():
+    try:  # pragma: no cover - optional runtime dependency
+        import frida as frida_module
+    except ImportError:  # pragma: no cover - optional runtime dependency
+        return None
+    return frida_module
 
 
 @dataclass
@@ -52,6 +54,7 @@ class FridaHelper:
         self._events: list[dict[str, Any]] = []
         self._diagnostics: list[dict[str, Any]] = []
         self._status = "disabled" if not self.config.enabled else "idle"
+        self._frida_module = None
 
     @property
     def mode(self) -> str:
@@ -76,7 +79,7 @@ class FridaHelper:
         if not self.config.enabled:
             self._status = "disabled"
             return False
-        if frida is None:
+        if self._get_frida_module() is None:
             self._record_diagnostic("frida_unavailable", "frida python package not installed")
             self._status = "unavailable"
             return False
@@ -141,8 +144,8 @@ class FridaHelper:
     def _start_frida_server(self) -> None:
         remote_path = self.config.frida_server_remote_path
         start_command = (
-            f"su -c 'chmod 755 {remote_path} && "
-            f"{remote_path} >/dev/null 2>&1 &'"
+            f"su -c 'chmod 755 {remote_path}; "
+            f"nohup {remote_path} >/dev/null 2>&1 </dev/null &'"
         )
         result = self._run_adb_shell(start_command)
         if result.returncode != 0:
@@ -244,7 +247,10 @@ class FridaHelper:
         return str(output_path)
 
     def _resolve_device(self):
-        manager = frida.get_device_manager()
+        frida_module = self._get_frida_module()
+        if frida_module is None:
+            raise RuntimeError("frida python package not installed")
+        manager = frida_module.get_device_manager()
         if self.device_id:
             try:
                 return manager.get_device(self.device_id, timeout=self.config.device_timeout_seconds)
@@ -256,7 +262,13 @@ class FridaHelper:
                 print(message)
                 logger.warning(message)
                 self._record_diagnostic("get_device_failed", message)
-        return frida.get_usb_device(timeout=self.config.device_timeout_seconds)
+        return frida_module.get_usb_device(timeout=self.config.device_timeout_seconds)
+
+    def _get_frida_module(self):
+        if self._frida_module is not None:
+            return self._frida_module
+        self._frida_module = _load_frida_module()
+        return self._frida_module
 
     def _on_message(self, message: dict[str, Any], _data: bytes | None) -> None:
         msg_type = str(message.get("type") or "")
