@@ -81,6 +81,24 @@ def _pick_certificate_der(apk: APK) -> bytes | None:
         for cert in certs:
             if isinstance(cert, (bytes, bytearray)) and cert:
                 return bytes(cert)
+
+    getter_v1 = getattr(apk, "get_certificates_v1", None)
+    if getter_v1 is not None:
+        try:
+            certs_v1 = getter_v1() or []
+        except Exception:
+            certs_v1 = []
+        for cert in certs_v1:
+            if cert is None:
+                continue
+            dump = getattr(cert, "dump", None)
+            if callable(dump):
+                try:
+                    cert_der = dump()
+                except Exception:
+                    cert_der = None
+                if isinstance(cert_der, (bytes, bytearray)) and cert_der:
+                    return bytes(cert_der)
     return None
 
 
