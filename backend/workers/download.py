@@ -7,6 +7,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 import httpx
+import pymysql
 from celery import Task
 try:
     import magic
@@ -24,10 +25,11 @@ logger = logging.getLogger(__name__)
 MAX_APK_SIZE = 500 * 1024 * 1024
 DOWNLOAD_TIMEOUT = httpx.Timeout(timeout=120.0, connect=15.0)
 NETWORK_EXCEPTIONS = (httpx.TimeoutException, httpx.RequestError)
+DB_EXCEPTIONS = (pymysql.err.MySQLError,)
 
 
 class DownloadTaskBase(Task):
-    autoretry_for = NETWORK_EXCEPTIONS
+    autoretry_for = NETWORK_EXCEPTIONS + DB_EXCEPTIONS
     retry_backoff = True
     retry_backoff_max = 60
     retry_jitter = True
@@ -110,8 +112,10 @@ def _download_file(url: str, local_path: Path) -> tuple[str, int]:
 def download_apk(self, task_id: str, url: str):  # pylint: disable=unused-argument
     task = get_task_by_id(task_id)
     if not task:
-        logger.warning("download task ignored: task_id=%s not found", task_id)
-        return {"task_id": task_id, "accepted": False, "reason": "task_not_found"}
+        if self.request.retries < self.max_retries:
+            logger.warning("download task missing, retrying task_id=%s retries=%s", task_id, self.request.retries)
+            raise self.retry(exc=RuntimeError("下载任务不存在，准备重试"), countdown=2)
+        raise RuntimeError("下载任务不存在")
 
     temp_file = _tmp_dir() / f"{task_id}_download.apk"
     file_name = _safe_filename_from_url(url, task_id)
@@ -146,6 +150,8 @@ def download_apk(self, task_id: str, url: str):  # pylint: disable=unused-argume
         return {"task_id": task_id, "status": "static_analyzing"}
     except NETWORK_EXCEPTIONS as exc:
         logger.warning("download network error task_id=%s retry=%s err=%s", task_id, self.request.retries, exc)
+        raise
+    except DB_EXCEPTIONS:
         raise
     except Exception as exc:  # pragma: no cover - runtime dependent
         logger.exception("download failed task_id=%s", task_id)

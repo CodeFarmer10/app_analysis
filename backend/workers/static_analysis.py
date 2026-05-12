@@ -5,13 +5,16 @@ import re
 import shutil
 from pathlib import Path
 
+import pymysql
 from analyzers.apk_parser import parse_apk
+from celery import Task
 from repositories.task_repo import get_task_by_id, update_task, upsert_static_result
 from services.storage_service import storage_service
 from workers.celery_app import celery_app
 
 
 logger = logging.getLogger(__name__)
+DB_EXCEPTIONS = (pymysql.err.MySQLError,)
 APP_NAME_INVISIBLE_CHAR_PATTERN = re.compile(
     r"[\u0000-\u001F\u007F-\u009F\u00AD\u200B\u200E-\u200F\u202A-\u202E\u2060-\u206F\uFEFF\uFFF9-\uFFFB]"
 )
@@ -72,15 +75,49 @@ def _guess_icon_content_type(extension: str) -> str:
     return "application/octet-stream"
 
 
-@celery_app.task(name="workers.static_analysis.analyze_apk")
-def analyze_apk(task_id: str):
+class StaticAnalysisTaskBase(Task):
+    autoretry_for = DB_EXCEPTIONS
+    retry_backoff = True
+    retry_backoff_max = 30
+    retry_jitter = True
+    retry_kwargs = {"max_retries": 3}
+
+    def on_failure(self, exc, task_id, args, kwargs, einfo):
+        _ = task_id, einfo
+        task_id_value = kwargs.get("task_id") if kwargs else None
+        if task_id_value is None and args:
+            task_id_value = args[0]
+        if task_id_value:
+            try:
+                update_task(
+                    str(task_id_value),
+                    {
+                        "status": "static_failed",
+                        "error_message": _build_error_message(exc),
+                    },
+                )
+            except Exception:  # pragma: no cover - best effort failure fallback
+                logger.exception("static analyze failure status update failed task_id=%s", task_id_value)
+
+
+@celery_app.task(
+    bind=True,
+    base=StaticAnalysisTaskBase,
+    name="workers.static_analysis.analyze_apk",
+)
+def analyze_apk(self, task_id: str):
     task = get_task_by_id(task_id)
     if not task:
-        logger.warning("static analyze ignored: task_id=%s not found", task_id)
-        return {"task_id": task_id, "accepted": False, "reason": "task_not_found"}
+        if self.request.retries < self.max_retries:
+            logger.warning("static analyze task missing, retrying task_id=%s retries=%s", task_id, self.request.retries)
+            raise self.retry(exc=RuntimeError("静态分析任务不存在，准备重试"), countdown=2)
+        raise RuntimeError("静态分析任务不存在")
 
     apk_object_path = task.get("apk_path")
     if not apk_object_path:
+        if self.request.retries < self.max_retries:
+            logger.warning("static analyze apk path missing, retrying task_id=%s retries=%s", task_id, self.request.retries)
+            raise self.retry(exc=RuntimeError("静态分析任务缺少APK存储路径，准备重试"), countdown=2)
         update_task(
             task_id,
             {
@@ -144,6 +181,8 @@ def analyze_apk(task_id: str):
             },
         )
         return {"task_id": task_id, "status": "waiting_device"}
+    except DB_EXCEPTIONS:
+        raise
     except Exception as exc:  # pragma: no cover - depends on APK and runtime
         logger.exception("static analyze failed task_id=%s", task_id)
         update_task(

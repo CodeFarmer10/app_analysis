@@ -185,7 +185,7 @@ frontend/src/
 | `redis` | `redis:7-alpine` | 挂载数据卷，暴露 6379 |
 | `minio` | `minio/minio` | 挂载数据卷，暴露 9000（API）和 9001（Console） |
 | `api` | 基于后端 Dockerfile 构建 | 启动命令 `uvicorn main:app`，暴露 8000 |
-| `worker` | 与 api 共用镜像 | 启动命令 `celery -A workers.celery_app worker` |
+| `worker` | 与 api 共用镜像 | 启动命令 `celery -A workers.celery_app worker -c 10` |
 | `scheduler` | 与 api 共用镜像 | 启动命令 `python workers/scheduler.py` |
 | `nginx` | `nginx:alpine` | 暴露 80，代理前端静态资源和后端 API（阶段十七补全） |
 
