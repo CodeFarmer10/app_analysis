@@ -43,6 +43,7 @@ def get_screenshot(device_id: str | None = None, screenshot_dir: str | None = No
     adb_prefix = _get_adb_prefix(device_id)
 
     try:
+        _ensure_screen_awake(adb_prefix, timeout)
         display_id = _detect_primary_display_id(adb_prefix, timeout)
         result = _capture_remote_screenshot(adb_prefix, display_id, timeout)
 
@@ -97,6 +98,39 @@ def _run_adb_command(command: list[str], timeout: int) -> subprocess.CompletedPr
         capture_output=True,
         text=True,
         timeout=timeout,
+    )
+
+
+def _ensure_screen_awake(adb_prefix: list[str], timeout: int) -> None:
+    """Wake the device before screenshotting if the display is currently off."""
+    if not _is_screen_off(adb_prefix, timeout):
+        return
+
+    _run_adb_command(adb_prefix + ["shell", "input", "keyevent", "KEYCODE_WAKEUP"], timeout=timeout)
+    _run_adb_command(
+        adb_prefix + ["shell", "input", "swipe", "540", "2000", "540", "800", "300"],
+        timeout=timeout,
+    )
+
+
+def _is_screen_off(adb_prefix: list[str], timeout: int) -> bool:
+    """Detect whether the device screen is asleep or non-interactive."""
+    try:
+        result = _run_adb_command(
+            adb_prefix + ["shell", "dumpsys", "power"],
+            timeout=timeout,
+        )
+    except Exception:
+        return False
+
+    if result.returncode != 0:
+        return False
+
+    output = f"{result.stdout}{result.stderr}"
+    return (
+        "mWakefulness=Asleep" in output
+        or "mInteractive=false" in output
+        or "mScreenState=OFF" in output
     )
 
 
