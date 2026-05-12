@@ -255,6 +255,29 @@ def _extract_so_files(apk_path: str) -> list[str]:
         return []
 
 
+def _extract_icon_bytes_with_get_icon_from_apk(apk_path: str, icon_path: str | None) -> tuple[bytes | None, str | None]:
+    normalized_icon_path = _normalize_zip_entry(icon_path)
+    if not normalized_icon_path:
+        return None, None
+    icon_bytes = _extract_zip_entry_bytes(apk_path, normalized_icon_path)
+    if not _is_image_bytes(icon_bytes):
+        return None, None
+    return icon_bytes, normalized_icon_path
+
+
+def _extract_icon_resource_ids_from_xmltree(xmltree_output: str) -> list[str]:
+    matches = re.findall(r":icon\([^)]+\)=@(0x[0-9a-fA-F]+)", xmltree_output)
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for match in matches:
+        normalized = match.lower()
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        deduped.append(normalized)
+    return deduped
+
+
 def _parse_badging_output(output: str) -> dict[str, Any]:
     info: dict[str, Any] = {}
 
@@ -449,6 +472,17 @@ def _density_score(line: str) -> int:
     return 0
 
 
+def _looks_like_resource_entry_path(value: str | None) -> bool:
+    normalized = str(value or "").strip().strip("\"'")
+    if not normalized:
+        return False
+    if "/" not in normalized:
+        return False
+    if normalized.startswith(("@", "#")):
+        return False
+    return True
+
+
 def _extract_resource_entry_by_id(resources_output: str, resource_id: str) -> str | None:
     normalized_id = resource_id.lower()
     lines = resources_output.splitlines()
@@ -472,12 +506,18 @@ def _extract_resource_entry_by_id(resources_output: str, resource_id: str) -> st
             in_target = False
             continue
 
-        path_match = re.search(r'"([^"]+\.(?:png|jpg|jpeg|webp|gif|xml))"', line, flags=re.IGNORECASE)
-        if path_match:
+        path_match = re.search(r"\(file\)\s+([^\s\"']+)", line, flags=re.IGNORECASE)
+        if path_match and _looks_like_resource_entry_path(path_match.group(1)):
             candidates.append((_density_score(line), path_match.group(1)))
             continue
-        string8_match = re.search(r'\(string8\)\s+"([^"]+)"', line, flags=re.IGNORECASE)
-        if string8_match and re.search(r"\.(?:png|jpg|jpeg|webp|gif|xml)$", string8_match.group(1), flags=re.IGNORECASE):
+
+        quoted_match = re.search(r'"([^"]+)"', line)
+        if quoted_match and _looks_like_resource_entry_path(quoted_match.group(1)):
+            candidates.append((_density_score(line), quoted_match.group(1)))
+            continue
+
+        string8_match = re.search(r"\(string8\)\s+\"([^\"]+)\"", line, flags=re.IGNORECASE)
+        if string8_match and _looks_like_resource_entry_path(string8_match.group(1)):
             candidates.append((_density_score(line), string8_match.group(1)))
 
     if not candidates:
@@ -486,11 +526,55 @@ def _extract_resource_entry_by_id(resources_output: str, resource_id: str) -> st
     return candidates[0][1]
 
 
+def _extract_resource_entry_from_arsc_output(arsc_output: str) -> str | None:
+    path_candidates: list[str] = []
+    for line in arsc_output.splitlines():
+        value_match = re.search(r"=\s*'([^']+)'", line, flags=re.IGNORECASE)
+        if not value_match:
+            continue
+        if not _looks_like_resource_entry_path(value_match.group(1)):
+            continue
+        path_candidates.append(line.strip())
+
+    if not path_candidates:
+        return None
+
+    chosen = path_candidates[0]
+    for candidate in path_candidates:
+        if "mdpi =" in candidate or "mdpi-v4 =" in candidate:
+            chosen = candidate
+            break
+
+    path_match = re.search(r"=\s*'([^']+)'", chosen, flags=re.IGNORECASE)
+    if not path_match:
+        return None
+    if not _looks_like_resource_entry_path(path_match.group(1)):
+        return None
+    return _normalize_zip_entry(path_match.group(1))
+
+
+def _resolve_resource_id_with_androguard_arsc(
+    apk_path: str,
+    resource_id: str,
+    *,
+    androguard_path: str | None,
+) -> str | None:
+    if not androguard_path:
+        return None
+
+    try:
+        arsc_output = _run_tool([androguard_path, "arsc", apk_path, "--id", resource_id])
+    except Exception:
+        return None
+    return _extract_resource_entry_from_arsc_output(arsc_output)
+
+
 def _resolve_resource_id_to_entry(
     apk_path: str,
     resource_id: str,
     *,
     aapt2_path: str | None,
+    androguard_path: str | None = None,
 ) -> str | None:
     if aapt2_path:
         try:
@@ -500,7 +584,11 @@ def _resolve_resource_id_to_entry(
                 return from_aapt2
         except Exception:
             pass
-    return None
+    return _resolve_resource_id_with_androguard_arsc(
+        apk_path,
+        resource_id,
+        androguard_path=androguard_path,
+    )
 
 
 def _extract_icon_bytes_from_entry(
@@ -508,6 +596,7 @@ def _extract_icon_bytes_from_entry(
     entry: str | None,
     *,
     aapt2_path: str | None,
+    androguard_path: str | None = None,
     depth: int = 0,
     visited: set[str] | None = None,
 ) -> tuple[bytes | None, str | None]:
@@ -542,6 +631,7 @@ def _extract_icon_bytes_from_entry(
             apk_path,
             ref,
             aapt2_path=aapt2_path,
+            androguard_path=androguard_path,
         )
         if not resolved_entry:
             continue
@@ -549,6 +639,7 @@ def _extract_icon_bytes_from_entry(
             apk_path,
             resolved_entry,
             aapt2_path=aapt2_path,
+            androguard_path=androguard_path,
             depth=depth + 1,
             visited=visited,
         )
@@ -559,6 +650,7 @@ def _extract_icon_bytes_from_entry(
 
 def _parse_with_aapt2(apk_path: str, aapt2_path: str) -> dict[str, Any]:
     parsed = _default_result()
+    androguard_path = shutil.which("androguard")
 
     badging_output = _run_tool([aapt2_path, "dump", "badging", apk_path])
     badging_info = _parse_badging_output(badging_output)
@@ -585,10 +677,29 @@ def _parse_with_aapt2(apk_path: str, aapt2_path: str) -> dict[str, Any]:
         apk_path,
         parsed.get("icon_name"),
         aapt2_path=aapt2_path,
+        androguard_path=androguard_path,
     )
     if icon_bytes:
         parsed["icon_bytes"] = icon_bytes
         parsed["icon_name"] = resolved_icon_name or parsed.get("icon_name")
+    else:
+        for resource_id in _extract_icon_resource_ids_from_xmltree(manifest_output):
+            resolved_entry = _resolve_resource_id_to_entry(
+                apk_path,
+                resource_id,
+                aapt2_path=aapt2_path,
+                androguard_path=androguard_path,
+            )
+            if not resolved_entry:
+                continue
+            fallback_icon_bytes, fallback_resolved_icon_name = _extract_icon_bytes_with_get_icon_from_apk(
+                apk_path,
+                resolved_entry,
+            )
+            if fallback_icon_bytes:
+                parsed["icon_bytes"] = fallback_icon_bytes
+                parsed["icon_name"] = fallback_resolved_icon_name or resolved_entry
+                break
 
     parsed["so_files"] = _extract_so_files(apk_path)
     return parsed
@@ -597,6 +708,7 @@ def _parse_with_aapt2(apk_path: str, aapt2_path: str) -> dict[str, Any]:
 def _parse_with_androguard(apk_path: str) -> dict[str, Any]:
     parsed = _default_result()
     apk = APK(apk_path)
+    androguard_path = shutil.which("androguard")
 
     app_icon_name = _safe_call(apk.get_app_icon)
     icon_bytes: bytes | None = None
@@ -604,6 +716,32 @@ def _parse_with_androguard(apk_path: str) -> dict[str, Any]:
         raw_icon = _safe_call(lambda: apk.get_file(app_icon_name))
         if isinstance(raw_icon, (bytes, bytearray)):
             icon_bytes = bytes(raw_icon)
+
+    if not _is_image_bytes(icon_bytes):
+        aapt2_path = _detect_build_tool("aapt2")
+        if aapt2_path:
+            try:
+                manifest_output = _run_tool([aapt2_path, "dump", "xmltree", apk_path, "--file", "AndroidManifest.xml"])
+            except Exception:
+                manifest_output = ""
+
+            for resource_id in _extract_icon_resource_ids_from_xmltree(manifest_output):
+                resolved_entry = _resolve_resource_id_to_entry(
+                    apk_path,
+                    resource_id,
+                    aapt2_path=aapt2_path,
+                    androguard_path=androguard_path,
+                )
+                if not resolved_entry:
+                    continue
+                fallback_icon_bytes, fallback_resolved_icon_name = _extract_icon_bytes_with_get_icon_from_apk(
+                    apk_path,
+                    resolved_entry,
+                )
+                if fallback_icon_bytes:
+                    icon_bytes = fallback_icon_bytes
+                    app_icon_name = fallback_resolved_icon_name or resolved_entry or app_icon_name
+                    break
 
     permissions = _build_permissions(_safe_call(apk.get_permissions, []) or [])
     launcher_activities = set(_safe_call(apk.get_main_activities, set()) or set())
