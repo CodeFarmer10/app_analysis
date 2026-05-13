@@ -23,7 +23,7 @@ from repositories.task_repo import (
     list_dynamic_results,
     list_traffic_logs,
 )
-from services.ip_geo_service import is_local_ip, pick_non_local_ip
+from services.ip_geo_service import is_local_ip
 from services.storage_service import storage_service
 
 

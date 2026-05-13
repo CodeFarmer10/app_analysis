@@ -49,7 +49,7 @@ const stepTrafficColumns = [
   },
   { title: '协议', dataIndex: 'protocol', key: 'protocol', width: 100 },
   { title: '域名', dataIndex: 'domain', key: 'domain', width: 180 },
-  { title: '归属地', dataIndex: 'ip_country', key: 'ip_country', width: 110 },
+  { title: '归属地', dataIndex: 'ip_country', key: 'ip_country', width: 120 },
   { title: 'URL', dataIndex: 'url', key: 'url', width: 300 },
   {
     title: '主控打标',
@@ -67,6 +67,20 @@ const dynamicPagination = computed(() => ({
   showSizeChanger: true,
   showTotal: (total) => `共 ${total} 条`,
 }))
+
+function shortenText(value, limit = 100) {
+  const text = String(value || '')
+  if (!text) {
+    return '--'
+  }
+  if (text.length <= limit) {
+    return text
+  }
+  if (limit <= 3) {
+    return text.slice(0, limit)
+  }
+  return `${text.slice(0, limit - 3)}...`
+}
 
 function getScreenshotItems(record) {
   const items = []
@@ -267,12 +281,12 @@ const realControllerTargets = computed(() => props.dynamicSummary?.real_controll
                 :columns="stepTrafficColumns"
                 :data-source="getTrafficItemsByStep(record)"
                 :pagination="false"
-                :scroll="{ x: 1180 }"
+                :scroll="{ x: 1300 }"
               >
                 <template #bodyCell="{ column, text }">
                   <template v-if="column.key === 'domain' || column.key === 'url'">
                     <a-typography-text class="ellipsis-text traffic-link-text" :ellipsis="{ tooltip: text || '--' }">
-                      {{ text || '--' }}
+                      {{ column.key === 'url' ? shortenText(text, 100) : (text || '--') }}
                     </a-typography-text>
                   </template>
                   <template v-else-if="column.key === 'ip_country'">
