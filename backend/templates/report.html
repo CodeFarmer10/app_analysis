@@ -466,6 +466,10 @@
             width: 132px;
         }
 
+        .traffic-table .col-country {
+            width: 72px;
+        }
+
         .traffic-table .col-controller {
             width: 62px;
         }
@@ -669,6 +673,10 @@
 
             .traffic-table .col-domain {
                 width: 110px;
+            }
+
+            .traffic-table .col-country {
+                width: 58px;
             }
 
             .traffic-table .col-controller {
@@ -916,6 +924,7 @@
                                 <th class="col-endpoint">源IP端口</th>
                                 <th class="col-endpoint">目的IP端口</th>
                                 <th class="col-domain">域名</th>
+                                <th class="col-country">归属地</th>
                                 <th>URL</th>
                                 <th class="col-controller">主控</th>
                             </tr>
@@ -929,6 +938,7 @@
                                         <td>{{ log.src_endpoint }}</td>
                                         <td>{{ log.dst_endpoint }}</td>
                                         <td>{{ log.domain or '-' }}</td>
+                                        <td>{{ log.ip_country_text or '-' }}</td>
                                         <td>{{ log.url or '-' }}</td>
                                         <td>
                                             {% if log.is_real_controller_text == '是' %}
@@ -941,7 +951,7 @@
                                 {% endfor %}
                             {% else %}
                                 <tr>
-                                    <td colspan="7">当前步骤无关联流量日志</td>
+                                    <td colspan="8">当前步骤无关联流量日志</td>
                                 </tr>
                             {% endif %}
                         </tbody>
