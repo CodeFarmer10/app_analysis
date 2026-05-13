@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import base64
 import io
-import ipaddress
 import logging
 import mimetypes
 import re
@@ -24,6 +23,7 @@ from repositories.task_repo import (
     list_dynamic_results,
     list_traffic_logs,
 )
+from services.ip_geo_service import is_local_ip, pick_non_local_ip
 from services.storage_service import storage_service
 
 
@@ -132,29 +132,13 @@ def _build_operation_screenshot_object_name(item: dict[str, Any]) -> str | None:
     return item.get("screenshot_after") or item.get("screenshot_before")
 
 
-def _is_local_ip(value: Any) -> bool:
-    text = str(value or "").strip()
-    if not text:
-        return False
-    try:
-        parsed = ipaddress.ip_address(text)
-    except ValueError:
-        return False
-    return (
-        parsed.is_private
-        or parsed.is_loopback
-        or parsed.is_link_local
-        or parsed.is_reserved
-    )
-
-
 def _is_uplink_packet(packet: dict[str, Any]) -> bool:
     src_ip = str(packet.get("src_ip") or "").strip()
     dst_ip = str(packet.get("dst_ip") or "").strip()
     if not src_ip or not dst_ip:
         return False
-    src_local = _is_local_ip(src_ip)
-    dst_local = _is_local_ip(dst_ip)
+    src_local = is_local_ip(src_ip)
+    dst_local = is_local_ip(dst_ip)
     if src_local and not dst_local:
         return True
     if src_local and dst_local:
@@ -267,6 +251,7 @@ def _build_step_traffic_logs(
                 **packet,
                 "src_endpoint": f"{_text(packet.get('src_ip'))}:{_text(packet.get('src_port'))}",
                 "dst_endpoint": f"{_text(packet.get('dst_ip'))}:{_text(packet.get('dst_port'))}",
+                "ip_country_text": _text(packet.get("ip_country")),
                 "is_real_controller_text": "是" if packet.get("is_real_controller") else "否",
             }
         )
@@ -283,6 +268,45 @@ def _build_step_traffic_logs(
     return dict(step_logs)
 
 
+def _build_real_controller_summary(traffic_logs: list[dict[str, Any]]) -> dict[str, Any]:
+    targets: list[dict[str, Any]] = []
+    seen_targets: set[tuple[str, str, str]] = set()
+
+    for packet in traffic_logs:
+        if not packet.get("is_real_controller"):
+            continue
+
+        domain_text = str(packet.get("domain") or "").strip() or "-"
+        ip_text = str(
+            pick_non_local_ip(packet.get("src_ip"), packet.get("dst_ip"))
+            or packet.get("dst_ip")
+            or ""
+        ).strip() or "-"
+        country_text = str(packet.get("ip_country") or "").strip() or "-"
+        if domain_text == "-" and ip_text == "-":
+            continue
+
+        dedupe_key = (domain_text, ip_text, country_text)
+        if dedupe_key in seen_targets:
+            continue
+        seen_targets.add(dedupe_key)
+        targets.append(
+            {
+                "domain_text": domain_text,
+                "ip_text": ip_text,
+                "country_text": country_text,
+            }
+        )
+
+    for index, item in enumerate(targets, start=1):
+        item["row_no"] = index
+
+    return {
+        "targets": targets,
+        "target_count": len(targets),
+    }
+
+
 def _build_report_context(task_id: str) -> dict[str, Any]:
     task = get_task_by_id(task_id)
     if not task:
@@ -293,6 +317,7 @@ def _build_report_context(task_id: str) -> dict[str, Any]:
     raw_traffic_logs = list_traffic_logs(task_id)
     uplink_traffic_logs = [item for item in raw_traffic_logs if _is_uplink_packet(item)]
     step_traffic_logs = _build_step_traffic_logs(dynamic_results, uplink_traffic_logs)
+    real_controller_summary = _build_real_controller_summary(uplink_traffic_logs)
 
     permissions = []
     for raw_permission in static_result.get("permissions") or []:
@@ -387,6 +412,8 @@ def _build_report_context(task_id: str) -> dict[str, Any]:
             "protocol_ratio_items": protocol_ratio_items,
             "domain_ratio_items": domain_ratio_items,
             "ip_ratio_items": ip_ratio_items,
+            "real_controller_targets": real_controller_summary["targets"],
+            "real_controller_target_count": real_controller_summary["target_count"],
         },
         "operation_items": operation_items,
         "appendix": {
@@ -630,6 +657,48 @@ def _build_pdf_with_reportlab(context: dict[str, Any]) -> bytes:
         story_items.extend([table, Spacer(1, 6)])
         return story_items
 
+    def build_real_controller_table(title: str, items: list[dict[str, Any]]) -> list[Any]:
+        story_items: list[Any] = [Paragraph(title, block_style)]
+        rows = [
+            [
+                Paragraph("域名", small_style),
+                Paragraph("IP", small_style),
+                Paragraph("归属地", small_style),
+            ]
+        ]
+        for item in items or []:
+            rows.append(
+                [
+                    Paragraph(escape(_text(item.get("domain_text"))), small_style),
+                    Paragraph(escape(_text(item.get("ip_text"))), small_style),
+                    Paragraph(escape(_text(item.get("country_text"))), small_style),
+                ]
+            )
+        if len(rows) == 1:
+            rows.append(
+                [
+                    Paragraph("-", small_style),
+                    Paragraph("-", small_style),
+                    Paragraph("-", small_style),
+                ]
+            )
+        table = Table(rows, colWidths=[62 * mm, 50 * mm, 34 * mm], repeatRows=1)
+        table.setStyle(
+            TableStyle(
+                [
+                    ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#d7deea")),
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f8fafc")),
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 5),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+                    ("TOPPADDING", (0, 0), (-1, -1), 4),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                ]
+            )
+        )
+        story_items.extend([table, Spacer(1, 6)])
+        return story_items
+
     def build_image(object_name: str | None, max_width_mm: float, max_height_mm: float) -> list[Any]:
         if not object_name:
             return [Paragraph("未采集到截图", small_style)]
@@ -655,6 +724,7 @@ def _build_pdf_with_reportlab(context: dict[str, Any]) -> bytes:
                 Paragraph("源IP端口", small_style),
                 Paragraph("目的IP端口", small_style),
                 Paragraph("域名", small_style),
+                Paragraph("归属地", small_style),
                 Paragraph("URL", small_style),
                 Paragraph("主控", small_style),
             ]
@@ -667,6 +737,7 @@ def _build_pdf_with_reportlab(context: dict[str, Any]) -> bytes:
                     Paragraph(escape(_text(item.get("src_endpoint"))), small_style),
                     Paragraph(escape(_text(item.get("dst_endpoint"))), small_style),
                     Paragraph(escape(_text(item.get("domain"))), small_style),
+                    Paragraph(escape(_text(item.get("ip_country_text"))), small_style),
                     Paragraph(escape(_text(item.get("url"))), small_style),
                     Paragraph(escape(_text(item.get("is_real_controller_text"))), small_style),
                 ]
@@ -679,11 +750,16 @@ def _build_pdf_with_reportlab(context: dict[str, Any]) -> bytes:
                     Paragraph("-", small_style),
                     Paragraph("-", small_style),
                     Paragraph("-", small_style),
+                    Paragraph("-", small_style),
                     Paragraph("当前步骤无关联流量日志", small_style),
                     Paragraph("-", small_style),
                 ]
             )
-        table = Table(rows, colWidths=[10 * mm, 16 * mm, 27 * mm, 27 * mm, 26 * mm, 68 * mm, 10 * mm], repeatRows=1)
+        table = Table(
+            rows,
+            colWidths=[10 * mm, 16 * mm, 24 * mm, 24 * mm, 24 * mm, 16 * mm, 52 * mm, 10 * mm],
+            repeatRows=1,
+        )
         table.setStyle(
             TableStyle(
                 [
@@ -763,6 +839,7 @@ def _build_pdf_with_reportlab(context: dict[str, Any]) -> bytes:
                     ("成功步骤数", _text(dynamic_summary.get("success_step_count"))),
                     ("失败步骤数", _text(dynamic_summary.get("failed_step_count"))),
                     ("上行流量总条数", _text(dynamic_summary.get("uplink_log_count"))),
+                    ("诈骗主控目标数", _text(dynamic_summary.get("real_controller_target_count"))),
                 ]
             ),
             Spacer(1, 6),
@@ -772,6 +849,12 @@ def _build_pdf_with_reportlab(context: dict[str, Any]) -> bytes:
     story.extend(build_ratio_table("协议占比", dynamic_summary.get("protocol_ratio_items") or []))
     story.extend(build_ratio_table("域名占比", dynamic_summary.get("domain_ratio_items") or []))
     story.extend(build_ratio_table("IP占比", dynamic_summary.get("ip_ratio_items") or []))
+    story.extend(
+        build_real_controller_table(
+            "诈骗主控（域名 / IP / 归属地）",
+            dynamic_summary.get("real_controller_targets") or [],
+        )
+    )
 
     for item in operation_items:
         story.extend(

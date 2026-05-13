@@ -5,6 +5,7 @@ import logging
 import mimetypes
 import os
 import tempfile
+from collections import Counter
 from datetime import datetime
 from typing import Any
 from urllib.parse import urlparse
@@ -31,6 +32,7 @@ from repositories.task_repo import (
     update_task,
 )
 from repositories.user_repo import get_user_by_id, get_user_by_username
+from services.ip_geo_service import is_local_ip, pick_non_local_ip
 from services.storage_service import storage_service
 from workers.download import download_apk
 from workers.static_analysis import analyze_apk
@@ -182,6 +184,126 @@ def _resolve_backend_import_user_id() -> str:
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         detail=f"后台导入用户名不存在: {preferred_username}",
     )
+
+
+def _safe_positive_int(value: Any) -> int | None:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed >= 0 else None
+
+
+def _is_uplink_packet(packet: dict[str, Any]) -> bool:
+    src_ip = str(packet.get("src_ip") or "").strip()
+    dst_ip = str(packet.get("dst_ip") or "").strip()
+    if not src_ip or not dst_ip:
+        return False
+    src_local = is_local_ip(src_ip)
+    dst_local = is_local_ip(dst_ip)
+    if src_local and not dst_local:
+        return True
+    if src_local and dst_local:
+        return True
+    return False
+
+
+def _build_ratio_items(values: list[str], *, fallback_label: str, top_n: int = 10) -> list[dict[str, Any]]:
+    normalized = [str(item or "").strip() or fallback_label for item in values]
+    total = len(normalized)
+    if total == 0:
+        return []
+
+    counter = Counter(normalized)
+    sorted_items = sorted(counter.items(), key=lambda item: (-item[1], item[0]))
+    if len(sorted_items) > top_n:
+        head = sorted_items[:top_n]
+        others_count = sum(count for _, count in sorted_items[top_n:])
+        sorted_items = head + [("其他", others_count)]
+
+    ratio_items: list[dict[str, Any]] = []
+    for label, count in sorted_items:
+        percent = round(count * 100 / total, 1)
+        ratio_items.append(
+            {
+                "label": label,
+                "count": count,
+                "percent": percent,
+                "percent_text": f"{percent:.1f}%",
+                "bar_width": max(percent, 3),
+            }
+        )
+    return ratio_items
+
+
+def _build_real_controller_summary(traffic_logs: list[dict[str, Any]]) -> dict[str, Any]:
+    targets: list[dict[str, Any]] = []
+    seen_targets: set[tuple[str, str, str]] = set()
+
+    for packet in traffic_logs:
+        if not packet.get("is_real_controller"):
+            continue
+
+        domain_text = str(packet.get("domain") or "").strip() or "-"
+        ip_text = str(
+            pick_non_local_ip(packet.get("src_ip"), packet.get("dst_ip"))
+            or packet.get("dst_ip")
+            or ""
+        ).strip() or "-"
+        country_text = str(packet.get("ip_country") or "").strip() or "-"
+        if domain_text == "-" and ip_text == "-":
+            continue
+
+        dedupe_key = (domain_text, ip_text, country_text)
+        if dedupe_key in seen_targets:
+            continue
+        seen_targets.add(dedupe_key)
+        targets.append(
+            {
+                "domain_text": domain_text,
+                "ip_text": ip_text,
+                "country_text": country_text,
+            }
+        )
+
+    for index, item in enumerate(targets, start=1):
+        item["row_no"] = index
+
+    return {
+        "targets": targets,
+        "target_count": len(targets),
+    }
+
+
+def _build_dynamic_summary(
+    dynamic_items: list[dict[str, Any]],
+    traffic_logs: list[dict[str, Any]],
+) -> dict[str, Any]:
+    uplink_traffic_logs = [item for item in traffic_logs if _is_uplink_packet(item)]
+    success_step_count = sum(1 for item in dynamic_items if bool(item.get("is_success")))
+    failed_step_count = sum(1 for item in dynamic_items if not bool(item.get("is_success")))
+    real_controller_summary = _build_real_controller_summary(uplink_traffic_logs)
+
+    return {
+        "step_count": len(dynamic_items),
+        "success_step_count": success_step_count,
+        "failed_step_count": failed_step_count,
+        "uplink_log_count": len(uplink_traffic_logs),
+        "protocol_ratio_items": _build_ratio_items(
+            [str(item.get("protocol") or "").strip() for item in uplink_traffic_logs],
+            fallback_label="-",
+        ),
+        "domain_ratio_items": _build_ratio_items(
+            [str(item.get("domain") or "").strip() for item in uplink_traffic_logs],
+            fallback_label="直接IP",
+        ),
+        "ip_ratio_items": _build_ratio_items(
+            [str(item.get("dst_ip") or "").strip() for item in uplink_traffic_logs],
+            fallback_label="-",
+        ),
+        "real_controller_targets": real_controller_summary["targets"],
+        "real_controller_target_count": real_controller_summary["target_count"],
+    }
 
 
 def create_upload_tasks(
@@ -604,6 +726,12 @@ def get_task_dynamic_result(
 
     normalized_dynamic_page = max(dynamic_page, 1)
     normalized_dynamic_size = min(max(dynamic_size, 1), 200)
+    all_dynamic_items = sorted(
+        list_dynamic_results(task_id),
+        key=lambda item: _safe_positive_int(item.get("seq")) or 0,
+    )
+    all_traffic_logs = list_traffic_logs(task_id)
+    dynamic_summary = _build_dynamic_summary(all_dynamic_items, all_traffic_logs)
 
     dynamic_items, dynamic_total = get_dynamic_results(
         task_id,
@@ -675,6 +803,7 @@ def get_task_dynamic_result(
             "page": normalized_dynamic_page,
             "size": normalized_dynamic_size,
         },
+        "dynamic_summary": dynamic_summary,
         "step_traffic_logs": step_traffic_logs,
     }
 

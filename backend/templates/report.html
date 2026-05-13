@@ -375,6 +375,12 @@
             background: linear-gradient(90deg, #2563eb 0%, #60a5fa 100%);
         }
 
+        .controller-table th,
+        .controller-table td {
+            font-size: 11px;
+            line-height: 1.45;
+        }
+
         .operation-page {
             page-break-before: auto;
         }
@@ -464,6 +470,10 @@
 
         .traffic-table .col-domain {
             width: 132px;
+        }
+
+        .traffic-table .col-country {
+            width: 72px;
         }
 
         .traffic-table .col-controller {
@@ -671,8 +681,17 @@
                 width: 110px;
             }
 
+            .traffic-table .col-country {
+                width: 58px;
+            }
+
             .traffic-table .col-controller {
                 width: 48px;
+            }
+
+            .controller-table th,
+            .controller-table td {
+                font-size: 10px;
             }
         }
     </style>
@@ -881,6 +900,38 @@
                 </div>
             </div>
         </div>
+
+        <div class="panel" style="margin-top: 12px;">
+            <h3 class="panel-title">诈骗主控（域名 / IP / 归属地）</h3>
+            <div class="panel-body">
+                <table class="traffic-table controller-table">
+                    <thead>
+                        <tr>
+                            <th class="col-domain">域名</th>
+                            <th class="col-endpoint">IP</th>
+                            <th class="col-country">归属地</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% if dynamic_summary.real_controller_targets %}
+                            {% for item in dynamic_summary.real_controller_targets %}
+                                <tr>
+                                    <td>{{ item.domain_text }}</td>
+                                    <td>{{ item.ip_text }}</td>
+                                    <td>{{ item.country_text }}</td>
+                                </tr>
+                            {% endfor %}
+                        {% else %}
+                            <tr>
+                                <td>-</td>
+                                <td>-</td>
+                                <td>-</td>
+                            </tr>
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
     </section>
 
     {% for item in operation_items %}
@@ -916,6 +967,7 @@
                                 <th class="col-endpoint">源IP端口</th>
                                 <th class="col-endpoint">目的IP端口</th>
                                 <th class="col-domain">域名</th>
+                                <th class="col-country">归属地</th>
                                 <th>URL</th>
                                 <th class="col-controller">主控</th>
                             </tr>
@@ -929,6 +981,7 @@
                                         <td>{{ log.src_endpoint }}</td>
                                         <td>{{ log.dst_endpoint }}</td>
                                         <td>{{ log.domain or '-' }}</td>
+                                        <td>{{ log.ip_country_text or '-' }}</td>
                                         <td>{{ log.url or '-' }}</td>
                                         <td>
                                             {% if log.is_real_controller_text == '是' %}
@@ -941,7 +994,7 @@
                                 {% endfor %}
                             {% else %}
                                 <tr>
-                                    <td colspan="7">当前步骤无关联流量日志</td>
+                                    <td colspan="8">当前步骤无关联流量日志</td>
                                 </tr>
                             {% endif %}
                         </tbody>
