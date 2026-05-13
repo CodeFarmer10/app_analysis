@@ -18,6 +18,10 @@ const props = defineProps({
     type: Object,
     default: () => ({}),
   },
+  dynamicSummary: {
+    type: Object,
+    default: () => ({}),
+  },
   loading: {
     type: Boolean,
     default: false,
@@ -145,10 +149,96 @@ function isRealController(value) {
   const parsed = Number(value)
   return Number.isFinite(parsed) && parsed === 1
 }
+
+const protocolRatioItems = computed(() => props.dynamicSummary?.protocol_ratio_items || [])
+const domainRatioItems = computed(() => props.dynamicSummary?.domain_ratio_items || [])
+const ipRatioItems = computed(() => props.dynamicSummary?.ip_ratio_items || [])
+const realControllerTargets = computed(() => props.dynamicSummary?.real_controller_targets || [])
 </script>
 
 <template>
   <div class="dynamic-result">
+    <a-card :bordered="false" class="section-card summary-card">
+      <template #title>动态溯源总览</template>
+
+      <div class="ratio-layout">
+        <div class="ratio-card">
+          <h3 class="ratio-title">协议占比</h3>
+          <div class="ratio-body">
+            <template v-if="protocolRatioItems.length">
+              <div v-for="item in protocolRatioItems" :key="`protocol-${item.label}`" class="ratio-row">
+                <div class="ratio-meta">
+                  <div class="ratio-label">{{ item.label }}</div>
+                  <div class="ratio-number">{{ item.count }} / {{ item.percent_text }}</div>
+                </div>
+                <div class="ratio-bar">
+                  <div class="ratio-fill" :style="{ width: `${item.bar_width}%` }" />
+                </div>
+              </div>
+            </template>
+            <div v-else class="ratio-empty">暂无上行流量统计</div>
+          </div>
+        </div>
+
+        <div class="ratio-card">
+          <h3 class="ratio-title">域名占比</h3>
+          <div class="ratio-body">
+            <template v-if="domainRatioItems.length">
+              <div v-for="item in domainRatioItems" :key="`domain-${item.label}`" class="ratio-row">
+                <div class="ratio-meta">
+                  <div class="ratio-label">{{ item.label }}</div>
+                  <div class="ratio-number">{{ item.count }} / {{ item.percent_text }}</div>
+                </div>
+                <div class="ratio-bar">
+                  <div class="ratio-fill" :style="{ width: `${item.bar_width}%` }" />
+                </div>
+              </div>
+            </template>
+            <div v-else class="ratio-empty">暂无上行流量统计</div>
+          </div>
+        </div>
+
+        <div class="ratio-card">
+          <h3 class="ratio-title">IP占比</h3>
+          <div class="ratio-body">
+            <template v-if="ipRatioItems.length">
+              <div v-for="item in ipRatioItems" :key="`ip-${item.label}`" class="ratio-row">
+                <div class="ratio-meta">
+                  <div class="ratio-label">{{ item.label }}</div>
+                  <div class="ratio-number">{{ item.count }} / {{ item.percent_text }}</div>
+                </div>
+                <div class="ratio-bar">
+                  <div class="ratio-fill" :style="{ width: `${item.bar_width}%` }" />
+                </div>
+              </div>
+            </template>
+            <div v-else class="ratio-empty">暂无上行流量统计</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="controller-panel">
+        <div class="controller-header">诈骗主控</div>
+        <a-table
+          class="controller-table"
+          size="small"
+          :pagination="false"
+          :data-source="realControllerTargets.length ? realControllerTargets : [{ row_no: 1, domain_text: '--', ip_text: '--', country_text: '--' }]"
+          :columns="[
+            { title: '域名', dataIndex: 'domain_text', key: 'domain_text', width: 280 },
+            { title: 'IP', dataIndex: 'ip_text', key: 'ip_text', width: 220 },
+            { title: '归属地', dataIndex: 'country_text', key: 'country_text', width: 160 },
+          ]"
+          row-key="row_no"
+          :scroll="{ x: 720 }"
+        >
+          <template #bodyCell="{ text }">
+            <span class="mono-text">{{ text || '--' }}</span>
+          </template>
+        </a-table>
+      </div>
+    </a-card>
+
     <a-card :bordered="false" class="section-card">
       <template #title>操作记录</template>
       <a-table
@@ -199,6 +289,9 @@ function isRealController(value) {
                       {{ column.key === 'url' ? shortenText(text, 100) : (text || '--') }}
                     </a-typography-text>
                   </template>
+                  <template v-else-if="column.key === 'ip_country'">
+                    <span class="country-chip">{{ text || '--' }}</span>
+                  </template>
                   <template v-else-if="column.key === 'protocol'">
                     <span class="protocol-badge" :class="`protocol-${String(text || '').toLowerCase()}`">
                       {{ text || '--' }}
@@ -231,6 +324,105 @@ function isRealController(value) {
 
 .section-card {
   border-radius: 8px;
+}
+
+.summary-card {
+  overflow: hidden;
+}
+
+.ratio-layout {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.ratio-card {
+  border: 1px solid rgba(125, 160, 210, 0.28);
+  border-radius: 14px;
+  overflow: hidden;
+  background: rgba(15, 23, 42, 0.42);
+}
+
+.ratio-title,
+.controller-header {
+  margin: 0;
+  padding: 10px 14px;
+  background: linear-gradient(90deg, rgba(30, 64, 175, 0.3) 0%, rgba(37, 99, 235, 0.2) 100%);
+  color: #dbeafe;
+  font-size: 13px;
+  font-weight: 800;
+  border-bottom: 1px solid rgba(125, 160, 210, 0.22);
+}
+
+.ratio-body {
+  padding: 12px 14px;
+}
+
+.ratio-empty {
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.ratio-row + .ratio-row {
+  margin-top: 10px;
+}
+
+.ratio-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 5px;
+  font-size: 11px;
+}
+
+.ratio-label {
+  flex: 1;
+  color: #f8fafc;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ratio-number {
+  color: #8fa6c6;
+  white-space: nowrap;
+}
+
+.ratio-bar {
+  width: 100%;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(37, 99, 235, 0.14);
+  overflow: hidden;
+}
+
+.ratio-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #2563eb 0%, #60a5fa 100%);
+}
+
+.controller-panel {
+  border: 1px solid rgba(125, 160, 210, 0.28);
+  border-radius: 14px;
+  overflow: hidden;
+  background: rgba(15, 23, 42, 0.42);
+}
+
+.controller-table :deep(.ant-table) {
+  background: transparent;
+}
+
+.controller-table :deep(.ant-table-thead > tr > th) {
+  color: #cbd5e1 !important;
+  background: rgba(15, 23, 42, 0.28) !important;
+}
+
+.controller-table :deep(.ant-table-tbody > tr > td) {
+  color: #e2e8f0;
+  background: rgba(15, 23, 42, 0.08);
 }
 
 .expanded-content {
@@ -469,7 +661,24 @@ function isRealController(value) {
   color: #fecaca;
 }
 
+.country-chip {
+  display: inline-block;
+  min-width: 42px;
+  text-align: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  border: 1px solid rgba(56, 189, 248, 0.34);
+  background: rgba(14, 165, 233, 0.14);
+  color: #bae6fd;
+}
+
 @media (max-width: 1200px) {
+  .ratio-layout {
+    grid-template-columns: 1fr;
+  }
+
   .parallel-layout {
     grid-template-columns: 1fr;
   }

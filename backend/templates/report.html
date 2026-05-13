@@ -375,6 +375,12 @@
             background: linear-gradient(90deg, #2563eb 0%, #60a5fa 100%);
         }
 
+        .controller-table th,
+        .controller-table td {
+            font-size: 11px;
+            line-height: 1.45;
+        }
+
         .operation-page {
             page-break-before: auto;
         }
@@ -682,6 +688,11 @@
             .traffic-table .col-controller {
                 width: 48px;
             }
+
+            .controller-table th,
+            .controller-table td {
+                font-size: 10px;
+            }
         }
     </style>
 </head>
@@ -887,6 +898,38 @@
                         <div class="ratio-empty">暂无上行流量统计</div>
                     {% endif %}
                 </div>
+            </div>
+        </div>
+
+        <div class="panel" style="margin-top: 12px;">
+            <h3 class="panel-title">诈骗主控（域名 / IP / 归属地）</h3>
+            <div class="panel-body">
+                <table class="traffic-table controller-table">
+                    <thead>
+                        <tr>
+                            <th class="col-domain">域名</th>
+                            <th class="col-endpoint">IP</th>
+                            <th class="col-country">归属地</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% if dynamic_summary.real_controller_targets %}
+                            {% for item in dynamic_summary.real_controller_targets %}
+                                <tr>
+                                    <td>{{ item.domain_text }}</td>
+                                    <td>{{ item.ip_text }}</td>
+                                    <td>{{ item.country_text }}</td>
+                                </tr>
+                            {% endfor %}
+                        {% else %}
+                            <tr>
+                                <td>-</td>
+                                <td>-</td>
+                                <td>-</td>
+                            </tr>
+                        {% endif %}
+                    </tbody>
+                </table>
             </div>
         </div>
     </section>

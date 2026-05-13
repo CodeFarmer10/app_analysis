@@ -35,6 +35,7 @@ const dynamicResults = ref({
   page: 1,
   size: 20,
 })
+const dynamicSummary = ref({})
 const stepTrafficLogs = ref({})
 
 const terminalStatusSet = new Set(TASK_TERMINAL_STATUSES)
@@ -130,6 +131,7 @@ function goBack() {
 function resetResultState() {
   staticResult.value = null
   dynamicResults.value = { items: [], total: 0, page: 1, size: 20 }
+  dynamicSummary.value = {}
   stepTrafficLogs.value = {}
 }
 
@@ -176,6 +178,7 @@ async function fetchStaticResult() {
 async function fetchDynamicResult(options = {}) {
   if (!task.value || !dynamicReadyStatusSet.has(task.value.status)) {
     dynamicResults.value = { items: [], total: 0, page: 1, size: 20 }
+    dynamicSummary.value = {}
     stepTrafficLogs.value = {}
     return
   }
@@ -197,6 +200,7 @@ async function fetchDynamicResult(options = {}) {
       page: dynamicPage,
       size: dynamicSize,
     }
+    dynamicSummary.value = data?.dynamic_summary || {}
     stepTrafficLogs.value = data?.step_traffic_logs || {}
   } finally {
     dynamicLoading.value = false
@@ -366,6 +370,7 @@ onBeforeUnmount(() => {
         <a-tab-pane key="dynamic" tab="动态溯源">
           <DynamicResult
             :dynamic-results="dynamicResults"
+            :dynamic-summary="dynamicSummary"
             :step-traffic-logs="stepTrafficLogs"
             :loading="dynamicLoading"
             @change-dynamic-page="handleDynamicPageChange"
