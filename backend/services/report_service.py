@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import base64
 import io
-import ipaddress
 import logging
 import mimetypes
 import re
@@ -24,6 +23,7 @@ from repositories.task_repo import (
     list_dynamic_results,
     list_traffic_logs,
 )
+from services.ip_geo_service import is_local_ip
 from services.storage_service import storage_service
 
 
@@ -132,29 +132,13 @@ def _build_operation_screenshot_object_name(item: dict[str, Any]) -> str | None:
     return item.get("screenshot_after") or item.get("screenshot_before")
 
 
-def _is_local_ip(value: Any) -> bool:
-    text = str(value or "").strip()
-    if not text:
-        return False
-    try:
-        parsed = ipaddress.ip_address(text)
-    except ValueError:
-        return False
-    return (
-        parsed.is_private
-        or parsed.is_loopback
-        or parsed.is_link_local
-        or parsed.is_reserved
-    )
-
-
 def _is_uplink_packet(packet: dict[str, Any]) -> bool:
     src_ip = str(packet.get("src_ip") or "").strip()
     dst_ip = str(packet.get("dst_ip") or "").strip()
     if not src_ip or not dst_ip:
         return False
-    src_local = _is_local_ip(src_ip)
-    dst_local = _is_local_ip(dst_ip)
+    src_local = is_local_ip(src_ip)
+    dst_local = is_local_ip(dst_ip)
     if src_local and not dst_local:
         return True
     if src_local and dst_local:
@@ -267,6 +251,7 @@ def _build_step_traffic_logs(
                 **packet,
                 "src_endpoint": f"{_text(packet.get('src_ip'))}:{_text(packet.get('src_port'))}",
                 "dst_endpoint": f"{_text(packet.get('dst_ip'))}:{_text(packet.get('dst_port'))}",
+                "ip_country_text": _text(packet.get("ip_country")),
                 "is_real_controller_text": "是" if packet.get("is_real_controller") else "否",
             }
         )
@@ -655,6 +640,7 @@ def _build_pdf_with_reportlab(context: dict[str, Any]) -> bytes:
                 Paragraph("源IP端口", small_style),
                 Paragraph("目的IP端口", small_style),
                 Paragraph("域名", small_style),
+                Paragraph("归属地", small_style),
                 Paragraph("URL", small_style),
                 Paragraph("主控", small_style),
             ]
@@ -667,6 +653,7 @@ def _build_pdf_with_reportlab(context: dict[str, Any]) -> bytes:
                     Paragraph(escape(_text(item.get("src_endpoint"))), small_style),
                     Paragraph(escape(_text(item.get("dst_endpoint"))), small_style),
                     Paragraph(escape(_text(item.get("domain"))), small_style),
+                    Paragraph(escape(_text(item.get("ip_country_text"))), small_style),
                     Paragraph(escape(_text(item.get("url"))), small_style),
                     Paragraph(escape(_text(item.get("is_real_controller_text"))), small_style),
                 ]
@@ -679,11 +666,16 @@ def _build_pdf_with_reportlab(context: dict[str, Any]) -> bytes:
                     Paragraph("-", small_style),
                     Paragraph("-", small_style),
                     Paragraph("-", small_style),
+                    Paragraph("-", small_style),
                     Paragraph("当前步骤无关联流量日志", small_style),
                     Paragraph("-", small_style),
                 ]
             )
-        table = Table(rows, colWidths=[10 * mm, 16 * mm, 27 * mm, 27 * mm, 26 * mm, 68 * mm, 10 * mm], repeatRows=1)
+        table = Table(
+            rows,
+            colWidths=[10 * mm, 16 * mm, 24 * mm, 24 * mm, 24 * mm, 16 * mm, 52 * mm, 10 * mm],
+            repeatRows=1,
+        )
         table.setStyle(
             TableStyle(
                 [

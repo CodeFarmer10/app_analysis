@@ -59,6 +59,7 @@ const columns = computed(() => [
     onFilter: (value, record) => (record?.protocol || '') === value,
   },
   { title: '域名', dataIndex: 'domain', key: 'domain', width: 180 },
+  { title: '归属地', dataIndex: 'ip_country', key: 'ip_country', width: 120 },
   { title: 'URL', dataIndex: 'url', key: 'url', width: 300 },
   {
     title: '主控打标',
@@ -76,6 +77,20 @@ const pagination = computed(() => ({
   showSizeChanger: true,
   showTotal: (total) => `共 ${total} 条`,
 }))
+
+function shortenText(value, limit = 100) {
+  const text = String(value || '')
+  if (!text) {
+    return '--'
+  }
+  if (text.length <= limit) {
+    return text
+  }
+  if (limit <= 3) {
+    return text.slice(0, limit)
+  }
+  return `${text.slice(0, limit - 3)}...`
+}
 
 function copyText(value) {
   if (!value) {
@@ -130,7 +145,7 @@ function isRealController(value) {
     :data-source="items"
     :loading="loading"
     :pagination="pagination"
-    :scroll="{ x: 1400 }"
+    :scroll="{ x: 1520 }"
     @change="handleTableChange"
   >
     <template #bodyCell="{ column, text }">
@@ -142,7 +157,7 @@ function isRealController(value) {
       <template v-else-if="column.key === 'url' || column.key === 'domain'">
         <div class="url-cell">
           <a-typography-text class="url-text" :ellipsis="{ tooltip: text || '--' }">
-            {{ text || '--' }}
+            {{ column.key === 'url' ? shortenText(text, 100) : (text || '--') }}
           </a-typography-text>
           <a-button v-if="column.key === 'url' && text" type="link" size="small" @click="copyText(text)">
             复制
