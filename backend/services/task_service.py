@@ -194,6 +194,22 @@ def _safe_positive_int(value: Any) -> int | None:
     return parsed if parsed >= 0 else None
 
 
+def _is_step_placeholder(action: Any) -> bool:
+    text = str(action or "").strip()
+    return text.startswith("step_") and text[5:].isdigit()
+
+
+def _normalize_failed_dynamic_action(item: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(item)
+    if bool(normalized.get("is_success")):
+        return normalized
+
+    action_result = str(normalized.get("action_result") or "").strip()
+    if action_result and _is_step_placeholder(normalized.get("action")):
+        normalized["action"] = action_result
+    return normalized
+
+
 def _is_uplink_packet(packet: dict[str, Any]) -> bool:
     src_ip = str(packet.get("src_ip") or "").strip()
     dst_ip = str(packet.get("dst_ip") or "").strip()
@@ -657,7 +673,9 @@ def get_task_detail(task_id: str) -> dict[str, Any]:
         data["static_result"] = get_static_result(task_id)
 
     if status_value in DYNAMIC_READY_STATUSES:
-        data["dynamic_results"] = list_dynamic_results(task_id)
+        data["dynamic_results"] = [
+            _normalize_failed_dynamic_action(item) for item in list_dynamic_results(task_id)
+        ]
         data["traffic_logs"] = list_traffic_logs(task_id)
 
     return data
@@ -733,11 +751,12 @@ def get_task_dynamic_result(
     all_traffic_logs = list_traffic_logs(task_id)
     dynamic_summary = _build_dynamic_summary(all_dynamic_items, all_traffic_logs)
 
-    dynamic_items, dynamic_total = get_dynamic_results(
+    raw_dynamic_items, dynamic_total = get_dynamic_results(
         task_id,
         normalized_dynamic_page,
         normalized_dynamic_size,
     )
+    dynamic_items = [_normalize_failed_dynamic_action(item) for item in raw_dynamic_items]
     dynamic_id_to_seq: dict[str, int] = {}
     dynamic_seqs: list[int] = []
     for item in dynamic_items:

@@ -41,6 +41,19 @@ def _clip_text(value: Any, limit: int) -> str | None:
     return text if len(text) <= limit else text[:limit]
 
 
+def _is_step_placeholder(action: Any) -> bool:
+    text = str(action or "").strip()
+    return text.startswith("step_") and text[5:].isdigit()
+
+
+def _resolve_dynamic_action(item: dict[str, Any], seq: int) -> str:
+    action_result = _clip_text(item.get("message"), 512)
+    action = _clip_text(str(item.get("step") or f"step_{seq}"), 256) or f"step_{seq}"
+    if not bool(item.get("successed", True)) and action_result and _is_step_placeholder(action):
+        return _clip_text(action_result, 256) or action
+    return action
+
+
 def _parse_action_time(value: Any) -> datetime | None:
     """解析操作时间字符串为 datetime。"""
     if value is None:
@@ -403,7 +416,7 @@ def _parse_operation_results(
                 "id": str(uuid4()),
                 "task_id": task_id,
                 "seq": seq,
-                "action": _clip_text(str(item.get("step") or f"step_{seq}"), 256) or f"step_{seq}",
+                "action": _resolve_dynamic_action(item, seq),
                 "action_result": _clip_text(item.get("message"), 512),
                 "action_time": _parse_action_time(item.get("start_time")),
                 "screenshot_before": screenshot_before,
