@@ -14,7 +14,7 @@ from core.database import fetch_one, get_connection
 from multi_main import Logger, run_task_with_planning
 from phone_agent import PlanAgentConfig
 from phone_agent.agent import AgentConfig
-from phone_agent.adb.device import install_apk, uninstall_apk
+from phone_agent.adb.device import clear_accessibility_services, install_apk, uninstall_apk
 from phone_agent.model import ModelConfig
 from repositories.task_repo import get_static_result, get_task_by_id, update_task
 from services.ip_geo_service import resolve_non_local_ip_country
@@ -671,6 +671,23 @@ def trace_task(task_id: str, device_id: str):
                     task_id,
                     package_name,
                     uninstall_msg,
+                )
+
+        if adb_device_id:
+            accessibility_ok, accessibility_messages = clear_accessibility_services(device_id=adb_device_id)
+            if accessibility_ok:
+                logger.info(
+                    "clear accessibility services success task_id=%s device_id=%s detail=%s",
+                    task_id,
+                    adb_device_id,
+                    " | ".join(accessibility_messages),
+                )
+            else:
+                logger.warning(
+                    "clear accessibility services failed task_id=%s device_id=%s detail=%s",
+                    task_id,
+                    adb_device_id,
+                    " | ".join(accessibility_messages),
                 )
 
         _set_device_online(device_id)

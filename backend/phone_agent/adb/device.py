@@ -2,6 +2,7 @@
 
 import os
 import re
+import shlex
 import subprocess
 import time
 from typing import List, Optional, Tuple
@@ -425,6 +426,126 @@ def uninstall_apk(
         return False, "adb command not found"
     except Exception as exc:
         return False, f"adb uninstall error: {exc}"
+
+
+def run_shell_command(
+    shell_args: list[str],
+    device_id: str | None = None,
+    timeout: int = 30,
+) -> Tuple[bool, str]:
+    """
+    Run an adb shell command.
+
+    Args:
+        shell_args: Command arguments after `adb shell`.
+        device_id: Optional ADB device ID.
+        timeout: Command timeout in seconds.
+
+    Returns:
+        A tuple of (success, message).
+    """
+    if not shell_args:
+        return False, "shell command is required"
+
+    adb_prefix = _get_adb_prefix(device_id)
+    command = adb_prefix + ["shell", *shell_args]
+
+    try:
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=timeout,
+            check=False,
+        )
+        output = f"{result.stdout}\n{result.stderr}".strip()
+        if result.returncode == 0:
+            return True, output or "Success"
+        return False, output or f"adb shell failed with exit code {result.returncode}"
+    except subprocess.TimeoutExpired:
+        return False, f"adb shell timeout after {timeout}s"
+    except FileNotFoundError:
+        return False, "adb command not found"
+    except Exception as exc:
+        return False, f"adb shell error: {exc}"
+
+
+def run_root_shell_command(
+    shell_args: list[str],
+    device_id: str | None = None,
+    timeout: int = 30,
+) -> Tuple[bool, str]:
+    """
+    Run an adb shell command via `su -c`.
+
+    Args:
+        shell_args: Command arguments to execute as root.
+        device_id: Optional ADB device ID.
+        timeout: Command timeout in seconds.
+
+    Returns:
+        A tuple of (success, message).
+    """
+    if not shell_args:
+        return False, "root shell command is required"
+
+    adb_prefix = _get_adb_prefix(device_id)
+    quoted_args = " ".join(shlex.quote(arg) for arg in shell_args)
+    command = adb_prefix + ["shell", "su", "-c", quoted_args]
+
+    try:
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=timeout,
+            check=False,
+        )
+        output = f"{result.stdout}\n{result.stderr}".strip()
+        if result.returncode == 0:
+            return True, output or "Success"
+        return False, output or f"adb root shell failed with exit code {result.returncode}"
+    except subprocess.TimeoutExpired:
+        return False, f"adb root shell timeout after {timeout}s"
+    except FileNotFoundError:
+        return False, "adb command not found"
+    except Exception as exc:
+        return False, f"adb root shell error: {exc}"
+
+
+def clear_accessibility_services(
+    device_id: str | None = None,
+    timeout: int = 30,
+) -> Tuple[bool, list[str]]:
+    """
+    Clear Android accessibility services and related shortcut buttons.
+
+    Args:
+        device_id: Optional ADB device ID.
+        timeout: Per-command timeout in seconds.
+
+    Returns:
+        A tuple of (all_success, command_outputs).
+    """
+    commands = [
+        ["settings", "delete", "secure", "enabled_accessibility_services"],
+        ["settings", "put", "secure", "accessibility_enabled", "0"],
+        ["settings", "delete", "secure", "accessibility_button_targets"],
+        ["settings", "put", "secure", "accessibility_shortcut_enabled", "0"],
+        ["settings", "delete", "secure", "accessibility_shortcut_target_service"],
+        ["am", "force-stop", "com.google.android.marvin.talkback"],
+        ["am", "force-stop", "com.microsoft.appmanager"],
+    ]
+    outputs: list[str] = []
+    all_success = True
+    for shell_args in commands:
+        success, message = run_root_shell_command(shell_args, device_id=device_id, timeout=timeout)
+        outputs.append(f"{'OK' if success else 'FAIL'} {' '.join(shell_args)} -> {message}")
+        if not success:
+            all_success = False
+    return all_success, outputs
 
 
 def _get_adb_prefix(device_id: str | None) -> list:

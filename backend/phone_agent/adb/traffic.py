@@ -13,6 +13,20 @@ NFLOG_GROUP = 30
 # CONNMARK value for marking app traffic
 CONNMARK_VALUE = 1001
 
+DEFAULT_BROWSER_PACKAGES = [
+    "com.android.chrome",
+    "com.chrome.beta",
+    "com.chrome.dev",
+    "com.chrome.canary",
+    "com.google.android.apps.chrome",
+    "com.android.webview",
+    "com.google.android.webview",
+    "com.google.android.webview.beta",
+    "com.google.android.webview.dev",
+    "com.google.android.webview.canary",
+    "com.google.android.webview.debug",
+]
+
 
 class TrafficCapture:
     """
@@ -45,7 +59,7 @@ class TrafficCapture:
         self.device_path = device_path or "/sdcard/capture.pcap"
         self.capture_filter = capture_filter or ""
         self.package_name = package_name
-        self.app_uid = None
+        self.app_uids: set[int] = set()
         self._is_capturing = False
 
     def _get_app_uid(self, package_name: str) -> Optional[int]:
@@ -108,14 +122,38 @@ class TrafficCapture:
     
     def _iptables_rules(self) -> list[str]:
         """所有需要添加/删除的 iptables 规则"""
-        return [
-            # 上行：打 connmark，让返回包也能被识别
-            f"iptables -t mangle -A OUTPUT -m owner --uid-owner {self.app_uid} -j CONNMARK --set-mark {CONNMARK_VALUE}",
-            # 上行：导入 nflog
-            f"iptables -t mangle -A OUTPUT -m owner --uid-owner {self.app_uid} -j NFLOG --nflog-group {NFLOG_GROUP}",
-            # 下行：匹配同一连接的返回包，导入 nflog
-            f"iptables -t mangle -A INPUT -m connmark --mark {CONNMARK_VALUE} -j NFLOG --nflog-group {NFLOG_GROUP}",
-        ]
+        rules: list[str] = []
+        for uid in sorted(self.app_uids):
+            rules.extend(
+                [
+                    # 上行：打 connmark，让返回包也能被识别
+                    f"iptables -t mangle -A OUTPUT -m owner --uid-owner {uid} -j CONNMARK --set-mark {CONNMARK_VALUE}",
+                    # 上行：导入 nflog
+                    f"iptables -t mangle -A OUTPUT -m owner --uid-owner {uid} -j NFLOG --nflog-group {NFLOG_GROUP}",
+                ]
+            )
+        # 下行：匹配同一连接的返回包，导入 nflog
+        rules.append(
+            f"iptables -t mangle -A INPUT -m connmark --mark {CONNMARK_VALUE} -j NFLOG --nflog-group {NFLOG_GROUP}"
+        )
+        return rules
+
+    def _normalize_packages(self) -> list[str]:
+        packages: list[str] = []
+        if self.package_name:
+            packages.append(self.package_name.strip())
+        for package_name in DEFAULT_BROWSER_PACKAGES:
+            if package_name not in packages:
+                packages.append(package_name)
+        return packages
+
+    def _collect_uids(self) -> set[int]:
+        uids: set[int] = set()
+        for package_name in self._normalize_packages():
+            uid = self._get_app_uid(package_name)
+            if uid is not None:
+                uids.add(uid)
+        return uids
     
     def _setup_nflog_rule(self) -> bool:
         """
@@ -128,12 +166,12 @@ class TrafficCapture:
             return False
 
         # Get app UID
-        self.app_uid = self._get_app_uid(self.package_name)
-        if self.app_uid is None:
+        self.app_uids = self._collect_uids()
+        if not self.app_uids:
             print(f"Failed to get UID for package: {self.package_name}")
             return False
 
-        print(f"Found UID {self.app_uid} for package: {self.package_name}")
+        print(f"Found UIDs {sorted(self.app_uids)} for package: {self.package_name}")
 
         try:
             # Execute all iptables rules
@@ -141,7 +179,7 @@ class TrafficCapture:
                 iptables_cmd = f"shell su -c '{rule}'"
                 self._execute_adb_command(iptables_cmd)
 
-            print(f"Setup NFLOG rules for UID {self.app_uid}")
+            print(f"Setup NFLOG rules for UIDs {sorted(self.app_uids)}")
             return True
 
         except subprocess.TimeoutExpired:
@@ -158,7 +196,7 @@ class TrafficCapture:
         Returns:
             bool: True if rule cleanup successful, False otherwise
         """
-        if not self.package_name or self.app_uid is None:
+        if not self.package_name or not self.app_uids:
             return False
 
         try:
@@ -168,7 +206,7 @@ class TrafficCapture:
                 iptables_cmd = f"shell su -c '{delete_rule}'"
                 self._execute_adb_command(iptables_cmd)
                
-            print(f"Cleanup NFLOG rules for UID {self.app_uid}")
+            print(f"Cleanup NFLOG rules for UIDs {sorted(self.app_uids)}")
             return True
 
         except subprocess.TimeoutExpired:
@@ -318,7 +356,7 @@ class TrafficCapture:
 
         print(f"Started packet capture: {self.device_path}")
         if self.package_name:
-            print(f"Capturing traffic for package: {self.package_name} (UID: {self.app_uid})")
+            print(f"Capturing traffic for package: {self.package_name} (UIDs: {sorted(self.app_uids)})")
             print(f"Using NFLOG group: {NFLOG_GROUP}")
         if self.capture_filter:
             print(f"Capture filter: {self.capture_filter}")
@@ -352,7 +390,7 @@ class TrafficCapture:
 
         # Clean up
         self._is_capturing = False
-        self.app_uid = None
+        self.app_uids = set()
 
         print(f"Packet capture stopped")
 
