@@ -360,6 +360,7 @@ def get_traffic_logs(task_id: str, page: int, size: int) -> tuple[list[dict], in
             url,
             resolved_ip,
             ip_country,
+            is_up,
             is_real_controller
         FROM traffic_logs
         WHERE task_id = %s
@@ -391,6 +392,7 @@ def get_traffic_logs_by_seqs(task_id: str, seqs: list[int]) -> list[dict]:
             url,
             resolved_ip,
             ip_country,
+            is_up,
             is_real_controller
         FROM traffic_logs
         WHERE task_id = %s
@@ -421,6 +423,7 @@ def get_traffic_logs_by_dynamic_result_ids(task_id: str, dynamic_result_ids: lis
             url,
             resolved_ip,
             ip_country,
+            is_up,
             is_real_controller
         FROM traffic_logs
         WHERE task_id = %s

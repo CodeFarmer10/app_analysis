@@ -44,7 +44,7 @@ services:
   worker:
     build:
       context: ../backend
-    command: celery -A workers.celery_app worker -c 10
+    command: celery -A workers.celery_app worker
     depends_on:
       - mysql
       - redis

@@ -32,7 +32,7 @@ from repositories.task_repo import (
     update_task,
 )
 from repositories.user_repo import get_user_by_id, get_user_by_username
-from services.ip_geo_service import is_local_ip, pick_non_local_ip
+from services.ip_geo_service import is_uplink_flow, pick_non_local_ip
 from services.storage_service import storage_service
 from workers.download import download_apk
 from workers.static_analysis import analyze_apk
@@ -211,17 +211,12 @@ def _normalize_failed_dynamic_action(item: dict[str, Any]) -> dict[str, Any]:
 
 
 def _is_uplink_packet(packet: dict[str, Any]) -> bool:
+    raw_is_up = packet.get("is_up")
+    if raw_is_up is not None:
+        return bool(raw_is_up)
     src_ip = str(packet.get("src_ip") or "").strip()
     dst_ip = str(packet.get("dst_ip") or "").strip()
-    if not src_ip or not dst_ip:
-        return False
-    src_local = is_local_ip(src_ip)
-    dst_local = is_local_ip(dst_ip)
-    if src_local and not dst_local:
-        return True
-    if src_local and dst_local:
-        return True
-    return False
+    return is_uplink_flow(src_ip, dst_ip)
 
 
 def _build_ratio_items(values: list[str], *, fallback_label: str, top_n: int = 10) -> list[dict[str, Any]]:

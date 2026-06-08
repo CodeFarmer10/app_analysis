@@ -1,7 +1,6 @@
 """Model client for AI inference using OpenAI-compatible API."""
 
 import json
-import re
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -67,13 +66,11 @@ class ModelClient:
         stream = self.client.chat.completions.create(
             messages=messages,
             model=self.config.model_name,
-            max_tokens=self.config.max_tokens,
             temperature=self.config.temperature,
             top_p=self.config.top_p,
             frequency_penalty=self.config.frequency_penalty,
             extra_body=self.config.extra_body,
-            response_format={"type": "json_object"},
-            stream=True,
+            stream=True
         )
 
         reasoning_content = ""  # 定义完整思考过程
@@ -90,20 +87,19 @@ class ModelClient:
             else:
                 delta = chunk.choices[0].delta
                 # 打印思考过程
-                if hasattr(delta, "reasoning_content") and delta.reasoning_content is not None:
-                    print(delta.reasoning_content, end="", flush=True)
+                if hasattr(delta, 'reasoning_content') and delta.reasoning_content != None:
+                    print(delta.reasoning_content, end='', flush=True)
                     reasoning_content += delta.reasoning_content
                 else:
                     # 开始回复
-                    if delta.content and is_answering is False:
+                    if delta.content != "" and is_answering is False:
                         # print("\n" + "=" * 20 + "完整回复" + "=" * 20 + "\n")
                         is_answering = True
                     # 打印回复过程
                     # print(delta.content, end='', flush=True)
-                    if delta.content:
-                        answer_content += delta.content
+                    answer_content += delta.content
         print(answer_content)
-        return self._normalize_plan_response(answer_content)
+        return  answer_content
 
     def request(self, messages: list[dict[str, Any]]) -> ModelResponse:
         """
@@ -226,71 +222,6 @@ class ModelClient:
             time_to_thinking_end=time_to_thinking_end,
             total_time=total_time,
         )
-
-    def _normalize_plan_response(self, content: str) -> str:
-        """Extract a JSON object from planning output, tolerating think tags and code fences."""
-        text = (content or "").strip()
-        if not text:
-            return text
-
-        candidates: list[str] = [text]
-
-        if "</think>" in text:
-            candidates.append(text.rsplit("</think>", 1)[-1].strip())
-
-        fence_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, flags=re.DOTALL | re.IGNORECASE)
-        if fence_match:
-            candidates.append(fence_match.group(1).strip())
-
-        extracted = self._extract_first_json_object(text)
-        if extracted:
-            candidates.append(extracted)
-
-        seen: set[str] = set()
-        for candidate in candidates:
-            normalized = candidate.strip()
-            if not normalized or normalized in seen:
-                continue
-            seen.add(normalized)
-            try:
-                parsed = json.loads(normalized)
-            except Exception:
-                continue
-            return json.dumps(parsed, ensure_ascii=False)
-
-        return text
-
-    @staticmethod
-    def _extract_first_json_object(content: str) -> str | None:
-        """Return the first balanced JSON object found in text."""
-        start = content.find("{")
-        if start == -1:
-            return None
-
-        depth = 0
-        in_string = False
-        escape = False
-        for index in range(start, len(content)):
-            char = content[index]
-            if in_string:
-                if escape:
-                    escape = False
-                elif char == "\\":
-                    escape = True
-                elif char == '"':
-                    in_string = False
-                continue
-
-            if char == '"':
-                in_string = True
-            elif char == "{":
-                depth += 1
-            elif char == "}":
-                depth -= 1
-                if depth == 0:
-                    return content[start : index + 1]
-
-        return None
 
     def _parse_response(self, content: str) -> tuple[str, str]:
         """

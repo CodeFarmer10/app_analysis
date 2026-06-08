@@ -44,6 +44,22 @@ def is_local_ip(value: Any) -> bool:
     )
 
 
+def is_uplink_flow(src_ip: Any, dst_ip: Any) -> bool:
+    """判断一条流量是否属于上行流量。"""
+    src_text = str(src_ip or "").strip()
+    dst_text = str(dst_ip or "").strip()
+    if not src_text or not dst_text:
+        return False
+
+    src_local = is_local_ip(src_text)
+    dst_local = is_local_ip(dst_text)
+    if src_local and not dst_local:
+        return True
+    if src_local and dst_local:
+        return True
+    return False
+
+
 def pick_non_local_ip(src_ip: Any, dst_ip: Any) -> str | None:
     """从一条流量中选出需要查询归属地的非本机 IP。"""
     src_text = str(src_ip or "").strip()

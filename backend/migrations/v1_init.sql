@@ -119,6 +119,7 @@ CREATE TABLE IF NOT EXISTS traffic_logs (
   url TEXT NULL,
   resolved_ip VARCHAR(45) NULL,
   ip_country VARCHAR(128) NULL,
+  is_up TINYINT(1) NOT NULL DEFAULT 0,
   is_real_controller TINYINT(1) NOT NULL DEFAULT 0,
   KEY idx_traffic_logs_task (task_id),
   KEY idx_traffic_logs_dynamic_result_id (dynamic_result_id),
@@ -272,6 +273,22 @@ SET @sql_traffic_logs_ip_country_col := IF(
 PREPARE stmt_traffic_logs_ip_country_col FROM @sql_traffic_logs_ip_country_col;
 EXECUTE stmt_traffic_logs_ip_country_col;
 DEALLOCATE PREPARE stmt_traffic_logs_ip_country_col;
+
+-- Backward-compatible traffic_logs real-controller tagging column.
+SET @traffic_logs_is_up_col := (
+  SELECT COUNT(*) FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'traffic_logs'
+    AND column_name = 'is_up'
+);
+SET @sql_traffic_logs_is_up_col := IF(
+  @traffic_logs_is_up_col = 0,
+  'ALTER TABLE traffic_logs ADD COLUMN is_up TINYINT(1) NOT NULL DEFAULT 0 AFTER ip_country',
+  'SELECT 1'
+);
+PREPARE stmt_traffic_logs_is_up_col FROM @sql_traffic_logs_is_up_col;
+EXECUTE stmt_traffic_logs_is_up_col;
+DEALLOCATE PREPARE stmt_traffic_logs_is_up_col;
 
 -- Backward-compatible traffic_logs real-controller tagging column.
 SET @traffic_logs_real_controller_col := (

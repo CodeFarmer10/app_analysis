@@ -17,7 +17,7 @@ from phone_agent.agent import AgentConfig
 from phone_agent.adb.device import clear_accessibility_services, install_apk, uninstall_apk
 from phone_agent.model import ModelConfig
 from repositories.task_repo import get_static_result, get_task_by_id, update_task
-from services.ip_geo_service import resolve_non_local_ip_country
+from services.ip_geo_service import is_uplink_flow, resolve_non_local_ip_country
 from services.storage_service import storage_service
 from workers.celery_app import celery_app
 from workers.real_controller_tagging import run_real_controller_tagging
@@ -279,9 +279,10 @@ def _persist_trace_results(
             url,
             resolved_ip,
             ip_country,
+            is_up,
             is_real_controller
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     """
     frida_insert_sql = """
         INSERT INTO frida_logs (
@@ -344,6 +345,7 @@ def _persist_trace_results(
                                 item["url"],
                                 item["resolved_ip"],
                                 item["ip_country"],
+                                item["is_up"],
                                 item["is_real_controller"],
                             )
                             for item in traffic_rows
@@ -437,6 +439,7 @@ def _parse_operation_results(
                     continue
                 protocol = _clip_text(str(packet.get("protocol") or "UNKNOWN"), 32) or "UNKNOWN"
                 ip_country = resolve_non_local_ip_country(src_ip, dst_ip)
+                is_up = 1 if is_uplink_flow(src_ip, dst_ip) else 0
                 traffic_rows.append(
                     {
                         "id": str(uuid4()),
@@ -452,6 +455,7 @@ def _parse_operation_results(
                         "url": packet.get("url"),
                         "resolved_ip": _clip_text(packet.get("dns_ip"), 45),
                         "ip_country": _clip_text(ip_country, 128),
+                        "is_up": is_up,
                         "is_real_controller": 0,
                     }
                 )
