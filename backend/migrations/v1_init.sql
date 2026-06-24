@@ -444,4 +444,181 @@ PREPARE stmt_static_results_component_md5_col FROM @sql_static_results_component
 EXECUTE stmt_static_results_component_md5_col;
 DEALLOCATE PREPARE stmt_static_results_component_md5_col;
 
+-- Static analysis hardening / obfuscation detection and unpack result fields.
+SET @static_results_is_packed_col := (
+  SELECT COUNT(*)
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'is_packed'
+);
+SET @sql_static_results_is_packed_col := IF(
+  @static_results_is_packed_col = 0,
+  'ALTER TABLE static_results ADD COLUMN is_packed TINYINT(1) NOT NULL DEFAULT 0 AFTER component_md5',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_is_packed_col FROM @sql_static_results_is_packed_col;
+EXECUTE stmt_static_results_is_packed_col;
+DEALLOCATE PREPARE stmt_static_results_is_packed_col;
+
+SET @static_results_packer_vendor_col := (
+  SELECT COUNT(*)
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'packer_vendor'
+);
+SET @sql_static_results_packer_vendor_col := IF(
+  @static_results_packer_vendor_col = 0,
+  'ALTER TABLE static_results ADD COLUMN packer_vendor VARCHAR(512) NULL AFTER is_packed',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_packer_vendor_col FROM @sql_static_results_packer_vendor_col;
+EXECUTE stmt_static_results_packer_vendor_col;
+DEALLOCATE PREPARE stmt_static_results_packer_vendor_col;
+
+SET @static_results_packer_vendors_col := (
+  SELECT COUNT(*)
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'packer_vendors'
+);
+SET @sql_static_results_packer_vendors_col := IF(
+  @static_results_packer_vendors_col = 0,
+  'ALTER TABLE static_results ADD COLUMN packer_vendors JSON NULL AFTER packer_vendor',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_packer_vendors_col FROM @sql_static_results_packer_vendors_col;
+EXECUTE stmt_static_results_packer_vendors_col;
+DEALLOCATE PREPARE stmt_static_results_packer_vendors_col;
+
+SET @static_results_packer_details_col := (
+  SELECT COUNT(*)
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'packer_details'
+);
+SET @sql_static_results_packer_details_col := IF(
+  @static_results_packer_details_col = 0,
+  'ALTER TABLE static_results ADD COLUMN packer_details JSON NULL AFTER packer_vendors',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_packer_details_col FROM @sql_static_results_packer_details_col;
+EXECUTE stmt_static_results_packer_details_col;
+DEALLOCATE PREPARE stmt_static_results_packer_details_col;
+
+SET @static_results_is_obfuscated_col := (
+  SELECT COUNT(*)
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'is_obfuscated'
+);
+SET @sql_static_results_is_obfuscated_col := IF(
+  @static_results_is_obfuscated_col = 0,
+  'ALTER TABLE static_results ADD COLUMN is_obfuscated TINYINT(1) NOT NULL DEFAULT 0 AFTER packer_details',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_is_obfuscated_col FROM @sql_static_results_is_obfuscated_col;
+EXECUTE stmt_static_results_is_obfuscated_col;
+DEALLOCATE PREPARE stmt_static_results_is_obfuscated_col;
+
+SET @static_results_obfuscation_vendor_col := (
+  SELECT COUNT(*)
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'obfuscation_vendor'
+);
+SET @sql_static_results_obfuscation_vendor_col := IF(
+  @static_results_obfuscation_vendor_col = 0,
+  'ALTER TABLE static_results ADD COLUMN obfuscation_vendor VARCHAR(512) NULL AFTER is_obfuscated',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_obfuscation_vendor_col FROM @sql_static_results_obfuscation_vendor_col;
+EXECUTE stmt_static_results_obfuscation_vendor_col;
+DEALLOCATE PREPARE stmt_static_results_obfuscation_vendor_col;
+
+SET @static_results_obfuscation_vendors_col := (
+  SELECT COUNT(*)
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'obfuscation_vendors'
+);
+SET @sql_static_results_obfuscation_vendors_col := IF(
+  @static_results_obfuscation_vendors_col = 0,
+  'ALTER TABLE static_results ADD COLUMN obfuscation_vendors JSON NULL AFTER obfuscation_vendor',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_obfuscation_vendors_col FROM @sql_static_results_obfuscation_vendors_col;
+EXECUTE stmt_static_results_obfuscation_vendors_col;
+DEALLOCATE PREPARE stmt_static_results_obfuscation_vendors_col;
+
+SET @static_results_obfuscator_details_col := (
+  SELECT COUNT(*)
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'obfuscator_details'
+);
+SET @sql_static_results_obfuscator_details_col := IF(
+  @static_results_obfuscator_details_col = 0,
+  'ALTER TABLE static_results ADD COLUMN obfuscator_details JSON NULL AFTER obfuscation_vendors',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_obfuscator_details_col FROM @sql_static_results_obfuscator_details_col;
+EXECUTE stmt_static_results_obfuscator_details_col;
+DEALLOCATE PREPARE stmt_static_results_obfuscator_details_col;
+
+SET @static_results_protection_detect_error_col := (
+  SELECT COUNT(*)
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'protection_detect_error'
+);
+SET @sql_static_results_protection_detect_error_col := IF(
+  @static_results_protection_detect_error_col = 0,
+  'ALTER TABLE static_results ADD COLUMN protection_detect_error TEXT NULL AFTER obfuscator_details',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_protection_detect_error_col FROM @sql_static_results_protection_detect_error_col;
+EXECUTE stmt_static_results_protection_detect_error_col;
+DEALLOCATE PREPARE stmt_static_results_protection_detect_error_col;
+
+SET @static_results_unpack_archive_path_col := (
+  SELECT COUNT(*)
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'unpack_archive_path'
+);
+SET @sql_static_results_unpack_archive_path_col := IF(
+  @static_results_unpack_archive_path_col = 0,
+  'ALTER TABLE static_results ADD COLUMN unpack_archive_path VARCHAR(512) NULL AFTER protection_detect_error',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_unpack_archive_path_col FROM @sql_static_results_unpack_archive_path_col;
+EXECUTE stmt_static_results_unpack_archive_path_col;
+DEALLOCATE PREPARE stmt_static_results_unpack_archive_path_col;
+
+SET @static_results_unpack_error_col := (
+  SELECT COUNT(*)
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'unpack_error'
+);
+SET @sql_static_results_unpack_error_col := IF(
+  @static_results_unpack_error_col = 0,
+  'ALTER TABLE static_results ADD COLUMN unpack_error TEXT NULL AFTER unpack_archive_path',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_unpack_error_col FROM @sql_static_results_unpack_error_col;
+EXECUTE stmt_static_results_unpack_error_col;
+DEALLOCATE PREPARE stmt_static_results_unpack_error_col;
+
 SET FOREIGN_KEY_CHECKS = 1;

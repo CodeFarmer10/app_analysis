@@ -84,6 +84,20 @@ const soFileGroups = computed(() => {
   return Array.from(grouped.entries()).map(([arch, files]) => ({ arch, files }))
 })
 
+const packerVendorList = computed(() => {
+  const source = Array.isArray(props.result?.packer_vendors) ? props.result.packer_vendors : []
+  return source
+    .map((item) => item?.product || item?.name_cn || item?.name_en || '')
+    .filter(Boolean)
+})
+
+const obfuscationVendorList = computed(() => {
+  const source = Array.isArray(props.result?.obfuscation_vendors) ? props.result.obfuscation_vendors : []
+  return source
+    .map((item) => item?.product || item?.name_cn || item?.name_en || '')
+    .filter(Boolean)
+})
+
 function getComponentCountText(count) {
   return `(${count} 项)`
 }
@@ -123,6 +137,29 @@ function getComponentCountText(count) {
             </a-descriptions>
           </a-col>
         </a-row>
+      </a-card>
+
+      <a-card :bordered="false" class="section-card">
+        <a-descriptions title="加固与混淆" :column="2" size="small">
+          <a-descriptions-item label="是否加固">
+            <a-tag :color="result.is_packed ? 'red' : 'green'">{{ result.is_packed ? '是' : '否' }}</a-tag>
+          </a-descriptions-item>
+          <a-descriptions-item label="加固类型">
+            {{ result.packer_vendor || packerVendorList.join('、') || '--' }}
+          </a-descriptions-item>
+          <a-descriptions-item label="是否混淆">
+            <a-tag :color="result.is_obfuscated ? 'orange' : 'green'">{{ result.is_obfuscated ? '是' : '否' }}</a-tag>
+          </a-descriptions-item>
+          <a-descriptions-item label="混淆类型">
+            {{ result.obfuscation_vendor || obfuscationVendorList.join('、') || '--' }}
+          </a-descriptions-item>
+          <a-descriptions-item v-if="result.is_packed" label="脱壳结果">
+            <a v-if="result.unpack_archive_path" :href="result.unpack_archive_path" target="_blank" rel="noreferrer">
+              下载脱壳压缩包
+            </a>
+            <span v-else>--</span>
+          </a-descriptions-item>
+        </a-descriptions>
       </a-card>
 
       <a-card :bordered="false" class="section-card">

@@ -16,9 +16,10 @@ from phone_agent import PlanAgentConfig
 from phone_agent.agent import AgentConfig
 from phone_agent.adb.device import clear_accessibility_services, install_apk, uninstall_apk
 from phone_agent.model import ModelConfig
-from repositories.task_repo import get_static_result, get_task_by_id, update_task
+from repositories.task_repo import get_static_result, get_task_by_id, update_static_result_fields, update_task
 from services.ip_geo_service import is_uplink_flow, resolve_non_local_ip_country
 from services.storage_service import storage_service
+from protection import unpack_to_archive
 from workers.celery_app import celery_app
 from workers.real_controller_tagging import run_real_controller_tagging
 from workers.report import generate_report
@@ -568,6 +569,53 @@ def _run_task_with_log(
         logger_output.close()
 
 
+def _maybe_unpack_packed_app(
+    task_id: str,
+    package_name: str,
+    adb_device_id: str,
+    result_dir: Path,
+) -> str | None:
+    static_result = get_static_result(task_id) or {}
+    if not bool(static_result.get("is_packed")):
+        return None
+
+    try:
+        unpack_result = unpack_to_archive(
+            task_id=task_id,
+            package_name=package_name,
+            device_serial=adb_device_id,
+            result_dir=result_dir,
+        )
+        if not unpack_result.archive_file:
+            raise RuntimeError("脱壳未生成归档文件")
+        archive_path = storage_service.upload_task_file(task_id, "unpack", unpack_result.archive_file)
+        update_static_result_fields(
+            task_id,
+            {
+                "unpack_archive_path": archive_path,
+                "unpack_error": None,
+            },
+        )
+        logger.info(
+            "packed apk unpacked task_id=%s package=%s dex=%s archive=%s",
+            task_id,
+            package_name,
+            unpack_result.kept_dex_count,
+            archive_path,
+        )
+        return archive_path
+    except Exception as exc:  # pragma: no cover - runtime/device dependent
+        error_text = str(exc).strip() or "未知脱壳错误"
+        update_static_result_fields(
+            task_id,
+            {
+                "unpack_error": error_text[:2000],
+            },
+        )
+        logger.exception("packed apk unpack failed task_id=%s package=%s", task_id, package_name)
+        return None
+
+
 def _extract_trace_context(task_id: str, task: dict, device_id: str) -> tuple[str, str, str]:
     """提取动态溯源所需的包名、APK路径和设备序列号。"""
     static_result = get_static_result(task_id) or {}
@@ -609,6 +657,13 @@ def trace_task(task_id: str, device_id: str):
             raise RuntimeError(f"安装APK失败: {install_msg}")
         app_installed = True
 
+        unpack_archive_path = _maybe_unpack_packed_app(
+            task_id=task_id,
+            package_name=package_name,
+            adb_device_id=adb_device_id,
+            result_dir=result_dir,
+        )
+
         trace_result = _run_task_with_log(
             task_text=settings.DYNAMIC_TRACE_TASK_TEXT,
             package_name=package_name,
@@ -647,6 +702,7 @@ def trace_task(task_id: str, device_id: str):
             "device_id": device_id,
             "status": "completed",
             "result": trace_result,
+            "unpack_archive_path": unpack_archive_path,
             "c2_domains": tagging_result.get("c2_domains") or [],
             "c2_domain_reasons": tagging_result.get("c2_domain_reasons") or [],
             "real_controller_match_count": matched_traffic_count,

@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pymysql
 from analyzers.apk_parser import parse_apk
+from protection import detect_protection
 from celery import Task
 from repositories.task_repo import get_task_by_id, update_task, upsert_static_result
 from services.storage_service import storage_service
@@ -75,6 +76,24 @@ def _guess_icon_content_type(extension: str) -> str:
     return "application/octet-stream"
 
 
+def _detect_protection_fields(local_apk_path: str) -> dict:
+    try:
+        return detect_protection(local_apk_path).to_static_fields()
+    except Exception as exc:  # pragma: no cover - depends on apkid/runtime
+        logger.warning("apk protection detect failed path=%s err=%s", local_apk_path, exc)
+        return {
+            "is_packed": 0,
+            "packer_vendor": None,
+            "packer_vendors": [],
+            "packer_details": [],
+            "is_obfuscated": 0,
+            "obfuscation_vendor": None,
+            "obfuscation_vendors": [],
+            "obfuscator_details": [],
+            "protection_detect_error": str(exc)[:1000],
+        }
+
+
 class StaticAnalysisTaskBase(Task):
     autoretry_for = DB_EXCEPTIONS
     retry_backoff = True
@@ -131,6 +150,7 @@ def analyze_apk(self, task_id: str):
     try:
         local_apk_path = storage_service.download_to_temp(apk_object_path)
         parsed = parse_apk(local_apk_path)
+        protection_fields = _detect_protection_fields(local_apk_path)
         app_name = _normalize_app_name(parsed.get("app_name"))
         package_name = _normalize_optional_text(parsed.get("package_name"))
         if not app_name and not package_name:
@@ -171,6 +191,7 @@ def analyze_apk(self, task_id: str):
                 "so_files": parsed.get("so_files") or [],
                 "component_string": parsed.get("component_string"),
                 "component_md5": parsed.get("component_md5"),
+                **protection_fields,
             },
         )
         update_task(

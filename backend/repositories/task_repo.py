@@ -232,7 +232,18 @@ def get_static_result(task_id: str) -> dict | None:
             providers,
             so_files,
             component_string,
-            component_md5
+            component_md5,
+            is_packed,
+            packer_vendor,
+            packer_vendors,
+            packer_details,
+            is_obfuscated,
+            obfuscation_vendor,
+            obfuscation_vendors,
+            obfuscator_details,
+            protection_detect_error,
+            unpack_archive_path,
+            unpack_error
         FROM static_results
         WHERE task_id = %s
         LIMIT 1
@@ -241,7 +252,17 @@ def get_static_result(task_id: str) -> dict | None:
     if not row:
         return None
 
-    for field in ("permissions", "activities", "services", "providers", "so_files"):
+    for field in (
+        "permissions",
+        "activities",
+        "services",
+        "providers",
+        "so_files",
+        "packer_vendors",
+        "packer_details",
+        "obfuscation_vendors",
+        "obfuscator_details",
+    ):
         value = row.get(field)
         if isinstance(value, str):
             try:
@@ -269,9 +290,20 @@ def upsert_static_result(task_id: str, data: dict[str, Any]) -> int:
             providers,
             so_files,
             component_string,
-            component_md5
+            component_md5,
+            is_packed,
+            packer_vendor,
+            packer_vendors,
+            packer_details,
+            is_obfuscated,
+            obfuscation_vendor,
+            obfuscation_vendors,
+            obfuscator_details,
+            protection_detect_error,
+            unpack_archive_path,
+            unpack_error
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         ON DUPLICATE KEY UPDATE
             app_name = VALUES(app_name),
             package_name = VALUES(package_name),
@@ -287,7 +319,16 @@ def upsert_static_result(task_id: str, data: dict[str, Any]) -> int:
             providers = VALUES(providers),
             so_files = VALUES(so_files),
             component_string = VALUES(component_string),
-            component_md5 = VALUES(component_md5)
+            component_md5 = VALUES(component_md5),
+            is_packed = VALUES(is_packed),
+            packer_vendor = VALUES(packer_vendor),
+            packer_vendors = VALUES(packer_vendors),
+            packer_details = VALUES(packer_details),
+            is_obfuscated = VALUES(is_obfuscated),
+            obfuscation_vendor = VALUES(obfuscation_vendor),
+            obfuscation_vendors = VALUES(obfuscation_vendors),
+            obfuscator_details = VALUES(obfuscator_details),
+            protection_detect_error = VALUES(protection_detect_error)
     """
     rows, _ = execute(
         sql,
@@ -308,8 +349,55 @@ def upsert_static_result(task_id: str, data: dict[str, Any]) -> int:
             json.dumps(data.get("so_files") or [], ensure_ascii=False),
             data.get("component_string"),
             data.get("component_md5"),
+            1 if data.get("is_packed") else 0,
+            data.get("packer_vendor"),
+            json.dumps(data.get("packer_vendors") or [], ensure_ascii=False),
+            json.dumps(data.get("packer_details") or [], ensure_ascii=False),
+            1 if data.get("is_obfuscated") else 0,
+            data.get("obfuscation_vendor"),
+            json.dumps(data.get("obfuscation_vendors") or [], ensure_ascii=False),
+            json.dumps(data.get("obfuscator_details") or [], ensure_ascii=False),
+            data.get("protection_detect_error"),
+            data.get("unpack_archive_path"),
+            data.get("unpack_error"),
         ),
     )
+    return rows
+
+
+def update_static_result_fields(task_id: str, fields: dict[str, Any]) -> int:
+    if not fields:
+        return 0
+
+    json_fields = {
+        "permissions",
+        "activities",
+        "services",
+        "providers",
+        "so_files",
+        "packer_vendors",
+        "packer_details",
+        "obfuscation_vendors",
+        "obfuscator_details",
+    }
+    set_fragments: list[str] = []
+    values: list[Any] = []
+    for key, value in fields.items():
+        set_fragments.append(f"{key} = %s")
+        if key in json_fields:
+            values.append(json.dumps(value or [], ensure_ascii=False))
+        elif key in {"is_packed", "is_obfuscated"}:
+            values.append(1 if value else 0)
+        else:
+            values.append(value)
+
+    sql = f"""
+        UPDATE static_results
+        SET {", ".join(set_fragments)}
+        WHERE task_id = %s
+    """
+    values.append(task_id)
+    rows, _ = execute(sql, tuple(values))
     return rows
 
 
