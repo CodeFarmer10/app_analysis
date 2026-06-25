@@ -233,6 +233,8 @@ def get_static_result(task_id: str) -> dict | None:
             so_files,
             component_string,
             component_md5,
+            framework_name,
+            framework_matches,
             is_packed,
             packer_vendor,
             packer_vendors,
@@ -262,6 +264,7 @@ def get_static_result(task_id: str) -> dict | None:
         "packer_details",
         "obfuscation_vendors",
         "obfuscator_details",
+        "framework_matches",
     ):
         value = row.get(field)
         if isinstance(value, str):
@@ -291,6 +294,8 @@ def upsert_static_result(task_id: str, data: dict[str, Any]) -> int:
             so_files,
             component_string,
             component_md5,
+            framework_name,
+            framework_matches,
             is_packed,
             packer_vendor,
             packer_vendors,
@@ -303,7 +308,7 @@ def upsert_static_result(task_id: str, data: dict[str, Any]) -> int:
             unpack_archive_path,
             unpack_error
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         ON DUPLICATE KEY UPDATE
             app_name = VALUES(app_name),
             package_name = VALUES(package_name),
@@ -320,6 +325,8 @@ def upsert_static_result(task_id: str, data: dict[str, Any]) -> int:
             so_files = VALUES(so_files),
             component_string = VALUES(component_string),
             component_md5 = VALUES(component_md5),
+            framework_name = VALUES(framework_name),
+            framework_matches = VALUES(framework_matches),
             is_packed = VALUES(is_packed),
             packer_vendor = VALUES(packer_vendor),
             packer_vendors = VALUES(packer_vendors),
@@ -349,6 +356,8 @@ def upsert_static_result(task_id: str, data: dict[str, Any]) -> int:
             json.dumps(data.get("so_files") or [], ensure_ascii=False),
             data.get("component_string"),
             data.get("component_md5"),
+            data.get("framework_name"),
+            json.dumps(data.get("framework_matches") or [], ensure_ascii=False),
             1 if data.get("is_packed") else 0,
             data.get("packer_vendor"),
             json.dumps(data.get("packer_vendors") or [], ensure_ascii=False),
@@ -379,6 +388,7 @@ def update_static_result_fields(task_id: str, fields: dict[str, Any]) -> int:
         "packer_details",
         "obfuscation_vendors",
         "obfuscator_details",
+        "framework_matches",
     }
     set_fragments: list[str] = []
     values: list[Any] = []

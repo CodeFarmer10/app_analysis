@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pymysql
 from analyzers.apk_parser import parse_apk
+from analyzers.framework_detector import detect_framework
 from protection import detect_protection
 from celery import Task
 from repositories.task_repo import get_task_by_id, update_task, upsert_static_result
@@ -94,6 +95,17 @@ def _detect_protection_fields(local_apk_path: str) -> dict:
         }
 
 
+def _detect_framework_fields(local_apk_path: str) -> dict:
+    try:
+        return detect_framework(local_apk_path).to_static_fields()
+    except Exception as exc:  # pragma: no cover - depends on APK structure
+        logger.warning("apk framework detect failed path=%s err=%s", local_apk_path, exc)
+        return {
+            "framework_name": None,
+            "framework_matches": [],
+        }
+
+
 class StaticAnalysisTaskBase(Task):
     autoretry_for = DB_EXCEPTIONS
     retry_backoff = True
@@ -151,6 +163,7 @@ def analyze_apk(self, task_id: str):
         local_apk_path = storage_service.download_to_temp(apk_object_path)
         parsed = parse_apk(local_apk_path)
         protection_fields = _detect_protection_fields(local_apk_path)
+        framework_fields = _detect_framework_fields(local_apk_path)
         app_name = _normalize_app_name(parsed.get("app_name"))
         package_name = _normalize_optional_text(parsed.get("package_name"))
         if not app_name and not package_name:
@@ -191,6 +204,7 @@ def analyze_apk(self, task_id: str):
                 "so_files": parsed.get("so_files") or [],
                 "component_string": parsed.get("component_string"),
                 "component_md5": parsed.get("component_md5"),
+                **framework_fields,
                 **protection_fields,
             },
         )

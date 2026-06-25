@@ -444,6 +444,39 @@ PREPARE stmt_static_results_component_md5_col FROM @sql_static_results_component
 EXECUTE stmt_static_results_component_md5_col;
 DEALLOCATE PREPARE stmt_static_results_component_md5_col;
 
+-- Static analysis development framework detection fields.
+SET @static_results_framework_name_col := (
+  SELECT COUNT(*)
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'framework_name'
+);
+SET @sql_static_results_framework_name_col := IF(
+  @static_results_framework_name_col = 0,
+  'ALTER TABLE static_results ADD COLUMN framework_name VARCHAR(128) NULL AFTER component_md5',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_framework_name_col FROM @sql_static_results_framework_name_col;
+EXECUTE stmt_static_results_framework_name_col;
+DEALLOCATE PREPARE stmt_static_results_framework_name_col;
+
+SET @static_results_framework_matches_col := (
+  SELECT COUNT(*)
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'framework_matches'
+);
+SET @sql_static_results_framework_matches_col := IF(
+  @static_results_framework_matches_col = 0,
+  'ALTER TABLE static_results ADD COLUMN framework_matches JSON NULL AFTER framework_name',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_framework_matches_col FROM @sql_static_results_framework_matches_col;
+EXECUTE stmt_static_results_framework_matches_col;
+DEALLOCATE PREPARE stmt_static_results_framework_matches_col;
+
 -- Static analysis hardening / obfuscation detection and unpack result fields.
 SET @static_results_is_packed_col := (
   SELECT COUNT(*)
