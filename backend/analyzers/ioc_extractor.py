@@ -151,25 +151,65 @@ class SourceIocResult:
             "source_phones": items.get("phone", []),
         }
 
+    @classmethod
+    def from_static_fields(cls, fields: dict | None) -> "SourceIocResult":
+        """从已入库的静态字段（to_static_fields 形态）还原结果，用于与脱壳后结果合并。"""
+        result = cls()
+        field_map = {"url": "source_urls", "email": "source_emails", "phone": "source_phones"}
+        fields = fields or {}
+        for ioc_type, field_name in field_map.items():
+            items: list[SourceIocItem] = []
+            for entry in fields.get(field_name) or []:
+                if isinstance(entry, dict):
+                    value = str(entry.get("value") or "").strip()
+                    sources = [str(source) for source in (entry.get("sources") or [])]
+                else:
+                    value = str(entry or "").strip()
+                    sources = []
+                if value:
+                    items.append(SourceIocItem(value=value, sources=sources))
+            result.items[ioc_type] = items
+        return result
+
+    def merge(self, other: "SourceIocResult") -> "SourceIocResult":
+        """按 value 去重合并两份结果，sources 取并集；同值若已有 java 反编译来源则丢弃 dex 字节来源（java 优先）。"""
+        merged = SourceIocResult()
+        for ioc_type in PATTERNS:
+            by_value: dict[str, list[str]] = {}
+            order: list[str] = []
+            for item in list(self.items.get(ioc_type, [])) + list(other.items.get(ioc_type, [])):
+                if item.value not in by_value:
+                    by_value[item.value] = []
+                    order.append(item.value)
+                bucket = by_value[item.value]
+                for source in item.sources:
+                    if source not in bucket:
+                        bucket.append(source)
+            merged.items[ioc_type] = [
+                SourceIocItem(value=value, sources=_prefer_java_sources(by_value[value])[:MAX_SOURCES_PER_ITEM])
+                for value in order[:MAX_ITEMS_PER_TYPE]
+            ]
+        return merged
+
 
 def extract_source_iocs(apk_path: str, *, is_packed: bool, jadx_timeout: int = 300) -> SourceIocResult:
-    if is_packed:
-        return SourceIocResult()
-
+    # 无论是否加壳都先 carve/字节扫描提取候选 IOC。加壳包真实 dex 被加密，jadx 反编译
+    # 无意义，故跳过 jadx 校验、仅保留资源等来源；真实 dex 的 IOC 由脱壳后单独提取再合并。
     found = _extract_from_apk(apk_path)
-    dex_iocs = [
-        value
-        for values in found.values()
-        for value, sources in values.items()
-        if _is_dex_source(sources)
-    ]
     java_sources: dict[str, list[str]] = {}
 
-    if dex_iocs:
-        try:
-            java_sources = _locate_with_jadx(apk_path, dex_iocs, timeout=jadx_timeout)
-        except Exception as exc:  # pragma: no cover - depends on jadx/runtime
-            logger.warning("source ioc jadx locate failed path=%s err=%s", apk_path, exc)
+    if not is_packed:
+        dex_iocs = [
+            value
+            for values in found.values()
+            for value, sources in values.items()
+            if _is_dex_source(sources)
+        ]
+        if dex_iocs:
+            try:
+                java_sources = _locate_with_jadx(apk_path, dex_iocs, timeout=jadx_timeout)
+            except Exception as exc:  # pragma: no cover - depends on jadx/runtime
+                logger.warning("source ioc jadx locate failed path=%s err=%s", apk_path, exc)
 
     result = SourceIocResult()
     for ioc_type, values in found.items():
@@ -276,6 +316,19 @@ def _iter_texts(data: bytes):
         yield match.group()
 
 
+def _jadx_inputs(path: str) -> list[str]:
+    """jadx 输入：APK 直接传文件；脱壳 dex 目录则展开成各 .dex 文件多输入。"""
+    if not os.path.isdir(path):
+        return [path]
+    dex_files = sorted(
+        os.path.join(root, name)
+        for root, _dirs, files in os.walk(path)
+        for name in files
+        if name.endswith(".dex")
+    )
+    return dex_files or [path]
+
+
 def _locate_with_jadx(apk_path: str, iocs: list[str], *, timeout: int) -> dict[str, list[str]]:
     jadx = shutil.which("jadx")
     if not jadx:
@@ -283,7 +336,7 @@ def _locate_with_jadx(apk_path: str, iocs: list[str], *, timeout: int) -> dict[s
 
     with tempfile.TemporaryDirectory(prefix="source-ioc-jadx-") as output_dir:
         completed = subprocess.run(
-            [jadx, "-q", "-d", output_dir, apk_path],
+            [jadx, "-q", "-d", output_dir, *_jadx_inputs(apk_path)],
             capture_output=True,
             check=False,
             text=True,
@@ -349,6 +402,13 @@ def _is_noise(ioc_type: str, value: str) -> bool:
 
 def _is_dex_source(sources: set[str]) -> bool:
     return any(".dex" in source.lower() for source in sources)
+
+
+def _prefer_java_sources(sources: list[str]) -> list[str]:
+    """同一 IOC 若已有 java 反编译来源，则丢弃 dex 字节来源（java 来源更精确，优先保留）。"""
+    if any(source.endswith(".java") for source in sources):
+        return [source for source in sources if not source.endswith(".dex")]
+    return sources
 
 
 def _location_is_framework(java_location: str) -> bool:

@@ -18,6 +18,7 @@ FRIDA_SERVER_REMOTE_PATH = "/data/local/tmp/frida-server"
 @dataclass
 class UnpackResult:
     archive_file: str | None = None
+    clean_dir: str | None = None
     raw_dex_count: int = 0
     kept_dex_count: int = 0
     returncode: int = 0
@@ -101,6 +102,7 @@ def unpack_to_archive(
 
     return UnpackResult(
         archive_file=archive_file,
+        clean_dir=str(clean_dir),
         raw_dex_count=len(raw_dex_files),
         kept_dex_count=len(kept_files),
         returncode=dump_result.returncode,

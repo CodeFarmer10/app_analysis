@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from analyzers.ioc_extractor import SourceIocResult, extract_source_iocs
 from core.config import settings
 from core.database import fetch_one, get_connection
 from multi_main import Logger, run_task_with_planning
@@ -569,6 +570,35 @@ def _run_task_with_log(
         logger_output.close()
 
 
+def _reextract_source_iocs_from_unpacked(task_id: str, clean_dir: str | None) -> None:
+    """脱壳成功后，反编译脱壳 dex 提取源码 IOC，与静态 carve 结果合并去重后回填静态结果。
+
+    best-effort：失败仅记录日志并继续，不影响 unpack_archive_path，也不让动态溯源失败。
+    """
+    if not clean_dir or not Path(clean_dir).is_dir():
+        logger.warning("source ioc re-extract skipped task_id=%s clean_dir=%s", task_id, clean_dir)
+        return
+    try:
+        dex_result = extract_source_iocs(clean_dir, is_packed=False)
+        existing = SourceIocResult.from_static_fields(get_static_result(task_id))
+        source_fields = existing.merge(dex_result).to_static_fields()
+        update_static_result_fields(task_id, source_fields)
+        logger.info(
+            "source ioc merged from unpacked dex task_id=%s urls=%s emails=%s phones=%s",
+            task_id,
+            len(source_fields.get("source_urls") or []),
+            len(source_fields.get("source_emails") or []),
+            len(source_fields.get("source_phones") or []),
+        )
+    except Exception as exc:  # pragma: no cover - depends on dex/jadx/runtime
+        logger.exception(
+            "source ioc re-extract from unpacked dex failed task_id=%s clean_dir=%s err=%s",
+            task_id,
+            clean_dir,
+            exc,
+        )
+
+
 def _maybe_unpack_packed_app(
     task_id: str,
     package_name: str,
@@ -603,6 +633,7 @@ def _maybe_unpack_packed_app(
             unpack_result.kept_dex_count,
             archive_path,
         )
+        _reextract_source_iocs_from_unpacked(task_id, unpack_result.clean_dir)
         return archive_path
     except Exception as exc:  # pragma: no cover - runtime/device dependent
         error_text = str(exc).strip() or "未知脱壳错误"
