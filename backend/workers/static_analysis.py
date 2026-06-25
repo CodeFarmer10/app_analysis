@@ -8,6 +8,7 @@ from pathlib import Path
 import pymysql
 from analyzers.apk_parser import parse_apk
 from analyzers.framework_detector import detect_framework
+from analyzers.ioc_extractor import extract_source_iocs
 from protection import detect_protection
 from celery import Task
 from repositories.task_repo import get_task_by_id, update_task, upsert_static_result
@@ -106,6 +107,18 @@ def _detect_framework_fields(local_apk_path: str) -> dict:
         }
 
 
+def _extract_source_ioc_fields(local_apk_path: str, *, is_packed: bool) -> dict:
+    try:
+        return extract_source_iocs(local_apk_path, is_packed=is_packed).to_static_fields()
+    except Exception as exc:  # pragma: no cover - depends on APK/jadx/runtime
+        logger.warning("source ioc extract failed path=%s err=%s", local_apk_path, exc)
+        return {
+            "source_urls": [],
+            "source_emails": [],
+            "source_phones": [],
+        }
+
+
 class StaticAnalysisTaskBase(Task):
     autoretry_for = DB_EXCEPTIONS
     retry_backoff = True
@@ -164,6 +177,10 @@ def analyze_apk(self, task_id: str):
         parsed = parse_apk(local_apk_path)
         protection_fields = _detect_protection_fields(local_apk_path)
         framework_fields = _detect_framework_fields(local_apk_path)
+        source_ioc_fields = _extract_source_ioc_fields(
+            local_apk_path,
+            is_packed=bool(protection_fields.get("is_packed")),
+        )
         app_name = _normalize_app_name(parsed.get("app_name"))
         package_name = _normalize_optional_text(parsed.get("package_name"))
         if not app_name and not package_name:
@@ -206,6 +223,7 @@ def analyze_apk(self, task_id: str):
                 "component_md5": parsed.get("component_md5"),
                 **framework_fields,
                 **protection_fields,
+                **source_ioc_fields,
             },
         )
         update_task(

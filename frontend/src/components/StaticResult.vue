@@ -98,6 +98,35 @@ const obfuscationVendorList = computed(() => {
     .filter(Boolean)
 })
 
+const sourceIocGroups = computed(() => {
+  return [
+    {
+      key: 'phone',
+      label: '手机号',
+      items: Array.isArray(props.result?.source_phones) ? props.result.source_phones : [],
+    },
+    {
+      key: 'email',
+      label: '邮箱',
+      items: Array.isArray(props.result?.source_emails) ? props.result.source_emails : [],
+    },
+    {
+      key: 'url',
+      label: 'URL',
+      items: Array.isArray(props.result?.source_urls) ? props.result.source_urls : [],
+    },
+  ]
+})
+
+const hasSourceIocs = computed(() => sourceIocGroups.value.some((group) => group.items.length > 0))
+
+const sourceIocStatusText = computed(() => {
+  if (props.result?.is_packed) {
+    return '应用已加固，静态阶段暂不定位原始 Java 代码'
+  }
+  return '未发现手机号、邮箱或 URL'
+})
+
 function getComponentCountText(count) {
   return `(${count} 项)`
 }
@@ -177,6 +206,31 @@ function getComponentCountText(count) {
       </a-card>
 
       <a-card :bordered="false" class="section-card">
+        <template #title>源码线索</template>
+        <a-empty v-if="!hasSourceIocs" :description="sourceIocStatusText" />
+        <a-collapse v-else>
+          <a-collapse-panel
+            v-for="group in sourceIocGroups"
+            :key="group.key"
+            :header="`${group.label} ${getComponentCountText(group.items.length)}`"
+          >
+            <a-empty v-if="group.items.length === 0" :description="`未发现${group.label}`" />
+            <div v-else class="ioc-list">
+              <div v-for="item in group.items" :key="item.value" class="ioc-item">
+                <div class="mono-text ioc-value">{{ item.value }}</div>
+                <div class="ioc-meta">
+                  <span v-if="item.sources?.length">
+                    来源：{{ item.sources.join('、') }}
+                  </span>
+                  <span v-else>来源：--</span>
+                </div>
+              </div>
+            </div>
+          </a-collapse-panel>
+        </a-collapse>
+      </a-card>
+
+      <a-card :bordered="false" class="section-card">
         <template #title>权限清单</template>
         <a-empty v-if="permissionList.length === 0" description="无权限数据" />
         <div v-else class="permission-list">
@@ -248,6 +302,29 @@ function getComponentCountText(count) {
 
 .section-card {
   border-radius: 8px;
+}
+
+.ioc-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ioc-item {
+  padding: 10px 12px;
+  background: #f8fafc;
+  border-radius: 8px;
+}
+
+.ioc-value {
+  word-break: break-all;
+}
+
+.ioc-meta {
+  margin-top: 4px;
+  color: #64748b;
+  font-size: 12px;
+  word-break: break-all;
 }
 
 .icon-wrap {

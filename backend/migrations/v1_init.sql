@@ -654,4 +654,102 @@ PREPARE stmt_static_results_unpack_error_col FROM @sql_static_results_unpack_err
 EXECUTE stmt_static_results_unpack_error_col;
 DEALLOCATE PREPARE stmt_static_results_unpack_error_col;
 
+-- Source IOC extraction fields for phone/email/url found in APK source assets/code.
+SET @static_results_source_phones_col := (
+  SELECT COUNT(*)
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'source_phones'
+);
+SET @sql_static_results_source_phones_col := IF(
+  @static_results_source_phones_col = 0,
+  'ALTER TABLE static_results ADD COLUMN source_phones JSON NULL AFTER unpack_error',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_source_phones_col FROM @sql_static_results_source_phones_col;
+EXECUTE stmt_static_results_source_phones_col;
+DEALLOCATE PREPARE stmt_static_results_source_phones_col;
+
+SET @static_results_source_emails_col := (
+  SELECT COUNT(*)
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'source_emails'
+);
+SET @sql_static_results_source_emails_col := IF(
+  @static_results_source_emails_col = 0,
+  'ALTER TABLE static_results ADD COLUMN source_emails JSON NULL AFTER source_phones',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_source_emails_col FROM @sql_static_results_source_emails_col;
+EXECUTE stmt_static_results_source_emails_col;
+DEALLOCATE PREPARE stmt_static_results_source_emails_col;
+
+SET @static_results_source_urls_col := (
+  SELECT COUNT(*)
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'source_urls'
+);
+SET @sql_static_results_source_urls_col := IF(
+  @static_results_source_urls_col = 0,
+  'ALTER TABLE static_results ADD COLUMN source_urls JSON NULL AFTER source_emails',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_source_urls_col FROM @sql_static_results_source_urls_col;
+EXECUTE stmt_static_results_source_urls_col;
+DEALLOCATE PREPARE stmt_static_results_source_urls_col;
+
+-- Drop legacy aggregate/error IOC columns. Split phone/email/url fields are authoritative.
+SET @static_results_source_iocs_col := (
+  SELECT COUNT(*)
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'source_iocs'
+);
+SET @sql_static_results_source_iocs_col := IF(
+  @static_results_source_iocs_col = 1,
+  'ALTER TABLE static_results DROP COLUMN source_iocs',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_source_iocs_col FROM @sql_static_results_source_iocs_col;
+EXECUTE stmt_static_results_source_iocs_col;
+DEALLOCATE PREPARE stmt_static_results_source_iocs_col;
+
+SET @static_results_source_ioc_error_col := (
+  SELECT COUNT(*)
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'source_ioc_error'
+);
+SET @sql_static_results_source_ioc_error_col := IF(
+  @static_results_source_ioc_error_col = 1,
+  'ALTER TABLE static_results DROP COLUMN source_ioc_error',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_source_ioc_error_col FROM @sql_static_results_source_ioc_error_col;
+EXECUTE stmt_static_results_source_ioc_error_col;
+DEALLOCATE PREPARE stmt_static_results_source_ioc_error_col;
+
+SET @static_results_source_iocs_error_col := (
+  SELECT COUNT(*)
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'source_iocs_error'
+);
+SET @sql_static_results_source_iocs_error_col := IF(
+  @static_results_source_iocs_error_col = 1,
+  'ALTER TABLE static_results DROP COLUMN source_iocs_error',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_source_iocs_error_col FROM @sql_static_results_source_iocs_error_col;
+EXECUTE stmt_static_results_source_iocs_error_col;
+DEALLOCATE PREPARE stmt_static_results_source_iocs_error_col;
+
 SET FOREIGN_KEY_CHECKS = 1;

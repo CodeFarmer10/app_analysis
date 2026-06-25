@@ -245,7 +245,10 @@ def get_static_result(task_id: str) -> dict | None:
             obfuscator_details,
             protection_detect_error,
             unpack_archive_path,
-            unpack_error
+            unpack_error,
+            source_phones,
+            source_emails,
+            source_urls
         FROM static_results
         WHERE task_id = %s
         LIMIT 1
@@ -265,6 +268,9 @@ def get_static_result(task_id: str) -> dict | None:
         "obfuscation_vendors",
         "obfuscator_details",
         "framework_matches",
+        "source_phones",
+        "source_emails",
+        "source_urls",
     ):
         value = row.get(field)
         if isinstance(value, str):
@@ -306,9 +312,12 @@ def upsert_static_result(task_id: str, data: dict[str, Any]) -> int:
             obfuscator_details,
             protection_detect_error,
             unpack_archive_path,
-            unpack_error
+            unpack_error,
+            source_phones,
+            source_emails,
+            source_urls
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         ON DUPLICATE KEY UPDATE
             app_name = VALUES(app_name),
             package_name = VALUES(package_name),
@@ -335,7 +344,10 @@ def upsert_static_result(task_id: str, data: dict[str, Any]) -> int:
             obfuscation_vendor = VALUES(obfuscation_vendor),
             obfuscation_vendors = VALUES(obfuscation_vendors),
             obfuscator_details = VALUES(obfuscator_details),
-            protection_detect_error = VALUES(protection_detect_error)
+            protection_detect_error = VALUES(protection_detect_error),
+            source_phones = VALUES(source_phones),
+            source_emails = VALUES(source_emails),
+            source_urls = VALUES(source_urls)
     """
     rows, _ = execute(
         sql,
@@ -369,6 +381,9 @@ def upsert_static_result(task_id: str, data: dict[str, Any]) -> int:
             data.get("protection_detect_error"),
             data.get("unpack_archive_path"),
             data.get("unpack_error"),
+            json.dumps(data.get("source_phones") or [], ensure_ascii=False),
+            json.dumps(data.get("source_emails") or [], ensure_ascii=False),
+            json.dumps(data.get("source_urls") or [], ensure_ascii=False),
         ),
     )
     return rows
@@ -389,6 +404,9 @@ def update_static_result_fields(task_id: str, fields: dict[str, Any]) -> int:
         "obfuscation_vendors",
         "obfuscator_details",
         "framework_matches",
+        "source_phones",
+        "source_emails",
+        "source_urls",
     }
     set_fragments: list[str] = []
     values: list[Any] = []
