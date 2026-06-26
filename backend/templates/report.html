@@ -279,7 +279,7 @@
 
         .component-grid {
             display: grid;
-            grid-template-columns: repeat(4, minmax(0, 1fr));
+            grid-template-columns: repeat(5, minmax(0, 1fr));
             gap: 12px;
         }
 
@@ -801,6 +801,10 @@
                         <div class="component-value">{{ static_info.provider_count }}</div>
                     </div>
                     <div class="component-card">
+                        <div class="component-name">Receiver 数量</div>
+                        <div class="component-value">{{ static_info.receiver_count }}</div>
+                    </div>
+                    <div class="component-card">
                         <div class="component-name">so 文件数量</div>
                         <div class="component-value">{{ static_info.so_count }}</div>
                     </div>
@@ -1001,6 +1005,21 @@
                 <ul class="simple-list">
                     {% if appendix.providers %}
                         {% for item in appendix.providers %}
+                            <li>{{ item }}</li>
+                        {% endfor %}
+                    {% else %}
+                        <li>无</li>
+                    {% endif %}
+                </ul>
+            </div>
+        </div>
+
+        <div class="panel list-block">
+            <h3 class="panel-title">Receiver 列表</h3>
+            <div class="panel-body">
+                <ul class="simple-list">
+                    {% if appendix.receivers %}
+                        {% for item in appendix.receivers %}
                             <li>{{ item }}</li>
                         {% endfor %}
                     {% else %}

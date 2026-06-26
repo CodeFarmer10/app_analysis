@@ -325,6 +325,7 @@ def _build_report_context(task_id: str) -> dict[str, Any]:
     activities = _normalize_named_items(static_result.get("activities"))
     services = _normalize_named_items(static_result.get("services"))
     providers = _normalize_named_items(static_result.get("providers"))
+    receivers = _normalize_named_items(static_result.get("receivers"))
     so_files = _normalize_named_items(static_result.get("so_files"))
 
     operation_items: list[dict[str, Any]] = []
@@ -393,10 +394,12 @@ def _build_report_context(task_id: str) -> dict[str, Any]:
             "activities": activities,
             "services": services,
             "providers": providers,
+            "receivers": receivers,
             "so_files": so_files,
             "activity_count": len(activities),
             "service_count": len(services),
             "provider_count": len(providers),
+            "receiver_count": len(receivers),
             "so_count": len(so_files),
         },
         "dynamic_summary": {
@@ -417,6 +420,7 @@ def _build_report_context(task_id: str) -> dict[str, Any]:
             "activities": activities,
             "services": services,
             "providers": providers,
+            "receivers": receivers,
             "so_files": so_files,
         },
         "generated_at": _format_datetime(datetime.now()),
@@ -880,6 +884,9 @@ def _build_pdf_with_reportlab(context: dict[str, Any]) -> bytes:
             Spacer(1, 6),
             Paragraph("Provider 列表", block_style),
             build_list_paragraph(appendix.get("providers") or []),
+            Spacer(1, 6),
+            Paragraph("Receiver 列表", block_style),
+            build_list_paragraph(appendix.get("receivers") or []),
             Spacer(1, 6),
             Paragraph("so 文件列表", block_style),
             build_list_paragraph(appendix.get("so_files") or []),

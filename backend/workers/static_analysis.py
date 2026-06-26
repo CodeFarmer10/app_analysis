@@ -218,6 +218,7 @@ def analyze_apk(self, task_id: str):
                 "activities": parsed.get("activities") or [],
                 "services": parsed.get("services") or [],
                 "providers": parsed.get("providers") or [],
+                "receivers": parsed.get("receivers") or [],
                 "so_files": parsed.get("so_files") or [],
                 "component_string": parsed.get("component_string"),
                 "component_md5": parsed.get("component_md5"),

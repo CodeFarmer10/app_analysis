@@ -230,6 +230,7 @@ def get_static_result(task_id: str) -> dict | None:
             activities,
             services,
             providers,
+            receivers,
             so_files,
             component_string,
             component_md5,
@@ -262,6 +263,7 @@ def get_static_result(task_id: str) -> dict | None:
         "activities",
         "services",
         "providers",
+        "receivers",
         "so_files",
         "packer_vendors",
         "packer_details",
@@ -297,6 +299,7 @@ def upsert_static_result(task_id: str, data: dict[str, Any]) -> int:
             activities,
             services,
             providers,
+            receivers,
             so_files,
             component_string,
             component_md5,
@@ -317,7 +320,7 @@ def upsert_static_result(task_id: str, data: dict[str, Any]) -> int:
             source_emails,
             source_urls
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         ON DUPLICATE KEY UPDATE
             app_name = VALUES(app_name),
             package_name = VALUES(package_name),
@@ -331,6 +334,7 @@ def upsert_static_result(task_id: str, data: dict[str, Any]) -> int:
             activities = VALUES(activities),
             services = VALUES(services),
             providers = VALUES(providers),
+            receivers = VALUES(receivers),
             so_files = VALUES(so_files),
             component_string = VALUES(component_string),
             component_md5 = VALUES(component_md5),
@@ -365,6 +369,7 @@ def upsert_static_result(task_id: str, data: dict[str, Any]) -> int:
             json.dumps(data.get("activities") or [], ensure_ascii=False),
             json.dumps(data.get("services") or [], ensure_ascii=False),
             json.dumps(data.get("providers") or [], ensure_ascii=False),
+            json.dumps(data.get("receivers") or [], ensure_ascii=False),
             json.dumps(data.get("so_files") or [], ensure_ascii=False),
             data.get("component_string"),
             data.get("component_md5"),
@@ -398,6 +403,7 @@ def update_static_result_fields(task_id: str, fields: dict[str, Any]) -> int:
         "activities",
         "services",
         "providers",
+        "receivers",
         "so_files",
         "packer_vendors",
         "packer_details",

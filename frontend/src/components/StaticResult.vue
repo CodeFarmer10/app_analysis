@@ -62,6 +62,13 @@ const providerList = computed(() => {
     .filter(Boolean)
 })
 
+const receiverList = computed(() => {
+  const source = Array.isArray(props.result?.receivers) ? props.result.receivers : []
+  return source
+    .map((item) => (typeof item === 'string' ? item : item?.name || ''))
+    .filter(Boolean)
+})
+
 const soFileList = computed(() => {
   const source = Array.isArray(props.result?.so_files) ? props.result.so_files : []
   return source
@@ -270,6 +277,13 @@ function getComponentCountText(count) {
             <a-empty v-if="providerList.length === 0" description="无 Provider" />
             <div v-else class="component-list">
               <a-tag v-for="item in providerList" :key="item">{{ item }}</a-tag>
+            </div>
+          </a-collapse-panel>
+
+          <a-collapse-panel key="receivers" :header="`Receiver ${getComponentCountText(receiverList.length)}`">
+            <a-empty v-if="receiverList.length === 0" description="无 Receiver" />
+            <div v-else class="component-list">
+              <a-tag v-for="item in receiverList" :key="item">{{ item }}</a-tag>
             </div>
           </a-collapse-panel>
         </a-collapse>

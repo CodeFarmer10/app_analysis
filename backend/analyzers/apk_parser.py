@@ -1008,6 +1008,7 @@ def parse_apk(apk_path: str) -> dict[str, Any]:
         "activities": result.get("activities") or [],
         "services": result.get("services") or [],
         "providers": result.get("providers") or [],
+        "receivers": result.get("_receivers") or [],
         "so_files": result.get("so_files") or [],
         "icon_bytes": result.get("icon_bytes"),
         "icon_name": result.get("icon_name"),

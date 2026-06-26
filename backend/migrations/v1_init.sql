@@ -79,6 +79,7 @@ CREATE TABLE IF NOT EXISTS static_results (
   activities JSON NULL,
   services JSON NULL,
   providers JSON NULL,
+  receivers JSON NULL,
   so_files JSON NULL,
   component_string LONGTEXT NULL,
   component_md5 VARCHAR(32) NULL,
@@ -443,6 +444,22 @@ SET @sql_static_results_component_md5_col := IF(
 PREPARE stmt_static_results_component_md5_col FROM @sql_static_results_component_md5_col;
 EXECUTE stmt_static_results_component_md5_col;
 DEALLOCATE PREPARE stmt_static_results_component_md5_col;
+
+-- BroadcastReceiver components.
+SET @static_results_receivers_col := (
+  SELECT COUNT(*) FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'receivers'
+);
+SET @sql_static_results_receivers_col := IF(
+  @static_results_receivers_col = 0,
+  'ALTER TABLE static_results ADD COLUMN receivers JSON NULL AFTER providers',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_receivers_col FROM @sql_static_results_receivers_col;
+EXECUTE stmt_static_results_receivers_col;
+DEALLOCATE PREPARE stmt_static_results_receivers_col;
 
 -- Static analysis development framework detection fields.
 SET @static_results_framework_name_col := (
