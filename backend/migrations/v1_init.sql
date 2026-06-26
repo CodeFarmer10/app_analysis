@@ -75,6 +75,7 @@ CREATE TABLE IF NOT EXISTS static_results (
   cert_md5 VARCHAR(128) NULL,
   cert_sha1 VARCHAR(128) NULL,
   cert_sha256 VARCHAR(128) NULL,
+  cert_info JSON NULL,
   permissions JSON NULL,
   activities JSON NULL,
   services JSON NULL,
@@ -460,6 +461,22 @@ SET @sql_static_results_receivers_col := IF(
 PREPARE stmt_static_results_receivers_col FROM @sql_static_results_receivers_col;
 EXECUTE stmt_static_results_receivers_col;
 DEALLOCATE PREPARE stmt_static_results_receivers_col;
+
+-- Full signing certificate info (JSON).
+SET @static_results_cert_info_col := (
+  SELECT COUNT(*) FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'cert_info'
+);
+SET @sql_static_results_cert_info_col := IF(
+  @static_results_cert_info_col = 0,
+  'ALTER TABLE static_results ADD COLUMN cert_info JSON NULL AFTER cert_sha256',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_cert_info_col FROM @sql_static_results_cert_info_col;
+EXECUTE stmt_static_results_cert_info_col;
+DEALLOCATE PREPARE stmt_static_results_cert_info_col;
 
 -- Static analysis development framework detection fields.
 SET @static_results_framework_name_col := (

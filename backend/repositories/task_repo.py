@@ -226,6 +226,7 @@ def get_static_result(task_id: str) -> dict | None:
             cert_md5,
             cert_sha1,
             cert_sha256,
+            cert_info,
             permissions,
             activities,
             services,
@@ -259,6 +260,7 @@ def get_static_result(task_id: str) -> dict | None:
         return None
 
     for field in (
+        "cert_info",
         "permissions",
         "activities",
         "services",
@@ -295,6 +297,7 @@ def upsert_static_result(task_id: str, data: dict[str, Any]) -> int:
             cert_md5,
             cert_sha1,
             cert_sha256,
+            cert_info,
             permissions,
             activities,
             services,
@@ -320,7 +323,7 @@ def upsert_static_result(task_id: str, data: dict[str, Any]) -> int:
             source_emails,
             source_urls
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         ON DUPLICATE KEY UPDATE
             app_name = VALUES(app_name),
             package_name = VALUES(package_name),
@@ -330,6 +333,7 @@ def upsert_static_result(task_id: str, data: dict[str, Any]) -> int:
             cert_md5 = VALUES(cert_md5),
             cert_sha1 = VALUES(cert_sha1),
             cert_sha256 = VALUES(cert_sha256),
+            cert_info = VALUES(cert_info),
             permissions = VALUES(permissions),
             activities = VALUES(activities),
             services = VALUES(services),
@@ -365,6 +369,7 @@ def upsert_static_result(task_id: str, data: dict[str, Any]) -> int:
             data.get("cert_md5"),
             data.get("cert_sha1"),
             data.get("cert_sha256"),
+            json.dumps(data.get("cert_info"), ensure_ascii=False) if data.get("cert_info") is not None else None,
             json.dumps(data.get("permissions") or [], ensure_ascii=False),
             json.dumps(data.get("activities") or [], ensure_ascii=False),
             json.dumps(data.get("services") or [], ensure_ascii=False),

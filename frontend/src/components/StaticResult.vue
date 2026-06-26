@@ -137,6 +137,27 @@ const sourceIocStatusText = computed(() => {
 function getComponentCountText(count) {
   return `(${count} 项)`
 }
+
+const certInfo = computed(() => {
+  const info = props.result?.cert_info
+  return info && typeof info === 'object' ? info : null
+})
+
+const certList = computed(() => {
+  const certs = certInfo.value?.certificates
+  return Array.isArray(certs) ? certs : []
+})
+
+const signatureSchemes = ['v1', 'v2', 'v3', 'v4']
+
+function formatPublicKey(cert) {
+  if (!cert?.public_key_algorithm) {
+    return '--'
+  }
+  return cert.public_key_bits
+    ? `${cert.public_key_algorithm} (${cert.public_key_bits} bits)`
+    : cert.public_key_algorithm
+}
 </script>
 
 <template>
@@ -199,7 +220,57 @@ function getComponentCountText(count) {
       </a-card>
 
       <a-card :bordered="false" class="section-card">
-        <a-descriptions title="证书信息" :column="1" size="small">
+        <template #title>签名证书</template>
+
+        <template v-if="certInfo">
+          <div class="cert-badges">
+            <a-tag :color="certInfo.is_signed ? 'green' : 'red'">
+              {{ certInfo.is_signed ? 'APK已签名' : 'APK未签名' }}
+            </a-tag>
+            <a-tag
+              v-for="scheme in signatureSchemes"
+              :key="scheme"
+              :color="certInfo.schemes && certInfo.schemes[scheme] ? 'red' : 'default'"
+            >
+              {{ scheme }}: {{ certInfo.schemes && certInfo.schemes[scheme] ? '是' : '否' }}
+            </a-tag>
+            <span class="cert-count">共 {{ certInfo.cert_count }} 个证书</span>
+          </div>
+
+          <div v-for="(cert, index) in certList" :key="index" class="cert-block">
+            <div class="cert-block-title">证书 #{{ index + 1 }}</div>
+            <a-descriptions :column="1" size="small" bordered>
+              <a-descriptions-item label="主题">{{ cert.subject || '--' }}</a-descriptions-item>
+              <a-descriptions-item label="发行人">{{ cert.issuer || '--' }}</a-descriptions-item>
+              <a-descriptions-item label="签名算法">{{ cert.signature_algorithm || '--' }}</a-descriptions-item>
+              <a-descriptions-item label="哈希算法">{{ cert.hash_algorithm || '--' }}</a-descriptions-item>
+              <a-descriptions-item label="序列号">
+                <span class="mono-text">{{ cert.serial_number || '--' }}</span>
+              </a-descriptions-item>
+              <a-descriptions-item label="有效期">
+                {{ cert.not_before || '--' }} 至 {{ cert.not_after || '--' }}
+              </a-descriptions-item>
+              <a-descriptions-item label="证书MD5">
+                <span class="mono-text">{{ cert.md5 || '--' }}</span>
+              </a-descriptions-item>
+              <a-descriptions-item label="证书SHA1">
+                <span class="mono-text">{{ cert.sha1 || '--' }}</span>
+              </a-descriptions-item>
+              <a-descriptions-item label="证书SHA256">
+                <span class="mono-text">{{ cert.sha256 || '--' }}</span>
+              </a-descriptions-item>
+              <a-descriptions-item label="证书SHA512">
+                <span class="mono-text">{{ cert.sha512 || '--' }}</span>
+              </a-descriptions-item>
+              <a-descriptions-item label="公钥算法">{{ formatPublicKey(cert) }}</a-descriptions-item>
+              <a-descriptions-item label="公钥指纹">
+                <span class="mono-text">{{ cert.public_key_fingerprint || '--' }}</span>
+              </a-descriptions-item>
+            </a-descriptions>
+          </div>
+        </template>
+
+        <a-descriptions v-else title="证书信息" :column="1" size="small">
           <a-descriptions-item label="证书MD5">
             <span class="mono-text">{{ result.cert_md5 || '--' }}</span>
           </a-descriptions-item>
@@ -316,6 +387,29 @@ function getComponentCountText(count) {
 
 .section-card {
   border-radius: 8px;
+}
+
+.cert-badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.cert-count {
+  color: #94a3b8;
+  font-size: 13px;
+}
+
+.cert-block {
+  margin-top: 16px;
+}
+
+.cert-block-title {
+  font-weight: 600;
+  color: #cf1322;
+  margin-bottom: 8px;
 }
 
 .ioc-list {

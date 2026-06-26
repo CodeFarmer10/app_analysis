@@ -176,6 +176,49 @@ def _normalize_named_items(items: Any) -> list[str]:
     return results
 
 
+def _format_public_key(cert: dict[str, Any]) -> str:
+    algorithm = cert.get("public_key_algorithm")
+    if not algorithm:
+        return "-"
+    bits = cert.get("public_key_bits")
+    return f"{algorithm} ({bits} bits)" if bits else str(algorithm)
+
+
+def _build_certificate_context(cert_info: Any) -> dict[str, Any] | None:
+    """将 static_results.cert_info 规整为报告模板使用的展示结构。"""
+    if not isinstance(cert_info, dict):
+        return None
+    certificates: list[dict[str, Any]] = []
+    for cert in cert_info.get("certificates") or []:
+        if not isinstance(cert, dict):
+            continue
+        certificates.append(
+            {
+                "subject": _text(cert.get("subject")),
+                "issuer": _text(cert.get("issuer")),
+                "signature_algorithm": _text(cert.get("signature_algorithm")),
+                "hash_algorithm": _text(cert.get("hash_algorithm")),
+                "serial_number": _text(cert.get("serial_number")),
+                "validity": f"{_text(cert.get('not_before'))} 至 {_text(cert.get('not_after'))}",
+                "md5": _text(cert.get("md5")),
+                "sha1": _text(cert.get("sha1")),
+                "sha256": _text(cert.get("sha256")),
+                "sha512": _text(cert.get("sha512")),
+                "public_key": _format_public_key(cert),
+                "public_key_fingerprint": _text(cert.get("public_key_fingerprint")),
+            }
+        )
+    if not certificates:
+        return None
+    schemes = cert_info.get("schemes") or {}
+    return {
+        "is_signed": bool(cert_info.get("is_signed")),
+        "cert_count": cert_info.get("cert_count") or len(certificates),
+        "schemes": {key: bool(schemes.get(key)) for key in ("v1", "v2", "v3", "v4")},
+        "certificates": certificates,
+    }
+
+
 def _build_ratio_items(values: list[str], *, fallback_label: str, top_n: int = 10) -> list[dict[str, Any]]:
     normalized = [str(item or "").strip() or fallback_label for item in values]
     total = len(normalized)
@@ -327,6 +370,7 @@ def _build_report_context(task_id: str) -> dict[str, Any]:
     providers = _normalize_named_items(static_result.get("providers"))
     receivers = _normalize_named_items(static_result.get("receivers"))
     so_files = _normalize_named_items(static_result.get("so_files"))
+    certificate = _build_certificate_context(static_result.get("cert_info"))
 
     operation_items: list[dict[str, Any]] = []
     success_step_count = 0
@@ -414,6 +458,7 @@ def _build_report_context(task_id: str) -> dict[str, Any]:
             "real_controller_target_count": real_controller_summary["target_count"],
         },
         "operation_items": operation_items,
+        "certificate": certificate,
         "appendix": {
             "dangerous_permissions": dangerous_permissions,
             "normal_permissions": normal_permissions,
@@ -802,20 +847,69 @@ def _build_pdf_with_reportlab(context: dict[str, Any]) -> bytes:
         story.extend(build_image(static_info.get("icon_path"), 30, 30))
         story.append(Spacer(1, 6))
 
-    story.extend(
-        [
+    story.append(
+        build_kv_table(
+            [
+                ("应用名称", _text(static_info.get("app_name"))),
+                ("包名", _text(static_info.get("package_name"))),
+                ("版本名", _text(static_info.get("version_name"))),
+                ("版本号", _text(static_info.get("version_code"))),
+            ]
+        )
+    )
+
+    certificate = context.get("certificate")
+    cert_flowables: list[Any] = [Spacer(1, 12), Paragraph("签名证书", section_style)]
+    if certificate:
+        schemes = certificate.get("schemes") or {}
+        signed_text = "APK已签名" if certificate.get("is_signed") else "APK未签名"
+        scheme_text = "  ".join(
+            f"{ver}: {'是' if schemes.get(ver) else '否'}" for ver in ("v1", "v2", "v3", "v4")
+        )
+        cert_flowables.append(
+            Paragraph(
+                escape(f"{signed_text}    {scheme_text}    共 {certificate.get('cert_count')} 个证书"),
+                block_style,
+            )
+        )
+        for index, cert in enumerate(certificate.get("certificates") or [], start=1):
+            cert_flowables.extend(
+                [
+                    Spacer(1, 6),
+                    Paragraph(f"证书 #{index}", block_style),
+                    build_kv_table(
+                        [
+                            ("主题", _text(cert.get("subject"))),
+                            ("发行人", _text(cert.get("issuer"))),
+                            ("签名算法", _text(cert.get("signature_algorithm"))),
+                            ("哈希算法", _text(cert.get("hash_algorithm"))),
+                            ("序列号", _text(cert.get("serial_number"))),
+                            ("有效期", _text(cert.get("validity"))),
+                            ("证书MD5", _text(cert.get("md5"))),
+                            ("证书SHA1", _text(cert.get("sha1"))),
+                            ("证书SHA256", _text(cert.get("sha256"))),
+                            ("证书SHA512", _text(cert.get("sha512"))),
+                            ("公钥算法", _text(cert.get("public_key"))),
+                            ("公钥指纹", _text(cert.get("public_key_fingerprint"))),
+                        ]
+                    ),
+                ]
+            )
+    else:
+        cert_flowables.append(
             build_kv_table(
                 [
-                    ("应用名称", _text(static_info.get("app_name"))),
-                    ("包名", _text(static_info.get("package_name"))),
-                    ("版本名", _text(static_info.get("version_name"))),
-                    ("版本号", _text(static_info.get("version_code"))),
                     ("证书MD5", _text(static_info.get("cert_md5"))),
                     ("证书SHA1", _text(static_info.get("cert_sha1"))),
                     ("证书SHA256", _text(static_info.get("cert_sha256"))),
                 ]
-            ),
-            Spacer(1, 6),
+            )
+        )
+    story.extend(cert_flowables)
+
+    story.extend(
+        [
+            Spacer(1, 12),
             Paragraph("权限清单（危险权限）", block_style),
             build_list_paragraph([item.get("name", "-") for item in static_info.get("dangerous_permissions") or []]),
             Spacer(1, 6),

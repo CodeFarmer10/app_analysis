@@ -102,13 +102,116 @@ def _pick_certificate_der(apk: APK) -> bytes | None:
     return None
 
 
-def _extract_certificate_digests(apk_path: str | None = None, apk: APK | None = None) -> dict[str, str | None]:
+# X.509 DN 属性短名映射，用于将 subject/issuer 拼成 "CN=..., OU=..., O=..." 形态。
+_DN_SHORT_NAMES = {
+    "common_name": "CN",
+    "organizational_unit_name": "OU",
+    "organization_name": "O",
+    "locality_name": "L",
+    "state_or_province_name": "ST",
+    "country_name": "C",
+    "email_address": "E",
+    "serial_number": "SERIALNUMBER",
+    "domain_component": "DC",
+    "organization_identifier": "OID",
+}
+
+
+def _format_distinguished_name(name: Any) -> str | None:
+    try:
+        native = name.native or {}
+    except Exception:
+        return None
+    parts: list[str] = []
+    for key, value in native.items():
+        short = _DN_SHORT_NAMES.get(key, key)
+        if isinstance(value, (list, tuple)):
+            value = ", ".join(str(item) for item in value)
+        parts.append(f"{short}={value}")
+    return ", ".join(parts) or None
+
+
+def _build_certificate_entry(cert: Any) -> dict[str, Any]:
+    """从 asn1crypto x509.Certificate 解析出图片所示的全部证书字段。"""
+    der = cert.dump()
+    validity = cert["tbs_certificate"]["validity"]
+    public_key = cert.public_key
+
+    def _safe(getter: Any, default: Any = None) -> Any:
+        try:
+            return getter()
+        except Exception:
+            return default
+
+    return {
+        "subject": _safe(lambda: _format_distinguished_name(cert.subject)),
+        "issuer": _safe(lambda: _format_distinguished_name(cert.issuer)),
+        "signature_algorithm": _safe(lambda: cert["signature_algorithm"].signature_algo),
+        "hash_algorithm": _safe(lambda: cert["signature_algorithm"].hash_algo),
+        "serial_number": _safe(lambda: hex(cert.serial_number)),
+        "not_before": _safe(lambda: str(validity["not_before"].native)),
+        "not_after": _safe(lambda: str(validity["not_after"].native)),
+        "md5": hashlib.md5(der).hexdigest(),
+        "sha1": hashlib.sha1(der).hexdigest(),
+        "sha256": hashlib.sha256(der).hexdigest(),
+        "sha512": hashlib.sha512(der).hexdigest(),
+        "public_key_algorithm": _safe(lambda: str(public_key.algorithm).upper()),
+        "public_key_bits": _safe(lambda: public_key.bit_size),
+        "public_key_fingerprint": _safe(lambda: public_key.sha256.hex()),
+    }
+
+
+def _build_certificate_info(apk: APK) -> dict[str, Any] | None:
+    """组装完整证书信息：签名状态、签名方案版本、各证书详情。"""
+    try:
+        certs = apk.get_certificates() or []
+    except Exception:
+        certs = []
+    entries: list[dict[str, Any]] = []
+    for cert in certs:
+        try:
+            entries.append(_build_certificate_entry(cert))
+        except Exception as exc:  # pragma: no cover - depends on cert structure
+            logger.warning("certificate entry parse failed: %s", exc)
+    if not entries:
+        return None
+
+    def _safe_flag(method_name: str) -> bool:
+        method = getattr(apk, method_name, None)
+        if not callable(method):
+            return False
+        try:
+            return bool(method())
+        except Exception:
+            return False
+
+    return {
+        "is_signed": _safe_flag("is_signed"),
+        "cert_count": len(entries),
+        "schemes": {
+            "v1": _safe_flag("is_signed_v1"),
+            "v2": _safe_flag("is_signed_v2"),
+            "v3": _safe_flag("is_signed_v3"),
+            # androguard 无法仅凭 APK 判定 v4（v4 签名存于独立的 .idsig 文件）
+            "v4": False,
+        },
+        "certificates": entries,
+    }
+
+
+def _extract_certificate_digests(apk_path: str | None = None, apk: APK | None = None) -> dict[str, Any]:
     effective_apk = apk or APK(str(apk_path))
     cert_der = _pick_certificate_der(effective_apk)
+    try:
+        cert_info = _build_certificate_info(effective_apk)
+    except Exception as exc:  # pragma: no cover - depends on cert structure
+        logger.warning("certificate info parse failed: %s", exc)
+        cert_info = None
     return {
         "cert_md5": hashlib.md5(cert_der).hexdigest() if cert_der else None,
         "cert_sha1": hashlib.sha1(cert_der).hexdigest() if cert_der else None,
         "cert_sha256": hashlib.sha256(cert_der).hexdigest() if cert_der else None,
+        "cert_info": cert_info,
     }
 
 
@@ -199,6 +302,7 @@ def _default_result() -> dict[str, Any]:
         "cert_md5": None,
         "cert_sha1": None,
         "cert_sha256": None,
+        "cert_info": None,
         "permissions": [],
         "activities": [],
         "services": [],
@@ -760,6 +864,7 @@ def _parse_with_androguard(apk_path: str) -> dict[str, Any]:
             "cert_md5": cert_result.get("cert_md5"),
             "cert_sha1": cert_result.get("cert_sha1"),
             "cert_sha256": cert_result.get("cert_sha256"),
+            "cert_info": cert_result.get("cert_info"),
             "permissions": permissions,
             "activities": activities,
             "services": services,
@@ -1004,6 +1109,7 @@ def parse_apk(apk_path: str) -> dict[str, Any]:
         "cert_md5": result.get("cert_md5"),
         "cert_sha1": result.get("cert_sha1"),
         "cert_sha256": result.get("cert_sha256"),
+        "cert_info": result.get("cert_info"),
         "permissions": result.get("permissions") or [],
         "activities": result.get("activities") or [],
         "services": result.get("services") or [],

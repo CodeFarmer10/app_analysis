@@ -117,6 +117,12 @@
             padding: 14px;
         }
 
+        .cert-title {
+            font-weight: 700;
+            color: #334155;
+            margin: 10px 0 6px;
+        }
+
         .info-grid {
             display: grid;
             grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -275,6 +281,11 @@
         .tag-neutral {
             background: #eef2f7;
             color: #334155;
+        }
+
+        .tag-success {
+            background: #dcfce7;
+            color: #166534;
         }
 
         .component-grid {
@@ -744,11 +755,46 @@
                         <tr><th>包名</th><td>{{ static_info.package_name }}</td></tr>
                         <tr><th>版本名</th><td>{{ static_info.version_name }}</td></tr>
                         <tr><th>版本号</th><td>{{ static_info.version_code }}</td></tr>
-                        <tr><th>证书MD5</th><td>{{ static_info.cert_md5 }}</td></tr>
-                        <tr><th>证书SHA1</th><td>{{ static_info.cert_sha1 }}</td></tr>
-                        <tr><th>证书SHA256</th><td>{{ static_info.cert_sha256 }}</td></tr>
                     </table>
                 </div>
+            </div>
+        </div>
+
+        <div class="panel" style="margin-top: 12px;">
+            <h3 class="panel-title">签名证书</h3>
+            <div class="panel-body">
+                {% if certificate %}
+                <div class="tag-list">
+                    <span class="tag {{ 'tag-success' if certificate.is_signed else 'tag-danger' }}">{{ 'APK已签名' if certificate.is_signed else 'APK未签名' }}</span>
+                    {% for ver in ['v1', 'v2', 'v3', 'v4'] %}
+                        <span class="tag {{ 'tag-danger' if certificate.schemes[ver] else 'tag-neutral' }}">{{ ver }}: {{ '是' if certificate.schemes[ver] else '否' }}</span>
+                    {% endfor %}
+                    <span class="tag tag-neutral">共 {{ certificate.cert_count }} 个证书</span>
+                </div>
+                {% for cert in certificate.certificates %}
+                <div class="cert-title">证书 #{{ loop.index }}</div>
+                <table class="kv-table">
+                    <tr><th>主题</th><td>{{ cert.subject }}</td></tr>
+                    <tr><th>发行人</th><td>{{ cert.issuer }}</td></tr>
+                    <tr><th>签名算法</th><td>{{ cert.signature_algorithm }}</td></tr>
+                    <tr><th>哈希算法</th><td>{{ cert.hash_algorithm }}</td></tr>
+                    <tr><th>序列号</th><td>{{ cert.serial_number }}</td></tr>
+                    <tr><th>有效期</th><td>{{ cert.validity }}</td></tr>
+                    <tr><th>证书MD5</th><td>{{ cert.md5 }}</td></tr>
+                    <tr><th>证书SHA1</th><td>{{ cert.sha1 }}</td></tr>
+                    <tr><th>证书SHA256</th><td>{{ cert.sha256 }}</td></tr>
+                    <tr><th>证书SHA512</th><td>{{ cert.sha512 }}</td></tr>
+                    <tr><th>公钥算法</th><td>{{ cert.public_key }}</td></tr>
+                    <tr><th>公钥指纹</th><td>{{ cert.public_key_fingerprint }}</td></tr>
+                </table>
+                {% endfor %}
+                {% else %}
+                <table class="kv-table">
+                    <tr><th>证书MD5</th><td>{{ static_info.cert_md5 }}</td></tr>
+                    <tr><th>证书SHA1</th><td>{{ static_info.cert_sha1 }}</td></tr>
+                    <tr><th>证书SHA256</th><td>{{ static_info.cert_sha256 }}</td></tr>
+                </table>
+                {% endif %}
             </div>
         </div>
 

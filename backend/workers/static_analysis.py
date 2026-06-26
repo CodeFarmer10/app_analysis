@@ -214,6 +214,7 @@ def analyze_apk(self, task_id: str):
                 "cert_md5": parsed.get("cert_md5"),
                 "cert_sha1": parsed.get("cert_sha1"),
                 "cert_sha256": parsed.get("cert_sha256"),
+                "cert_info": parsed.get("cert_info"),
                 "permissions": parsed.get("permissions") or [],
                 "activities": parsed.get("activities") or [],
                 "services": parsed.get("services") or [],
