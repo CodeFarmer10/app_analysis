@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 import logging
 import os
 import re
@@ -376,6 +377,69 @@ def _locate_in_sources(iocs: list[str], sources_dir: str) -> dict[str, list[str]
     return locations
 
 
+WHITE_DOMAIN_CSV = Path(__file__).resolve().parents[1] / "tools" / "white_domain.csv"
+IMAGE_URL_EXTENSIONS = (
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".webp",
+    ".bmp",
+    ".svg",
+    ".ico",
+    ".tif",
+    ".tiff",
+    ".heic",
+    ".heif",
+)
+
+
+@functools.lru_cache(maxsize=1)
+def _white_domains() -> frozenset[str]:
+    """加载白名单域名（每行一个，首行表头 DOMAIN），用于过滤常见正规域名。"""
+    domains: set[str] = set()
+    try:
+        with WHITE_DOMAIN_CSV.open(encoding="utf-8", errors="ignore") as handle:
+            for line in handle:
+                domain = line.strip().lower().rstrip(".")
+                if domain and domain != "domain":
+                    domains.add(domain)
+    except OSError as exc:  # pragma: no cover - depends on deployment files
+        logger.warning("white domain list load failed path=%s err=%s", WHITE_DOMAIN_CSV, exc)
+    return frozenset(domains)
+
+
+def _is_whitelisted_domain(host: str) -> bool:
+    host = host.split(":")[0].strip().lower().rstrip(".")
+    if not host:
+        return False
+    white = _white_domains()
+    if not white:
+        return False
+    labels = host.split(".")
+    # 命中域名本身或其任一父域（如 a.b.example.com 命中 example.com）即视为白名单。
+    for index in range(len(labels) - 1):
+        if ".".join(labels[index:]) in white:
+            return True
+    return False
+
+
+def _is_image_url(url: str) -> bool:
+    path = re.split(r"[?#]", url, maxsplit=1)[0].lower()
+    return path.endswith(IMAGE_URL_EXTENSIONS)
+
+
+def _is_garbage_email(value: str) -> bool:
+    """过滤明显非真实邮箱的噪声，如 q@I.Tv（用户名/主域名过短）。"""
+    local, _, domain = value.partition("@")
+    if len(local) < 2:
+        return True
+    labels = domain.split(".")
+    if len(labels) < 2 or len(labels[-2]) < 2:
+        return True
+    return False
+
+
 def _host_of(url: str) -> str:
     match = re.match(r"https?://([^/:?#]+)", url, re.I)
     return (match.group(1) if match else "").lower()
@@ -394,9 +458,15 @@ def _is_noise(ioc_type: str, value: str) -> bool:
     if ioc_type == "url":
         if any(fragment in lowered for fragment in NOISE_URL_SUBSTR):
             return True
-        return _bad_host(_host_of(value))
+        if _bad_host(_host_of(value)):
+            return True
+        if _is_image_url(value):
+            return True
+        return _is_whitelisted_domain(_host_of(value))
     if ioc_type == "email":
-        return value.rsplit(".", 1)[-1].lower() not in COMMON_TLDS
+        if value.rsplit(".", 1)[-1].lower() not in COMMON_TLDS:
+            return True
+        return _is_garbage_email(value)
     return False
 
 

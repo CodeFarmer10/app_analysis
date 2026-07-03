@@ -755,6 +755,9 @@
                         <tr><th>包名</th><td>{{ static_info.package_name }}</td></tr>
                         <tr><th>版本名</th><td>{{ static_info.version_name }}</td></tr>
                         <tr><th>版本号</th><td>{{ static_info.version_code }}</td></tr>
+                        <tr><th>加固</th><td>{{ static_info.packer_summary }}</td></tr>
+                        <tr><th>混淆</th><td>{{ static_info.obfuscation_summary }}</td></tr>
+                        <tr><th>开发框架</th><td>{{ static_info.framework_name }}</td></tr>
                     </table>
                 </div>
             </div>
@@ -937,6 +940,38 @@
                         <div class="ratio-empty">暂无上行流量统计</div>
                     {% endif %}
                 </div>
+            </div>
+        </div>
+
+        <div class="panel" style="margin-top: 12px;">
+            <h3 class="panel-title">诈骗主控（域名 / IP / 归属地）</h3>
+            <div class="panel-body">
+                <table class="traffic-table">
+                    <thead>
+                        <tr>
+                            <th class="col-domain">域名</th>
+                            <th class="col-endpoint">IP</th>
+                            <th class="col-country">归属地</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% if dynamic_summary.real_controller_targets %}
+                            {% for item in dynamic_summary.real_controller_targets %}
+                                <tr>
+                                    <td>{{ item.domain_text }}</td>
+                                    <td>{{ item.ip_text }}</td>
+                                    <td>{{ item.country_text }}</td>
+                                </tr>
+                            {% endfor %}
+                        {% else %}
+                            <tr>
+                                <td>-</td>
+                                <td>-</td>
+                                <td>-</td>
+                            </tr>
+                        {% endif %}
+                    </tbody>
+                </table>
             </div>
         </div>
     </section>

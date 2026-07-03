@@ -87,6 +87,25 @@ def _inline_text(value: Any) -> str:
     return sanitized or "-"
 
 
+def _is_truthy(value: Any) -> bool:
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "yes", "y", "是"}:
+            return True
+        if normalized in {"0", "false", "no", "n", "否", ""}:
+            return False
+    return bool(value)
+
+
+def _protection_summary(is_detected: Any, vendor: Any, *, detected_fallback: str = "已发现", clean_text: str = "未发现") -> str:
+    if not _is_truthy(is_detected):
+        return clean_text
+    vendor_text = _inline_text(vendor)
+    if vendor_text == "-":
+        return detected_fallback
+    return vendor_text
+
+
 def _format_datetime(value: Any) -> str:
     return _text(value)
 
@@ -430,6 +449,15 @@ def _build_report_context(task_id: str) -> dict[str, Any]:
             "package_name": _text(static_result.get("package_name")),
             "version_name": _text(static_result.get("version_name")),
             "version_code": _text(static_result.get("version_code")),
+            "packer_summary": _protection_summary(
+                static_result.get("is_packed"),
+                static_result.get("packer_vendor"),
+            ),
+            "obfuscation_summary": _protection_summary(
+                static_result.get("is_obfuscated"),
+                static_result.get("obfuscation_vendor"),
+            ),
+            "framework_name": _inline_text(static_result.get("framework_name") or "原生 (Native Android)"),
             "cert_md5": _text(static_result.get("cert_md5")),
             "cert_sha1": _text(static_result.get("cert_sha1")),
             "cert_sha256": _text(static_result.get("cert_sha256")),
@@ -996,7 +1024,11 @@ def _build_pdf_with_reportlab(context: dict[str, Any]) -> bytes:
 def generate_pdf(task_id: str) -> str:
     context = _build_report_context(task_id)
     rendered_html = _render_report_html(context)
-    pdf_bytes = _build_pdf_with_headless_browser(rendered_html)
+    try:
+        pdf_bytes = _build_pdf_with_headless_browser(rendered_html)
+    except Exception as exc:  # pragma: no cover - depends on browser runtime
+        logger.warning("headless report render failed task_id=%s, fallback to reportlab: %s", task_id, exc)
+        pdf_bytes = _build_pdf_with_reportlab(context)
 
     timestamp = datetime.now().strftime("%Y%m%d%H%M%S") + f"{int(time.time() * 1000) % 1000:03d}"
     object_name = storage_service.build_task_object_name(task_id, "report", f"{task_id}-{timestamp}.pdf")

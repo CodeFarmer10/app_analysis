@@ -150,6 +150,12 @@ const certList = computed(() => {
 
 const signatureSchemes = ['v1', 'v2', 'v3', 'v4']
 
+const iocColumns = [
+  { title: '序号', key: 'index', width: 72 },
+  { title: '内容', key: 'value' },
+  { title: '来源', key: 'sources' },
+]
+
 function formatPublicKey(cert) {
   if (!cert?.public_key_algorithm) {
     return '--'
@@ -231,6 +237,7 @@ function formatPublicKey(cert) {
               v-for="scheme in signatureSchemes"
               :key="scheme"
               :color="certInfo.schemes && certInfo.schemes[scheme] ? 'red' : 'default'"
+              :class="{ 'scheme-off': !(certInfo.schemes && certInfo.schemes[scheme]) }"
             >
               {{ scheme }}: {{ certInfo.schemes && certInfo.schemes[scheme] ? '是' : '否' }}
             </a-tag>
@@ -238,8 +245,7 @@ function formatPublicKey(cert) {
           </div>
 
           <div v-for="(cert, index) in certList" :key="index" class="cert-block">
-            <div class="cert-block-title">证书 #{{ index + 1 }}</div>
-            <a-descriptions :column="1" size="small" bordered>
+            <a-descriptions :column="1" size="small">
               <a-descriptions-item label="主题">{{ cert.subject || '--' }}</a-descriptions-item>
               <a-descriptions-item label="发行人">{{ cert.issuer || '--' }}</a-descriptions-item>
               <a-descriptions-item label="签名算法">{{ cert.signature_algorithm || '--' }}</a-descriptions-item>
@@ -258,9 +264,6 @@ function formatPublicKey(cert) {
               </a-descriptions-item>
               <a-descriptions-item label="证书SHA256">
                 <span class="mono-text">{{ cert.sha256 || '--' }}</span>
-              </a-descriptions-item>
-              <a-descriptions-item label="证书SHA512">
-                <span class="mono-text">{{ cert.sha512 || '--' }}</span>
               </a-descriptions-item>
               <a-descriptions-item label="公钥算法">{{ formatPublicKey(cert) }}</a-descriptions-item>
               <a-descriptions-item label="公钥指纹">
@@ -293,17 +296,24 @@ function formatPublicKey(cert) {
             :header="`${group.label} ${getComponentCountText(group.items.length)}`"
           >
             <a-empty v-if="group.items.length === 0" :description="`未发现${group.label}`" />
-            <div v-else class="ioc-list">
-              <div v-for="item in group.items" :key="item.value" class="ioc-item">
-                <div class="mono-text ioc-value">{{ item.value }}</div>
-                <div class="ioc-meta">
-                  <span v-if="item.sources?.length">
-                    来源：{{ item.sources.join('、') }}
-                  </span>
-                  <span v-else>来源：--</span>
-                </div>
-              </div>
-            </div>
+            <a-table
+              v-else
+              :data-source="group.items"
+              :columns="iocColumns"
+              :pagination="false"
+              size="small"
+              :row-key="(record) => record.value"
+            >
+              <template #bodyCell="{ column, record, index }">
+                <template v-if="column.key === 'index'">{{ index + 1 }}</template>
+                <template v-else-if="column.key === 'value'">
+                  <span class="mono-text ioc-value">{{ record.value }}</span>
+                </template>
+                <template v-else-if="column.key === 'sources'">
+                  <span class="mono-text ioc-value">{{ record.sources?.length ? record.sources.join('、') : '--' }}</span>
+                </template>
+              </template>
+            </a-table>
           </a-collapse-panel>
         </a-collapse>
       </a-card>
@@ -406,32 +416,14 @@ function formatPublicKey(cert) {
   margin-top: 16px;
 }
 
-.cert-block-title {
-  font-weight: 600;
-  color: #cf1322;
-  margin-bottom: 8px;
-}
-
-.ioc-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.ioc-item {
-  padding: 10px 12px;
-  background: #f8fafc;
-  border-radius: 8px;
+/* "否" 的签名版本徽标：固定浅底深字，避免暗色主题下黑字看不清 */
+.cert-badges .scheme-off {
+  background: #f0f0f0 !important;
+  border-color: #d9d9d9 !important;
+  color: #595959 !important;
 }
 
 .ioc-value {
-  word-break: break-all;
-}
-
-.ioc-meta {
-  margin-top: 4px;
-  color: #64748b;
-  font-size: 12px;
   word-break: break-all;
 }
 
@@ -452,6 +444,7 @@ function formatPublicKey(cert) {
 
 .section-card :deep(.ant-descriptions-item-content) {
   color: #d7e3ef;
+  word-break: break-all;
 }
 
 .permission-list,
