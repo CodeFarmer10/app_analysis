@@ -10,6 +10,8 @@ from typing import Any
 from uuid import uuid4
 
 from analyzers.ioc_extractor import SourceIocResult, extract_source_iocs
+from analyzers.jadx_workspace import open_jadx_workspace
+from analyzers.sdk_detector import SdkDetectResult, detect_sdks
 from core.config import settings
 from core.database import fetch_one, get_connection
 from multi_main import Logger, run_task_with_planning
@@ -18,6 +20,7 @@ from phone_agent.agent import AgentConfig
 from phone_agent.adb.device import clear_accessibility_services, install_apk, uninstall_apk
 from phone_agent.model import ModelConfig
 from repositories.task_repo import get_static_result, get_task_by_id, update_static_result_fields, update_task
+from repositories.sdk_repo import replace_sdk_results
 from services.ip_geo_service import is_uplink_flow, resolve_non_local_ip_country
 from services.storage_service import storage_service
 from protection import unpack_to_archive
@@ -570,19 +573,26 @@ def _run_task_with_log(
         logger_output.close()
 
 
-def _reextract_source_iocs_from_unpacked(task_id: str, clean_dir: str | None) -> None:
-    """脱壳成功后，反编译脱壳 dex 提取源码 IOC，与静态 carve 结果合并去重后回填静态结果。
+def _merge_unpacked_artifacts(
+    task_id: str,
+    clean_dir: str,
+    *,
+    jadx_sources_dir: str | None,
+    jadx_output_dir: str | None,
+) -> None:
+    static_result = get_static_result(task_id) or {}
+    update_fields: dict[str, Any] = {}
 
-    best-effort：失败仅记录日志并继续，不影响 unpack_archive_path，也不让动态溯源失败。
-    """
-    if not clean_dir or not Path(clean_dir).is_dir():
-        logger.warning("source ioc re-extract skipped task_id=%s clean_dir=%s", task_id, clean_dir)
-        return
     try:
-        dex_result = extract_source_iocs(clean_dir, is_packed=False)
-        existing = SourceIocResult.from_static_fields(get_static_result(task_id))
-        source_fields = existing.merge(dex_result).to_static_fields()
-        update_static_result_fields(task_id, source_fields)
+        dex_result = extract_source_iocs(
+            clean_dir,
+            is_packed=False,
+            jadx_sources_dir=jadx_sources_dir,
+            jadx_enabled=bool(jadx_sources_dir),
+        )
+        existing_iocs = SourceIocResult.from_static_fields(static_result)
+        source_fields = existing_iocs.merge(dex_result).to_static_fields()
+        update_fields.update(source_fields)
         logger.info(
             "source ioc merged from unpacked dex task_id=%s urls=%s emails=%s phones=%s",
             task_id,
@@ -596,6 +606,59 @@ def _reextract_source_iocs_from_unpacked(task_id: str, clean_dir: str | None) ->
             task_id,
             clean_dir,
             exc,
+        )
+
+    try:
+        unpacked_sdks = detect_sdks(clean_dir, jadx_output_dir=jadx_output_dir)
+        existing_sdks = SdkDetectResult(static_result.get("sdk_findings") or [])
+        merged_sdks = existing_sdks.merge(unpacked_sdks)
+        replace_sdk_results(task_id, merged_sdks.findings)
+        logger.info(
+            "sdk findings merged from unpacked dex task_id=%s sdks=%s credentials=%s",
+            task_id,
+            len(merged_sdks.findings),
+            sum(
+                len(item.get("credentials") or [])
+                for item in merged_sdks.findings
+                if isinstance(item, dict)
+            ),
+        )
+    except Exception as exc:  # pragma: no cover - depends on fingerprint/dex/jadx/runtime
+        logger.exception(
+            "sdk detect from unpacked dex failed task_id=%s clean_dir=%s err=%s",
+            task_id,
+            clean_dir,
+            exc,
+        )
+
+    if update_fields:
+        update_static_result_fields(task_id, update_fields)
+
+
+def _reanalyze_artifacts_from_unpacked(task_id: str, clean_dir: str | None) -> None:
+    """脱壳后复用一次 JADX，合并源码 IOC 和 SDK 凭证结果。"""
+    if not clean_dir or not Path(clean_dir).is_dir():
+        logger.warning("unpacked artifact analysis skipped task_id=%s clean_dir=%s", task_id, clean_dir)
+        return
+    try:
+        with open_jadx_workspace(clean_dir) as workspace:
+            _merge_unpacked_artifacts(
+                task_id,
+                clean_dir,
+                jadx_sources_dir=workspace.sources_dir,
+                jadx_output_dir=workspace.output_dir,
+            )
+    except Exception as exc:  # pragma: no cover - depends on jadx/runtime
+        logger.warning(
+            "shared jadx unpacked analysis failed; using raw scan task_id=%s err=%s",
+            task_id,
+            exc,
+        )
+        _merge_unpacked_artifacts(
+            task_id,
+            clean_dir,
+            jadx_sources_dir=None,
+            jadx_output_dir=None,
         )
 
 
@@ -633,7 +696,7 @@ def _maybe_unpack_packed_app(
             unpack_result.kept_dex_count,
             archive_path,
         )
-        _reextract_source_iocs_from_unpacked(task_id, unpack_result.clean_dir)
+        _reanalyze_artifacts_from_unpacked(task_id, unpack_result.clean_dir)
         return archive_path
     except Exception as exc:  # pragma: no cover - runtime/device dependent
         error_text = str(exc).strip() or "未知脱壳错误"

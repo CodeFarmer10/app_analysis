@@ -4,6 +4,7 @@ import json
 from typing import Any
 
 from core.database import execute, fetch_all, fetch_one
+from repositories.sdk_repo import get_sdk_findings
 
 
 def create_task(data: dict[str, Any]) -> str:
@@ -282,6 +283,7 @@ def get_static_result(task_id: str) -> dict | None:
                 row[field] = json.loads(value)
             except json.JSONDecodeError:
                 row[field] = value
+    row["sdk_findings"] = get_sdk_findings(task_id)
     return row
 
 

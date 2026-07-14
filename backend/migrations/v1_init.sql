@@ -90,6 +90,32 @@ CREATE TABLE IF NOT EXISTS static_results (
     ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS sdk_results (
+  id VARCHAR(36) PRIMARY KEY,
+  task_id VARCHAR(36) NOT NULL,
+  sdk_id VARCHAR(128) NOT NULL,
+  sdk_name VARCHAR(256) NULL,
+  sdk_type VARCHAR(128) NULL,
+  vendor VARCHAR(256) NULL,
+  package_prefix VARCHAR(256) NULL,
+  source_file VARCHAR(1024) NULL,
+  evidence TEXT NULL,
+  param_name VARCHAR(128) NULL,
+  param_value TEXT NULL,
+  credential_source_file VARCHAR(1024) NULL,
+  credential_line INT NULL,
+  credential_evidence TEXT NULL,
+  raw_finding JSON NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_sdk_results_task_sdk (task_id, sdk_id),
+  KEY idx_sdk_results_task (task_id),
+  KEY idx_sdk_results_sdk_id (sdk_id),
+  CONSTRAINT fk_sdk_results_task_id
+    FOREIGN KEY (task_id) REFERENCES tasks(id)
+    ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE IF NOT EXISTS dynamic_results (
   id VARCHAR(36) PRIMARY KEY,
   task_id VARCHAR(36) NOT NULL,
@@ -736,6 +762,56 @@ SET @sql_static_results_source_urls_col := IF(
 PREPARE stmt_static_results_source_urls_col FROM @sql_static_results_source_urls_col;
 EXECUTE stmt_static_results_source_urls_col;
 DEALLOCATE PREPARE stmt_static_results_source_urls_col;
+
+-- Preserve the complete detector output for later traceability.
+SET @sdk_results_raw_finding_col := (
+  SELECT COUNT(*)
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'sdk_results'
+    AND column_name = 'raw_finding'
+);
+SET @sql_sdk_results_raw_finding_col := IF(
+  @sdk_results_raw_finding_col = 0,
+  'ALTER TABLE sdk_results ADD COLUMN raw_finding JSON NULL AFTER credential_evidence',
+  'SELECT 1'
+);
+PREPARE stmt_sdk_results_raw_finding_col FROM @sql_sdk_results_raw_finding_col;
+EXECUTE stmt_sdk_results_raw_finding_col;
+DEALLOCATE PREPARE stmt_sdk_results_raw_finding_col;
+
+-- SDK results are stored in sdk_results. Remove legacy aggregate/error columns.
+SET @static_results_sdk_findings_col := (
+  SELECT COUNT(*)
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'sdk_findings'
+);
+SET @sql_static_results_sdk_findings_col := IF(
+  @static_results_sdk_findings_col = 1,
+  'ALTER TABLE static_results DROP COLUMN sdk_findings',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_sdk_findings_col FROM @sql_static_results_sdk_findings_col;
+EXECUTE stmt_static_results_sdk_findings_col;
+DEALLOCATE PREPARE stmt_static_results_sdk_findings_col;
+
+SET @static_results_sdk_detect_error_col := (
+  SELECT COUNT(*)
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'sdk_detect_error'
+);
+SET @sql_static_results_sdk_detect_error_col := IF(
+  @static_results_sdk_detect_error_col = 1,
+  'ALTER TABLE static_results DROP COLUMN sdk_detect_error',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_sdk_detect_error_col FROM @sql_static_results_sdk_detect_error_col;
+EXECUTE stmt_static_results_sdk_detect_error_col;
+DEALLOCATE PREPARE stmt_static_results_sdk_detect_error_col;
 
 -- Drop legacy aggregate/error IOC columns. Split phone/email/url fields are authoritative.
 SET @static_results_source_iocs_col := (

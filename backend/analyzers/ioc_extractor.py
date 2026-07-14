@@ -4,13 +4,11 @@ import functools
 import logging
 import os
 import re
-import shutil
-import subprocess
-import tempfile
 import zlib
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from analyzers.jadx_workspace import open_jadx_workspace
 from protection.dex_filter import FRAMEWORK_PREFIXES
 
 
@@ -193,7 +191,14 @@ class SourceIocResult:
         return merged
 
 
-def extract_source_iocs(apk_path: str, *, is_packed: bool, jadx_timeout: int = 300) -> SourceIocResult:
+def extract_source_iocs(
+    apk_path: str,
+    *,
+    is_packed: bool,
+    jadx_timeout: int = 300,
+    jadx_sources_dir: str | None = None,
+    jadx_enabled: bool = True,
+) -> SourceIocResult:
     # 无论是否加壳都先 carve/字节扫描提取候选 IOC。加壳包真实 dex 被加密，jadx 反编译
     # 无意义，故跳过 jadx 校验、仅保留资源等来源；真实 dex 的 IOC 由脱壳后单独提取再合并。
     found = _extract_from_apk(apk_path)
@@ -207,10 +212,13 @@ def extract_source_iocs(apk_path: str, *, is_packed: bool, jadx_timeout: int = 3
             if _is_dex_source(sources)
         ]
         if dex_iocs:
-            try:
-                java_sources = _locate_with_jadx(apk_path, dex_iocs, timeout=jadx_timeout)
-            except Exception as exc:  # pragma: no cover - depends on jadx/runtime
-                logger.warning("source ioc jadx locate failed path=%s err=%s", apk_path, exc)
+            if jadx_sources_dir:
+                java_sources = _locate_in_sources(dex_iocs, jadx_sources_dir)
+            elif jadx_enabled:
+                try:
+                    java_sources = _locate_with_jadx(apk_path, dex_iocs, timeout=jadx_timeout)
+                except Exception as exc:  # pragma: no cover - depends on jadx/runtime
+                    logger.warning("source ioc jadx locate failed path=%s err=%s", apk_path, exc)
 
     result = SourceIocResult()
     for ioc_type, values in found.items():
@@ -317,39 +325,9 @@ def _iter_texts(data: bytes):
         yield match.group()
 
 
-def _jadx_inputs(path: str) -> list[str]:
-    """jadx 输入：APK 直接传文件；脱壳 dex 目录则展开成各 .dex 文件多输入。"""
-    if not os.path.isdir(path):
-        return [path]
-    dex_files = sorted(
-        os.path.join(root, name)
-        for root, _dirs, files in os.walk(path)
-        for name in files
-        if name.endswith(".dex")
-    )
-    return dex_files or [path]
-
-
 def _locate_with_jadx(apk_path: str, iocs: list[str], *, timeout: int) -> dict[str, list[str]]:
-    jadx = shutil.which("jadx")
-    if not jadx:
-        raise RuntimeError("未找到 jadx，请先安装 jadx 后再定位 Java 代码")
-
-    with tempfile.TemporaryDirectory(prefix="source-ioc-jadx-") as output_dir:
-        completed = subprocess.run(
-            [jadx, "-q", "-d", output_dir, *_jadx_inputs(apk_path)],
-            capture_output=True,
-            check=False,
-            text=True,
-            timeout=timeout,
-        )
-        if completed.returncode != 0:
-            stderr = (completed.stderr or completed.stdout or "").strip()
-            raise RuntimeError(stderr or f"jadx 执行失败，退出码 {completed.returncode}")
-        sources_dir = os.path.join(output_dir, "sources")
-        if not os.path.isdir(sources_dir):
-            sources_dir = output_dir
-        return _locate_in_sources(iocs, sources_dir)
+    with open_jadx_workspace(apk_path, timeout=timeout) as workspace:
+        return _locate_in_sources(iocs, workspace.sources_dir)
 
 
 def _locate_in_sources(iocs: list[str], sources_dir: str) -> dict[str, list[str]]:

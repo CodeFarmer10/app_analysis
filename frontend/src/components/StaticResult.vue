@@ -127,6 +127,48 @@ const sourceIocGroups = computed(() => {
 
 const hasSourceIocs = computed(() => sourceIocGroups.value.some((group) => group.items.length > 0))
 
+const sdkFindings = computed(() => {
+  const source = Array.isArray(props.result?.sdk_findings) ? props.result.sdk_findings : []
+  return source.filter((item) => item && typeof item === 'object' && item.sdk_id)
+})
+
+const sdkColumns = [
+  { title: 'SDK 名称', dataIndex: 'sdk_name', key: 'sdk_name', width: 180 },
+  { title: '类型', dataIndex: 'sdk_type', key: 'sdk_type', width: 140 },
+  { title: '厂商', dataIndex: 'vendor', key: 'vendor', width: 180 },
+  { title: '应用凭证参数', dataIndex: 'param_name', key: 'param_name', width: 140 },
+  { title: '应用凭证值', dataIndex: 'value', key: 'value' },
+]
+
+const sdkRows = computed(() => {
+  const rows = []
+  for (const sdk of sdkFindings.value) {
+    const credentials = Array.isArray(sdk?.credentials) ? sdk.credentials : []
+    if (credentials.length === 0) {
+      rows.push({
+        key: `${sdk.sdk_id}:empty`,
+        sdk_name: sdk.sdk_name,
+        sdk_type: sdk.sdk_type,
+        vendor: sdk.vendor,
+        param_name: '',
+        value: '',
+      })
+      continue
+    }
+    credentials.forEach((credential, index) => {
+      rows.push({
+        key: `${sdk.sdk_id}:${credential.param_name}:${credential.value}:${index}`,
+        sdk_name: sdk.sdk_name,
+        sdk_type: sdk.sdk_type,
+        vendor: sdk.vendor,
+        param_name: credential.param_name,
+        value: credential.value,
+      })
+    })
+  }
+  return rows
+})
+
 const sourceIocStatusText = computed(() => {
   if (props.result?.is_packed) {
     return '应用已加固，静态阶段暂不定位原始 Java 代码'
@@ -319,6 +361,27 @@ function formatPublicKey(cert) {
       </a-card>
 
       <a-card :bordered="false" class="section-card">
+        <template #title>第三方 SDK 与应用凭证</template>
+        <a-empty v-if="sdkFindings.length === 0" description="未识别到已收录的第三方 SDK" />
+        <a-table
+          v-else
+          :data-source="sdkRows"
+          :columns="sdkColumns"
+          :pagination="false"
+          size="small"
+          row-key="key"
+          :scroll="{ x: 820 }"
+        >
+          <template #bodyCell="{ column, record }">
+            <span v-if="column.key === 'value'" class="mono-text sdk-cell-text">
+              {{ record.value || '--' }}
+            </span>
+            <template v-else>{{ record[column.dataIndex] || '--' }}</template>
+          </template>
+        </a-table>
+      </a-card>
+
+      <a-card :bordered="false" class="section-card">
         <template #title>权限清单</template>
         <a-empty v-if="permissionList.length === 0" description="无权限数据" />
         <div v-else class="permission-list">
@@ -424,6 +487,12 @@ function formatPublicKey(cert) {
 }
 
 .ioc-value {
+  word-break: break-all;
+}
+
+.sdk-cell-text {
+  display: block;
+  white-space: normal;
   word-break: break-all;
 }
 

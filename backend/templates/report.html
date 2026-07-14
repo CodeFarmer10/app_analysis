@@ -863,6 +863,55 @@
     </section>
 
     <section class="page">
+        <h2 class="section-title">第三方 SDK 与应用凭证</h2>
+
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-label">识别 SDK 数量</div>
+                <div class="stat-value">{{ sdk.sdk_count }}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">提取参数数量</div>
+                <div class="stat-value">{{ sdk.credential_count }}</div>
+            </div>
+        </div>
+
+        <div class="panel" style="margin-top: 12px;">
+            <h3 class="panel-title">SDK 信息</h3>
+            <div class="panel-body">
+                {% if sdk.rows %}
+                <table class="traffic-table">
+                    <thead>
+                    <tr>
+                        <th class="col-no">序号</th>
+                        <th>SDK 名称</th>
+                        <th>类型</th>
+                        <th>厂商</th>
+                        <th>应用凭证参数</th>
+                        <th>应用凭证值</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    {% for row in sdk.rows %}
+                    <tr>
+                        <td>{{ row.row_no }}</td>
+                        <td>{{ row.sdk_name }}</td>
+                        <td>{{ row.sdk_type }}</td>
+                        <td>{{ row.vendor }}</td>
+                        <td>{{ row.param_name }}</td>
+                        <td>{{ row.value }}</td>
+                    </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+                {% else %}
+                    <div class="empty">未识别到已收录的第三方 SDK</div>
+                {% endif %}
+            </div>
+        </div>
+    </section>
+
+    <section class="page">
         <h2 class="section-title">动态溯源</h2>
 
         <div class="stats-grid">

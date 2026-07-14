@@ -1,0 +1,130 @@
+- sdk_id: topon_anythink
+  sdk_name: TopOn / AnyThink
+  sdk_type: 广告聚合
+  vendor: TopOn / AnyThink
+  package_prefix:
+    - com.anythink
+    - com.anythink.core
+    - com.anythink.network
+  call_extract:
+    - class_name: com.anythink.core.api.ATSDK
+      method_name: init
+      params:
+        app_id: 1
+        app_key: 2
+  param_regex:
+    app_id:
+      - >-
+        ATSDK\.init\s*\([^,]+,\s*["'](?P<app_id>[^"']+)["']\s*,\s*["'](?P<app_key>[^"']+)["']
+    placement_id:
+      - >-
+        setPlacementId\s*\(\s*["'](?P<placement_id>[A-Za-z0-9]{10,20})["']
+
+- sdk_id: bugly
+  sdk_name: 腾讯 Bugly
+  sdk_type: 崩溃统计
+  vendor: 腾讯
+  package_prefix:
+    - com.tencent.bugly
+  call_extract:
+    - class_name: com.tencent.bugly.crashreport.CrashReport
+      method_name: initCrashReport
+      params:
+        app_id: 1
+  param_regex:
+    app_id:
+      - >-
+        CrashReport\.initCrashReport\s*\([^,]+,\s*["'](?P<app_id>[^"']+)["']
+
+- sdk_id: jpush
+  sdk_name: 极光推送
+  sdk_type: 消息推送
+  vendor: 极光
+  package_prefix:
+    - cn.jpush
+    - cn.jiguang
+  param_regex:
+    app_key:
+      - >-
+        JPUSH_APPKEY["']?\s*[,=:]\s*["'](?P<app_key>[^"']+)["']
+      - >-
+        android:name=["']JPUSH_APPKEY["'][\s\S]{0,200}?android:value=["'](?P<app_key>[^"']+)["']
+
+- sdk_id: getui
+  sdk_name: 个推
+  sdk_type: 消息推送
+  vendor: 每日互动 / 个推
+  package_prefix:
+    - com.igexin.sdk
+    - com.getui.gtc
+  param_regex:
+    app_id:
+      - >-
+        android:name=["'](?:PUSH_APPID|GETUI_APPID)["'][\s\S]{0,200}?android:value=["'](?P<app_id>(?!@|\$\{)[^"']+)["']
+      - >-
+        android:value=["'](?P<app_id>(?!@|\$\{)[^"']+)["'][^>]{0,200}?android:name=["'](?:PUSH_APPID|GETUI_APPID)["']
+      - >-
+        (?:GETUI_APPID|PUSH_APPID)\s*[:=]\s*["'](?P<app_id>(?!@|\$\{)[^"']+)["']
+
+- sdk_id: umeng
+  sdk_name: 友盟
+  sdk_type: 统计分析
+  vendor: 友盟
+  package_prefix:
+    - com.umeng
+  call_extract:
+    - class_name: com.umeng.commonsdk.UMConfigure
+      method_name: init
+      params:
+        app_key: 1
+  param_regex:
+    app_key:
+      - >-
+        UMENG_APPKEY["']?\s*[,=:]\s*["'](?P<app_key>[^"']+)["']
+      - >-
+        android:name=["']UMENG_APPKEY["'][\s\S]{0,200}?android:value=["'](?P<app_key>[^"']+)["']
+
+- sdk_id: dcloud
+  sdk_name: DCloud / uni-app
+  sdk_type: 跨平台应用框架
+  vendor: DCloud
+  package_prefix:
+    - io.dcloud
+  param_regex:
+    app_id:
+      - >-
+        <app\b[^>]{0,500}\bappid\s*=\s*["'](?P<app_id>[^"']+)["']
+
+- sdk_id: meiqia
+  sdk_name: 美洽客服
+  sdk_type: 在线客服
+  vendor: 美洽
+  package_prefix:
+    - com.meiqia
+    - com.meiqia.core
+  call_extract:
+    - class_name: com.meiqia.core.MQConfig
+      method_name: init
+      params:
+        app_key: 1
+  param_regex:
+    app_key:
+      - >-
+        MQConfig\.init\s*\(\s*[^,]+,\s*["'](?P<app_key>[^"']+)["']
+    agent_id:
+      - >-
+        setScheduledAgent\s*\(\s*["'](?P<agent_id>[^"']+)["']
+
+- sdk_id: openinstall
+  sdk_name: OpenInstall / Open-APP
+  sdk_type: 渠道归因统计
+  vendor: 福建分和秒网络科技有限公司
+  package_prefix:
+    - com.fm.openinstall
+    - io.openinstall.sdk
+  param_regex:
+    app_key:
+      - >-
+        android:name=["']com\.openinstall\.APP_KEY["'][\s\S]{0,200}?android:value=["'](?P<app_key>(?!@|\$\{)[^"']+)["']
+      - >-
+        android:value=["'](?P<app_key>(?!@|\$\{)[^"']+)["'][^>]{0,200}?android:name=["']com\.openinstall\.APP_KEY["']

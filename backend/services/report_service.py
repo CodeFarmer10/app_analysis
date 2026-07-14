@@ -238,6 +238,48 @@ def _build_certificate_context(cert_info: Any) -> dict[str, Any] | None:
     }
 
 
+def _build_sdk_context(raw_findings: Any) -> dict[str, Any]:
+    findings = [item for item in (raw_findings or []) if isinstance(item, dict)]
+    rows: list[dict[str, Any]] = []
+    credential_count = 0
+    for finding in findings:
+        sdk_name = _inline_text(finding.get("sdk_name"))
+        sdk_type = _inline_text(finding.get("sdk_type"))
+        vendor = _inline_text(finding.get("vendor"))
+        credentials = [item for item in finding.get("credentials") or [] if isinstance(item, dict)]
+        credential_count += len(credentials)
+        if not credentials:
+            rows.append(
+                {
+                    "sdk_name": sdk_name,
+                    "sdk_type": sdk_type,
+                    "vendor": vendor,
+                    "param_name": "-",
+                    "value": "-",
+                }
+            )
+            continue
+
+        for credential in credentials:
+            rows.append(
+                {
+                    "sdk_name": sdk_name,
+                    "sdk_type": sdk_type,
+                    "vendor": vendor,
+                    "param_name": _inline_text(credential.get("param_name")),
+                    "value": _inline_text(credential.get("value")),
+                }
+            )
+
+    for index, row in enumerate(rows, start=1):
+        row["row_no"] = index
+    return {
+        "sdk_count": len(findings),
+        "credential_count": credential_count,
+        "rows": rows,
+    }
+
+
 def _build_ratio_items(values: list[str], *, fallback_label: str, top_n: int = 10) -> list[dict[str, Any]]:
     normalized = [str(item or "").strip() or fallback_label for item in values]
     total = len(normalized)
@@ -390,6 +432,7 @@ def _build_report_context(task_id: str) -> dict[str, Any]:
     receivers = _normalize_named_items(static_result.get("receivers"))
     so_files = _normalize_named_items(static_result.get("so_files"))
     certificate = _build_certificate_context(static_result.get("cert_info"))
+    sdk_context = _build_sdk_context(static_result.get("sdk_findings"))
 
     operation_items: list[dict[str, Any]] = []
     success_step_count = 0
@@ -487,6 +530,7 @@ def _build_report_context(task_id: str) -> dict[str, Any]:
         },
         "operation_items": operation_items,
         "certificate": certificate,
+        "sdk": sdk_context,
         "appendix": {
             "dangerous_permissions": dangerous_permissions,
             "normal_permissions": normal_permissions,
@@ -729,6 +773,47 @@ def _build_pdf_with_reportlab(context: dict[str, Any]) -> bytes:
         story_items.extend([table, Spacer(1, 6)])
         return story_items
 
+    def build_sdk_table(sdk_context: dict[str, Any]) -> Table:
+        headers = ["序号", "SDK 名称", "类型", "厂商", "应用凭证参数", "应用凭证值"]
+        rows = [[Paragraph(item, small_style) for item in headers]]
+        for item in sdk_context.get("rows") or []:
+            rows.append(
+                [
+                    Paragraph(escape(_text(item.get("row_no"))), small_style),
+                    Paragraph(escape(_text(item.get("sdk_name"))), small_style),
+                    Paragraph(escape(_text(item.get("sdk_type"))), small_style),
+                    Paragraph(escape(_text(item.get("vendor"))), small_style),
+                    Paragraph(escape(_text(item.get("param_name"))), small_style),
+                    Paragraph(escape(_text(item.get("value"))), small_style),
+                ]
+            )
+        if len(rows) == 1:
+            rows.append(
+                [
+                    Paragraph("-", small_style),
+                    Paragraph("未识别到已收录的第三方 SDK", small_style),
+                    Paragraph("-", small_style),
+                    Paragraph("-", small_style),
+                    Paragraph("-", small_style),
+                    Paragraph("-", small_style),
+                ]
+            )
+        table = Table(rows, colWidths=[9 * mm, 35 * mm, 27 * mm, 32 * mm, 30 * mm, 50 * mm], repeatRows=1)
+        table.setStyle(
+            TableStyle(
+                [
+                    ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#d7deea")),
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f8fafc")),
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 3),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+                    ("TOPPADDING", (0, 0), (-1, -1), 4),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                ]
+            )
+        )
+        return table
+
     def build_real_controller_table(title: str, items: list[dict[str, Any]]) -> list[Any]:
         story_items: list[Any] = [Paragraph(title, block_style)]
         rows = [
@@ -849,6 +934,7 @@ def _build_pdf_with_reportlab(context: dict[str, Any]) -> bytes:
 
     task_info = context.get("task_info") or {}
     static_info = context.get("static_info") or {}
+    sdk_context = context.get("sdk") or {}
     dynamic_summary = context.get("dynamic_summary") or {}
     operation_items = context.get("operation_items") or []
     appendix = context.get("appendix") or {}
@@ -952,6 +1038,16 @@ def _build_pdf_with_reportlab(context: dict[str, Any]) -> bytes:
                     ("so 文件数量", _text(static_info.get("so_count"))),
                 ]
             ),
+            Spacer(1, 12),
+            Paragraph("第三方 SDK 与应用凭证", section_style),
+            build_kv_table(
+                [
+                    ("识别 SDK 数量", _text(sdk_context.get("sdk_count"))),
+                    ("提取参数数量", _text(sdk_context.get("credential_count"))),
+                ]
+            ),
+            Spacer(1, 6),
+            build_sdk_table(sdk_context),
             Spacer(1, 12),
             Paragraph("动态溯源", section_style),
             build_kv_table(

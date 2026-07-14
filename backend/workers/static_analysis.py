@@ -9,9 +9,12 @@ import pymysql
 from analyzers.apk_parser import parse_apk
 from analyzers.framework_detector import detect_framework
 from analyzers.ioc_extractor import extract_source_iocs
+from analyzers.jadx_workspace import open_jadx_workspace
+from analyzers.sdk_detector import SdkDetectResult, detect_sdks
 from protection import detect_protection
 from celery import Task
 from repositories.task_repo import get_task_by_id, update_task, upsert_static_result
+from repositories.sdk_repo import replace_sdk_results
 from services.storage_service import storage_service
 from workers.celery_app import celery_app
 
@@ -107,9 +110,20 @@ def _detect_framework_fields(local_apk_path: str) -> dict:
         }
 
 
-def _extract_source_ioc_fields(local_apk_path: str, *, is_packed: bool) -> dict:
+def _extract_source_ioc_fields(
+    local_apk_path: str,
+    *,
+    is_packed: bool,
+    jadx_sources_dir: str | None = None,
+    jadx_enabled: bool = True,
+) -> dict:
     try:
-        return extract_source_iocs(local_apk_path, is_packed=is_packed).to_static_fields()
+        return extract_source_iocs(
+            local_apk_path,
+            is_packed=is_packed,
+            jadx_sources_dir=jadx_sources_dir,
+            jadx_enabled=jadx_enabled,
+        ).to_static_fields()
     except Exception as exc:  # pragma: no cover - depends on APK/jadx/runtime
         logger.warning("source ioc extract failed path=%s err=%s", local_apk_path, exc)
         return {
@@ -117,6 +131,51 @@ def _extract_source_ioc_fields(local_apk_path: str, *, is_packed: bool) -> dict:
             "source_emails": [],
             "source_phones": [],
         }
+
+
+def _extract_sdk_result(
+    local_apk_path: str,
+    *,
+    jadx_output_dir: str | None = None,
+) -> SdkDetectResult:
+    try:
+        return detect_sdks(local_apk_path, jadx_output_dir=jadx_output_dir)
+    except Exception as exc:  # pragma: no cover - depends on fingerprint/jadx/runtime
+        logger.warning("sdk detect failed path=%s err=%s", local_apk_path, exc)
+        return SdkDetectResult(findings=[])
+
+
+def _extract_source_artifact_fields(
+    local_apk_path: str,
+    *,
+    is_packed: bool,
+) -> tuple[dict, SdkDetectResult]:
+    if is_packed:
+        return (
+            _extract_source_ioc_fields(local_apk_path, is_packed=True),
+            _extract_sdk_result(local_apk_path),
+        )
+
+    try:
+        with open_jadx_workspace(local_apk_path) as workspace:
+            return (
+                _extract_source_ioc_fields(
+                    local_apk_path,
+                    is_packed=False,
+                    jadx_sources_dir=workspace.sources_dir,
+                ),
+                _extract_sdk_result(local_apk_path, jadx_output_dir=workspace.output_dir),
+            )
+    except Exception as exc:  # pragma: no cover - depends on jadx/runtime
+        logger.warning("shared jadx analysis failed path=%s err=%s", local_apk_path, exc)
+        return (
+            _extract_source_ioc_fields(
+                local_apk_path,
+                is_packed=False,
+                jadx_enabled=False,
+            ),
+            _extract_sdk_result(local_apk_path),
+        )
 
 
 class StaticAnalysisTaskBase(Task):
@@ -177,7 +236,7 @@ def analyze_apk(self, task_id: str):
         parsed = parse_apk(local_apk_path)
         protection_fields = _detect_protection_fields(local_apk_path)
         framework_fields = _detect_framework_fields(local_apk_path)
-        source_ioc_fields = _extract_source_ioc_fields(
+        source_artifact_fields, sdk_result = _extract_source_artifact_fields(
             local_apk_path,
             is_packed=bool(protection_fields.get("is_packed")),
         )
@@ -225,9 +284,10 @@ def analyze_apk(self, task_id: str):
                 "component_md5": parsed.get("component_md5"),
                 **framework_fields,
                 **protection_fields,
-                **source_ioc_fields,
+                **source_artifact_fields,
             },
         )
+        replace_sdk_results(task_id, sdk_result.findings)
         update_task(
             task_id,
             {
