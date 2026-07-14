@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import importlib.util
 import json
 import os
 import re
@@ -8,6 +7,7 @@ import shutil
 import subprocess
 import sys
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 
@@ -171,13 +171,10 @@ def run_apkid(apk_path: str, timeout: int = 120) -> dict[str, Any]:
     if not os.path.exists(apk_path):
         raise FileNotFoundError(apk_path)
 
-    apkid_bin = shutil.which("apkid")
-    if apkid_bin:
-        cmd = [apkid_bin, "-j", apk_path]
-    else:
-        if importlib.util.find_spec("apkid") is None:
-            raise ApkidNotFound("未找到 apkid，请安装依赖后重试")
-        cmd = [sys.executable, "-m", "apkid", "-j", apk_path]
+    apkid_bin = _find_apkid_binary()
+    if apkid_bin is None:
+        raise ApkidNotFound("未找到 apkid 可执行文件，请在当前虚拟环境安装 apkid")
+    cmd = [apkid_bin, "-j", apk_path]
 
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
     output = (proc.stdout or "").strip()
@@ -187,6 +184,14 @@ def run_apkid(apk_path: str, timeout: int = 120) -> dict[str, Any]:
     if brace_index > 0:
         output = output[brace_index:]
     return json.loads(output)
+
+
+def _find_apkid_binary() -> str | None:
+    executable_name = "apkid.exe" if os.name == "nt" else "apkid"
+    environment_apkid = Path(sys.executable).parent / executable_name
+    if environment_apkid.is_file() and os.access(environment_apkid, os.X_OK):
+        return str(environment_apkid)
+    return shutil.which("apkid")
 
 
 def parse_apkid_result(apk_path: str, raw: dict[str, Any]) -> ProtectionDetectResult:
