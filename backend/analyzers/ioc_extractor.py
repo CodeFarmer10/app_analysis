@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import functools
+import ipaddress
 import logging
 import os
 import re
 import zlib
 from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from analyzers.jadx_workspace import open_jadx_workspace
 from protection.dex_filter import FRAMEWORK_PREFIXES
@@ -18,8 +20,16 @@ logger = logging.getLogger(__name__)
 # while still scanning the full compressed entry up to the next local header.
 MAX_INFLATE_BYTES = 64 * 1024 * 1024
 
+DNS_LABEL = r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
+DNS_TLD = r"(?:[A-Za-z](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?|xn--[A-Za-z0-9-]{1,59})"
+URL_HOST = rf"(?:(?:{DNS_LABEL}\.)+{DNS_TLD}|(?:\d{{1,3}}\.){{3}}\d{{1,3}}|\[[0-9A-Fa-f:.]+\])"
+URL_PATTERN = re.compile(
+    rf'https?://{URL_HOST}(?::\d{{1,5}})?(?=[/?#\s"\'<>)\]\\]|$)[^\s"\'<>)\]\\]*',
+    re.IGNORECASE,
+)
+
 PATTERNS = {
-    "url": re.compile(r'https?://[^\s"\'<>)\]\\]{4,}'),
+    "url": URL_PATTERN,
     "email": re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"),
     "phone": re.compile(r"(?<![0-9A-Za-z_])1[3-9]\d{9}(?![0-9A-Za-z_])"),
 }
@@ -419,21 +429,41 @@ def _is_garbage_email(value: str) -> bool:
 
 
 def _host_of(url: str) -> str:
-    match = re.match(r"https?://([^/:?#]+)", url, re.I)
-    return (match.group(1) if match else "").lower()
+    try:
+        return (urlsplit(url).hostname or "").lower().rstrip(".")
+    except ValueError:
+        return ""
+
+
+def _is_valid_http_url(url: str) -> bool:
+    try:
+        parsed = urlsplit(url)
+        if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname:
+            return False
+        _ = parsed.port
+    except ValueError:
+        return False
+    return True
 
 
 def _bad_host(host: str) -> bool:
     if not host or host.startswith(NOISE_HOST_PREFIXES):
         return True
-    if re.match(r"^[\d.]+(:\d+)?$", host):
-        return False
-    return host.split(":")[0].rsplit(".", 1)[-1].lower() not in COMMON_TLDS
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        labels = host.split(".")
+        if len(labels) < 2 or any(not label or len(label) > 63 for label in labels):
+            return True
+        return labels[-1].lower() not in COMMON_TLDS
+    return not address.is_global
 
 
 def _is_noise(ioc_type: str, value: str) -> bool:
     lowered = value.lower()
     if ioc_type == "url":
+        if not _is_valid_http_url(value):
+            return True
         if any(fragment in lowered for fragment in NOISE_URL_SUBSTR):
             return True
         if _bad_host(_host_of(value)):
