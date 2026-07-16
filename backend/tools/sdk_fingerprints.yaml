@@ -3,7 +3,6 @@
   sdk_type: 广告聚合
   vendor: TopOn / AnyThink
   package_prefix:
-    - com.anythink
     - com.anythink.core
     - com.anythink.network
   call_extract:
@@ -72,6 +71,13 @@
   vendor: 友盟
   package_prefix:
     - com.umeng
+  recognition_regex:
+    - >-
+      android:name=["']UMENG_APPKEY["']
+    - >-
+      \bUMConfigure\s*\.\s*init\s*\(
+    - >-
+      \bMobclickAgent\s*\.\s*(?:onEvent|onResume|onPause|setScenarioType)\s*\(
   call_extract:
     - class_name: com.umeng.commonsdk.UMConfigure
       method_name: init
@@ -90,6 +96,9 @@
   vendor: DCloud
   package_prefix:
     - io.dcloud
+  recognition_regex:
+    - >-
+      <app\b[^>]{0,500}\bappid\s*=\s*["'][^"']+["']
   param_regex:
     app_id:
       - >-

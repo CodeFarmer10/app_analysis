@@ -50,6 +50,7 @@ class SdkFingerprint:
     sdk_type: str
     vendor: str
     package_prefixes: tuple[str, ...]
+    recognition_patterns: tuple[re.Pattern[str], ...]
     param_patterns: dict[str, tuple[re.Pattern[str], ...]]
     call_extractors: tuple[SdkCallExtractor, ...]
 
@@ -141,6 +142,7 @@ def _load_sdk_fingerprints_cached(path: str, modified_at: int) -> tuple[SdkFinge
                 compiled_patterns.append(pattern)
             compiled[normalized_name] = tuple(compiled_patterns)
 
+        recognition_patterns = _load_recognition_patterns(item.get("recognition_regex"), sdk_id)
         call_extractors = _load_call_extractors(item.get("call_extract"), sdk_id)
 
         fingerprints.append(
@@ -150,6 +152,7 @@ def _load_sdk_fingerprints_cached(path: str, modified_at: int) -> tuple[SdkFinge
                 sdk_type=_required_text(item, "sdk_type", index),
                 vendor=_required_text(item, "vendor", index),
                 package_prefixes=prefixes,
+                recognition_patterns=recognition_patterns,
                 param_patterns=compiled,
                 call_extractors=call_extractors,
             )
@@ -182,7 +185,24 @@ def detect_sdks(
                     if re.search(rf"(?:^|\.){re.escape(prefix)}(?:\.|$)", normalized_path):
                         _record_prefix_match(matches[fingerprint.sdk_id], prefix, source_file)
 
-    recognized = [item for item in fingerprints if matches[item.sdk_id]["prefixes"]]
+    gated_fingerprints = [
+        item
+        for item in fingerprints
+        if matches[item.sdk_id]["prefixes"] and item.recognition_patterns
+    ]
+    if gated_fingerprints:
+        if jadx_output_dir and Path(jadx_output_dir).is_dir():
+            for source_file, text in _iter_source_texts(jadx_output_dir):
+                _match_recognition_patterns(gated_fingerprints, matches, source_file, text)
+        for source_file, text in _iter_blob_texts(input_path):
+            _match_recognition_patterns(gated_fingerprints, matches, source_file, text)
+
+    recognized = [
+        item
+        for item in fingerprints
+        if matches[item.sdk_id]["prefixes"]
+        and (not item.recognition_patterns or matches[item.sdk_id].get("recognition_matched"))
+    ]
     findings = [_new_finding(item, matches[item.sdk_id]) for item in recognized]
     finding_by_id = {item["sdk_id"]: item for item in findings}
     if not findings:
@@ -241,6 +261,22 @@ def _load_call_extractors(raw: object, sdk_id: str) -> tuple[SdkCallExtractor, .
             params.append((normalized_name, argument_index))
         extractors.append(SdkCallExtractor(class_name, method_name, tuple(params)))
     return tuple(extractors)
+
+
+def _load_recognition_patterns(raw: object, sdk_id: str) -> tuple[re.Pattern[str], ...]:
+    if raw is None:
+        return ()
+    if not isinstance(raw, list) or not raw:
+        raise ValueError(f"SDK {sdk_id} 的 recognition_regex 必须是非空列表")
+    patterns: list[re.Pattern[str]] = []
+    for pattern_text in raw:
+        if not isinstance(pattern_text, str) or not pattern_text.strip():
+            raise ValueError(f"SDK {sdk_id} 的 recognition_regex 存在空正则")
+        try:
+            patterns.append(re.compile(pattern_text, re.MULTILINE))
+        except re.error as exc:
+            raise ValueError(f"SDK {sdk_id} 的 recognition_regex 无效: {exc}") from exc
+    return tuple(patterns)
 
 
 def _required_text(item: dict, field_name: str, index: int) -> str:
@@ -306,6 +342,40 @@ def _record_prefix_match(bucket: dict, prefix: str, source_file: str) -> None:
     item = {"source_file": source_file, "evidence": f"命中包名前缀 {prefix}"}
     if item not in evidence and len(evidence) < MAX_RECOGNITION_EVIDENCE:
         evidence.append(item)
+
+
+def _match_recognition_patterns(
+    fingerprints: list[SdkFingerprint],
+    matches: dict[str, dict],
+    source_file: str,
+    text: str,
+) -> None:
+    for fingerprint in fingerprints:
+        bucket = matches[fingerprint.sdk_id]
+        if bucket.get("recognition_matched"):
+            continue
+        if _is_sdk_owned_source(source_file, fingerprint.package_prefixes):
+            continue
+        for pattern in fingerprint.recognition_patterns:
+            match = pattern.search(text)
+            if not match:
+                continue
+            bucket["recognition_matched"] = True
+            evidence = bucket["evidence"]
+            item = {
+                "source_file": source_file,
+                "evidence": _evidence_snippet(text, match.start(), match.end()),
+            }
+            if item not in evidence and len(evidence) < MAX_RECOGNITION_EVIDENCE:
+                evidence.append(item)
+            break
+
+
+def _is_sdk_owned_source(source_file: str, package_prefixes: tuple[str, ...]) -> bool:
+    if Path(source_file).suffix.lower() not in {".java", ".kt", ".smali"}:
+        return False
+    normalized = "/" + source_file.replace("\\", "/").strip("/")
+    return any(f"/{prefix.replace('.', '/')}/" in normalized for prefix in package_prefixes)
 
 
 def _iter_source_files(root: str | None, *, extensions: set[str] | None = None) -> Iterator[str]:

@@ -192,6 +192,51 @@ public class h {
             "resources/assets/data/dcloud_control.xml",
         )
 
+    def test_dcloud_package_prefix_without_packaged_app_config_is_not_recognized(self) -> None:
+        with tempfile.TemporaryDirectory() as input_dir:
+            Path(input_dir, "classes.dex").write_bytes(b"Lio/dcloud/PandoraEntry;")
+
+            result = detect_sdks(input_dir)
+
+        self.assertEqual(result.findings, [])
+
+    def test_umeng_package_prefix_without_configuration_or_calls_is_not_recognized(self) -> None:
+        with tempfile.TemporaryDirectory() as input_dir:
+            Path(input_dir, "classes.dex").write_bytes(b"Lcom/umeng/analytics/MobclickAgent;")
+
+            result = detect_sdks(input_dir)
+
+        self.assertEqual(result.findings, [])
+
+    def test_umeng_explicit_api_call_is_recognized_without_embedded_app_key(self) -> None:
+        with tempfile.TemporaryDirectory() as input_dir, tempfile.TemporaryDirectory() as jadx_dir:
+            Path(input_dir, "classes.dex").write_bytes(b"Lcom/umeng/analytics/MobclickAgent;")
+            source = Path(jadx_dir, "sources", "app", "MainActivity.java")
+            source.parent.mkdir(parents=True)
+            source.write_text(
+                'MobclickAgent.onEvent(this, "login");',
+                encoding="utf-8",
+            )
+
+            result = detect_sdks(input_dir, jadx_output_dir=jadx_dir)
+
+        self.assertEqual([item["sdk_id"] for item in result.findings], ["umeng"])
+        self.assertEqual(result.findings[0]["credentials"], [])
+
+    def test_umeng_call_inside_sdk_source_does_not_qualify_as_app_usage(self) -> None:
+        with tempfile.TemporaryDirectory() as input_dir, tempfile.TemporaryDirectory() as jadx_dir:
+            Path(input_dir, "classes.dex").write_bytes(b"Lcom/umeng/analytics/MobclickAgent;")
+            source = Path(jadx_dir, "sources", "com", "umeng", "analytics", "Internal.java")
+            source.parent.mkdir(parents=True)
+            source.write_text(
+                'MobclickAgent.onEvent(context, "internal");',
+                encoding="utf-8",
+            )
+
+            result = detect_sdks(input_dir, jadx_output_dir=jadx_dir)
+
+        self.assertEqual(result.findings, [])
+
     def test_meiqia_extracts_app_key(self) -> None:
         with tempfile.TemporaryDirectory() as input_dir, tempfile.TemporaryDirectory() as jadx_dir:
             Path(input_dir, "classes.dex").write_bytes(b"Lcom/meiqia/core/MQManager;")
