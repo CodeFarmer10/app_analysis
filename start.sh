@@ -16,7 +16,10 @@ BACKEND_HOST="${BACKEND_HOST:-0.0.0.0}"
 BACKEND_PORT="${BACKEND_PORT:-8000}"
 FRONTEND_HOST="${FRONTEND_HOST:-0.0.0.0}"
 FRONTEND_PORT="${FRONTEND_PORT:-5173}"
-CELERY_CONCURRENCY="${CELERY_CONCURRENCY:-10}"
+CELERY_STATIC_CONCURRENCY="${CELERY_STATIC_CONCURRENCY:-10}"
+CELERY_DYNAMIC_CONCURRENCY="${CELERY_DYNAMIC_CONCURRENCY:-13}"
+CELERY_REPORT_CONCURRENCY="${CELERY_REPORT_CONCURRENCY:-1}"
+CELERY_DOWNLOAD_CONCURRENCY="${CELERY_DOWNLOAD_CONCURRENCY:-2}"
 
 log() {
   printf '[start] %s\n' "$*"
@@ -72,8 +75,18 @@ main() {
   ensure_runtime
   start_process backend "${BACKEND_DIR}" \
     "${PYTHON_BIN}" -m uvicorn main:app --host "${BACKEND_HOST}" --port "${BACKEND_PORT}" --app-dir "${BACKEND_DIR}"
-  start_process celery_worker "${BACKEND_DIR}" \
-    "${PYTHON_BIN}" -m celery -A workers.celery_app worker --loglevel=info -c "${CELERY_CONCURRENCY}"
+  start_process celery_static "${BACKEND_DIR}" \
+    "${PYTHON_BIN}" -m celery -A workers.celery_app worker --loglevel=info \
+    -Q queue_static -n "static@%h" -c "${CELERY_STATIC_CONCURRENCY}" --prefetch-multiplier=1
+  start_process celery_dynamic "${BACKEND_DIR}" \
+    "${PYTHON_BIN}" -m celery -A workers.celery_app worker --loglevel=info \
+    -Q queue_dynamic -n "dynamic@%h" -c "${CELERY_DYNAMIC_CONCURRENCY}" --prefetch-multiplier=1
+  start_process celery_report "${BACKEND_DIR}" \
+    "${PYTHON_BIN}" -m celery -A workers.celery_app worker --loglevel=info \
+    -Q queue_report -n "report@%h" -c "${CELERY_REPORT_CONCURRENCY}" --prefetch-multiplier=1
+  start_process celery_download "${BACKEND_DIR}" \
+    "${PYTHON_BIN}" -m celery -A workers.celery_app worker --loglevel=info \
+    -Q queue_download -n "download@%h" -c "${CELERY_DOWNLOAD_CONCURRENCY}" --prefetch-multiplier=1
   start_process scheduler "${BACKEND_DIR}" \
     "${PYTHON_BIN}" -m workers.scheduler
   start_process frontend "${FRONTEND_DIR}" \

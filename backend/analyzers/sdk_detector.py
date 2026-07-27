@@ -10,25 +10,17 @@ from typing import Iterator
 
 import yaml
 
+from analyzers.artifact_policy import (
+    MAX_BLOB_BYTES,
+    MAX_TEXT_FILE_BYTES,
+    TEXT_EXTENSIONS,
+    should_skip_artifact,
+)
 from analyzers.java_source_index import JavaSourceIndex, JavaSourceUnit
 
 
 DEFAULT_FINGERPRINT_PATH = Path(__file__).resolve().parents[1] / "tools" / "sdk_fingerprints.yaml"
 SDK_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_]*$")
-TEXT_EXTENSIONS = {
-    ".java",
-    ".kt",
-    ".xml",
-    ".json",
-    ".properties",
-    ".txt",
-    ".js",
-    ".html",
-    ".gradle",
-    ".smali",
-}
-MAX_BLOB_BYTES = 64 * 1024 * 1024
-MAX_TEXT_FILE_BYTES = 5 * 1024 * 1024
 MAX_RECOGNITION_EVIDENCE = 5
 MAX_OCCURRENCES_PER_VALUE = 5
 MAX_EVIDENCE_CHARS = 300
@@ -167,74 +159,107 @@ def detect_sdks(
     fingerprint_path: str | Path | None = None,
 ) -> SdkDetectResult:
     fingerprints = load_sdk_fingerprints(fingerprint_path)
-    matches: dict[str, dict[str, list[dict] | list[str]]] = {
-        item.sdk_id: {"prefixes": [], "evidence": []} for item in fingerprints
-    }
-
+    source_root = jadx_output_dir if jadx_output_dir and Path(jadx_output_dir).is_dir() else None
+    collector = SdkScanCollector(fingerprints, source_root=source_root)
     for source_file, data in _iter_input_blobs(input_path):
-        for fingerprint in fingerprints:
+        collector.scan_blob(source_file, data)
+    if source_root:
+        for source_file, text in _iter_source_texts(source_root):
+            collector.scan_source(source_file, text)
+    return collector.build_result()
+
+
+class SdkScanCollector:
+    """Collect SDK evidence and credentials while each artifact is read once."""
+
+    def __init__(
+        self,
+        fingerprints: tuple[SdkFingerprint, ...],
+        *,
+        source_root: str | None = None,
+    ) -> None:
+        self.fingerprints = fingerprints
+        self.fingerprint_list = list(fingerprints)
+        self.matches: dict[str, dict] = {
+            item.sdk_id: {"prefixes": [], "evidence": []} for item in fingerprints
+        }
+        self.finding_by_id: dict[str, dict] = {
+            item.sdk_id: {"credentials": []} for item in fingerprints
+        }
+        self.recognition_fingerprints = [item for item in fingerprints if item.recognition_patterns]
+        self.java_index = JavaSourceIndex(source_root) if source_root else None
+
+    def scan_blob(self, source_file: str, data: bytes) -> None:
+        self._scan_prefix_bytes(source_file, data)
+        for text in _decode_blob_texts(data):
+            self._scan_text(source_file, text, structured_java=False)
+
+    def scan_source(self, source_file: str, text: str) -> None:
+        self._scan_source_path(source_file)
+        self._scan_text(
+            source_file,
+            text,
+            structured_java=Path(source_file).suffix.lower() == ".java",
+        )
+
+    def build_result(self) -> SdkDetectResult:
+        findings: list[dict] = []
+        for fingerprint in self.fingerprints:
+            match = self.matches[fingerprint.sdk_id]
+            if not match["prefixes"]:
+                continue
+            if fingerprint.recognition_patterns and not match.get("recognition_matched"):
+                continue
+            finding = _new_finding(fingerprint, match)
+            finding["credentials"] = copy.deepcopy(
+                self.finding_by_id[fingerprint.sdk_id].get("credentials") or []
+            )
+            findings.append(finding)
+        return SdkDetectResult(findings=findings)
+
+    def _scan_prefix_bytes(self, source_file: str, data: bytes) -> None:
+        for fingerprint in self.fingerprints:
             for prefix in fingerprint.package_prefixes:
                 if _blob_contains_prefix(data, prefix):
-                    _record_prefix_match(matches[fingerprint.sdk_id], prefix, source_file)
+                    _record_prefix_match(self.matches[fingerprint.sdk_id], prefix, source_file)
 
-    if jadx_output_dir and Path(jadx_output_dir).is_dir():
-        for source_file in _iter_source_files(jadx_output_dir):
-            normalized_path = source_file.replace("\\", "/").replace("/", ".")
-            for fingerprint in fingerprints:
-                for prefix in fingerprint.package_prefixes:
-                    if re.search(rf"(?:^|\.){re.escape(prefix)}(?:\.|$)", normalized_path):
-                        _record_prefix_match(matches[fingerprint.sdk_id], prefix, source_file)
+    def _scan_source_path(self, source_file: str) -> None:
+        normalized_path = source_file.replace("\\", "/").replace("/", ".")
+        for fingerprint in self.fingerprints:
+            for prefix in fingerprint.package_prefixes:
+                if re.search(rf"(?:^|\.){re.escape(prefix)}(?:\.|$)", normalized_path):
+                    _record_prefix_match(self.matches[fingerprint.sdk_id], prefix, source_file)
 
-    gated_fingerprints = [
-        item
-        for item in fingerprints
-        if matches[item.sdk_id]["prefixes"] and item.recognition_patterns
-    ]
-    if gated_fingerprints:
-        if jadx_output_dir and Path(jadx_output_dir).is_dir():
-            for source_file, text in _iter_source_texts(jadx_output_dir):
-                _match_recognition_patterns(gated_fingerprints, matches, source_file, text)
-        for source_file, text in _iter_blob_texts(input_path):
-            _match_recognition_patterns(gated_fingerprints, matches, source_file, text)
-
-    recognized = [
-        item
-        for item in fingerprints
-        if matches[item.sdk_id]["prefixes"]
-        and (not item.recognition_patterns or matches[item.sdk_id].get("recognition_matched"))
-    ]
-    findings = [_new_finding(item, matches[item.sdk_id]) for item in recognized]
-    finding_by_id = {item["sdk_id"]: item for item in findings}
-    if not findings:
-        return SdkDetectResult(findings=[])
-
-    source_root = jadx_output_dir if jadx_output_dir and Path(jadx_output_dir).is_dir() else None
-    if source_root:
-        java_index = JavaSourceIndex(source_root)
-        for source_file, text in _iter_source_texts(source_root):
-            if Path(source_file).suffix.lower() == ".java":
-                candidate_extractors = [
-                    (fingerprint, extractor)
-                    for fingerprint in recognized
-                    for extractor in fingerprint.call_extractors
-                    if _is_call_candidate(text, extractor)
-                ]
-                unit = java_index.register_source(source_file, text) if candidate_extractors else None
-                for fingerprint, extractor in candidate_extractors:
-                    finding = finding_by_id[fingerprint.sdk_id]
-                    _extract_call_credentials(
-                        finding,
-                        extractor,
-                        source_file,
-                        text,
-                        java_index,
-                        unit,
-                    )
-            _extract_regex_credentials(recognized, finding_by_id, source_file, text)
-
-    for source_file, text in _iter_blob_texts(input_path):
-        _extract_regex_credentials(recognized, finding_by_id, source_file, text)
-    return SdkDetectResult(findings=findings)
+    def _scan_text(self, source_file: str, text: str, *, structured_java: bool) -> None:
+        _match_recognition_patterns(
+            self.recognition_fingerprints,
+            self.matches,
+            source_file,
+            text,
+        )
+        if structured_java and self.java_index is not None:
+            candidate_extractors = [
+                (fingerprint, extractor)
+                for fingerprint in self.fingerprints
+                for extractor in fingerprint.call_extractors
+                if _is_call_candidate(text, extractor)
+            ]
+            unit = self.java_index.register_source(source_file, text) if candidate_extractors else None
+            for fingerprint, extractor in candidate_extractors:
+                _extract_call_credentials(
+                    self.finding_by_id[fingerprint.sdk_id],
+                    extractor,
+                    source_file,
+                    text,
+                    self.java_index,
+                    unit,
+                )
+        _extract_regex_credentials(
+            self.fingerprint_list,
+            self.finding_by_id,
+            source_file,
+            text,
+        )
 
 
 def _load_call_extractors(raw: object, sdk_id: str) -> tuple[SdkCallExtractor, ...]:
@@ -291,7 +316,8 @@ def _iter_input_blobs(path: str) -> Iterator[tuple[str, bytes]]:
     if input_path.is_dir():
         for file_path in sorted(item for item in input_path.rglob("*") if item.is_file()):
             try:
-                if file_path.stat().st_size > MAX_BLOB_BYTES:
+                file_size = file_path.stat().st_size
+                if file_size > MAX_BLOB_BYTES or should_skip_artifact(file_path.name, file_size):
                     continue
                 yield file_path.relative_to(input_path).as_posix(), file_path.read_bytes()
             except OSError:
@@ -301,7 +327,11 @@ def _iter_input_blobs(path: str) -> Iterator[tuple[str, bytes]]:
     try:
         with zipfile.ZipFile(input_path) as archive:
             for info in archive.infolist():
-                if info.is_dir() or info.file_size > MAX_BLOB_BYTES:
+                if (
+                    info.is_dir()
+                    or info.file_size > MAX_BLOB_BYTES
+                    or should_skip_artifact(info.filename, info.file_size)
+                ):
                     continue
                 try:
                     yield info.filename, archive.read(info)

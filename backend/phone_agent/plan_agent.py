@@ -108,9 +108,13 @@ class PlanAgent:
         self.plan_model_client = ModelClient(self.plan_model_config)
 
         # Initialize traffic capture and parser
+        capture_id = Path(self.plan_agent_config.result_dir or "").name
+        device_capture_path = f"/sdcard/capture-{capture_id}.pcap" if capture_id else None
         self.traffic_capture = TrafficCapture(
             device_id=phone_agent_config.device_id,
-            host_dir=plan_agent_config.result_dir
+            host_dir=plan_agent_config.result_dir,
+            device_path=device_capture_path,
+            host_filename="capture.pcap",
         )
         self.traffic_parser = TrafficParser()
 

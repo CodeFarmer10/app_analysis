@@ -41,6 +41,7 @@ class TrafficCapture:
         device_id: Optional[str] = None,
         host_dir: Optional[str] = None,
         device_path: Optional[str] = None,
+        host_filename: Optional[str] = None,
         capture_filter: Optional[str] = None,
         package_name: Optional[str] = None
     ):
@@ -51,12 +52,14 @@ class TrafficCapture:
             device_id: ADB device ID for multi-device setups
             host_dir: Directory on host to save pcap files (default: ./captures/)
             device_path: Path on device to save pcap file (default: /sdcard/capture.pcap)
+            host_filename: File name to use after pulling the capture to the host
             capture_filter: BPF filter for tcpdump (e.g., "port 80" for HTTP traffic)
             package_name: Package name to capture traffic for (e.g., "com.tencent.mm")
         """
         self.device_id = device_id
         self.host_dir = host_dir or "./captures"
         self.device_path = device_path or "/sdcard/capture.pcap"
+        self.host_filename = host_filename or os.path.basename(self.device_path)
         self.capture_filter = capture_filter or ""
         self.package_name = package_name
         self.app_uids: set[int] = set()
@@ -407,15 +410,14 @@ class TrafficCapture:
         os.makedirs(self.host_dir, exist_ok=True)
 
         # Build host file path
-        filename = os.path.basename(self.device_path)
-        host_filepath = f"{self.host_dir}/{filename}"
+        host_filepath = f"{self.host_dir}/{self.host_filename}"
         
         # Pull file from device to host
         self._execute_adb_command(f"pull {self.device_path} {host_filepath}")
 
         if os.path.exists(host_filepath):
             # Delete file from device
-            self._execute_adb_command(f"shell rm {self.device_path}")
+            self._execute_adb_command(f"shell rm -f {self.device_path}")
             print(f"Capture saved to: {host_filepath} (removed from device)")
             return host_filepath
         else:

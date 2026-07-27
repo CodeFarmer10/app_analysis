@@ -9,11 +9,12 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from analyzers.ioc_extractor import SourceIocResult, extract_source_iocs
+from analyzers.ioc_extractor import SourceIocResult
 from analyzers.jadx_workspace import open_jadx_workspace
-from analyzers.sdk_detector import SdkDetectResult, detect_sdks
+from analyzers.sdk_detector import SdkDetectResult
+from analyzers.source_artifact_scanner import scan_source_artifacts
 from core.config import settings
-from core.database import fetch_one, get_connection
+from core.database import execute, fetch_one, get_connection
 from multi_main import Logger, run_task_with_planning
 from phone_agent import PlanAgentConfig
 from phone_agent.agent import AgentConfig
@@ -142,25 +143,52 @@ def _fetch_device_serial(device_id: str) -> str | None:
     return serial or None
 
 
-def _set_device_online(device_id: str) -> None:
-    """释放设备占用状态，恢复为 online。"""
-    with get_connection() as conn:
-        with conn.cursor() as cursor:
-            try:
-                conn.begin()
-                cursor.execute(
-                    """
-                    UPDATE devices
-                    SET status = 'online',
-                        current_task_id = NULL
-                    WHERE id = %s
-                    """,
-                    (device_id,),
-                )
-                conn.commit()
-            except Exception:
-                conn.rollback()
-                raise
+def _is_current_task_device_owner(task_id: str, device_id: str) -> bool:
+    """确认任务和设备仍保持调度器建立的一对一归属关系。"""
+    row = fetch_one(
+        """
+        SELECT
+            t.status AS task_status,
+            t.device_id AS task_device_id,
+            d.status AS device_status,
+            d.current_task_id
+        FROM tasks t
+        JOIN devices d ON d.id = %s
+        WHERE t.id = %s
+        LIMIT 1
+        """,
+        (device_id, task_id),
+    )
+    if not row:
+        return False
+    return (
+        str(row.get("task_status") or "") == "dynamic_tracing"
+        and str(row.get("task_device_id") or "") == device_id
+        and str(row.get("device_status") or "") == "busy"
+        and str(row.get("current_task_id") or "") == task_id
+    )
+
+
+def _set_device_online(device_id: str, task_id: str) -> bool:
+    """仅允许当前占用任务释放设备，避免旧任务释放新任务的设备。"""
+    affected_rows, _ = execute(
+        """
+        UPDATE devices
+        SET status = 'online',
+            current_task_id = NULL
+        WHERE id = %s
+          AND current_task_id = %s
+        """,
+        (device_id, task_id),
+    )
+    if affected_rows == 0:
+        logger.warning(
+            "device release skipped because ownership changed task_id=%s device_id=%s",
+            task_id,
+            device_id,
+        )
+        return False
+    return True
 
 
 def _mark_task_failed(task_id: str, message: str) -> None:
@@ -584,14 +612,24 @@ def _merge_unpacked_artifacts(
     update_fields: dict[str, Any] = {}
 
     try:
-        dex_result = extract_source_iocs(
+        scan_result = scan_source_artifacts(
             clean_dir,
             is_packed=False,
             jadx_sources_dir=jadx_sources_dir,
-            jadx_enabled=bool(jadx_sources_dir),
+            jadx_output_dir=jadx_output_dir,
         )
+    except Exception as exc:  # pragma: no cover - depends on dex/jadx/runtime
+        logger.exception(
+            "shared unpacked artifact scan failed task_id=%s clean_dir=%s err=%s",
+            task_id,
+            clean_dir,
+            exc,
+        )
+        return
+
+    try:
         existing_iocs = SourceIocResult.from_static_fields(static_result)
-        source_fields = existing_iocs.merge(dex_result).to_static_fields()
+        source_fields = existing_iocs.merge(scan_result.iocs).to_static_fields()
         update_fields.update(source_fields)
         logger.info(
             "source ioc merged from unpacked dex task_id=%s urls=%s emails=%s phones=%s",
@@ -609,9 +647,8 @@ def _merge_unpacked_artifacts(
         )
 
     try:
-        unpacked_sdks = detect_sdks(clean_dir, jadx_output_dir=jadx_output_dir)
         existing_sdks = SdkDetectResult(static_result.get("sdk_findings") or [])
-        merged_sdks = existing_sdks.merge(unpacked_sdks)
+        merged_sdks = existing_sdks.merge(scan_result.sdks)
         replace_sdk_results(task_id, merged_sdks.findings)
         logger.info(
             "sdk findings merged from unpacked dex task_id=%s sdks=%s credentials=%s",
@@ -732,8 +769,20 @@ def trace_task(task_id: str, device_id: str):
     task = get_task_by_id(task_id)
     if not task:
         logger.warning("dynamic trace ignored: task_id=%s not found", task_id)
-        _set_device_online(device_id)
+        _set_device_online(device_id, task_id)
         return {"task_id": task_id, "device_id": device_id, "accepted": False, "reason": "task_not_found"}
+    if not _is_current_task_device_owner(task_id, device_id):
+        logger.warning(
+            "dynamic trace ignored because ownership changed task_id=%s device_id=%s",
+            task_id,
+            device_id,
+        )
+        return {
+            "task_id": task_id,
+            "device_id": device_id,
+            "accepted": False,
+            "reason": "device_ownership_mismatch",
+        }
 
     local_apk_path = ""
     package_name = ""
@@ -844,4 +893,4 @@ def trace_task(task_id: str, device_id: str):
                     " | ".join(accessibility_messages),
                 )
 
-        _set_device_online(device_id)
+        _set_device_online(device_id, task_id)

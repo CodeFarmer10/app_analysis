@@ -3,7 +3,16 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RUN_DIR="${ROOT_DIR}/run_logs"
-SERVICES=(frontend scheduler celery_worker backend)
+SERVICES=(
+  frontend
+  scheduler
+  celery_download
+  celery_report
+  celery_dynamic
+  celery_static
+  celery_worker
+  backend
+)
 
 log() {
   printf '[stop] %s\n' "$*"

@@ -41,10 +41,37 @@ services:
       - redis
       - minio
 
-  worker:
+  worker_static:
     build:
       context: ../backend
-    command: celery -A workers.celery_app worker
+    command: celery -A workers.celery_app worker -Q queue_static -n static@%h -c 10 --prefetch-multiplier=1
+    depends_on:
+      - mysql
+      - redis
+      - minio
+
+  worker_dynamic:
+    build:
+      context: ../backend
+    command: celery -A workers.celery_app worker -Q queue_dynamic -n dynamic@%h -c 13 --prefetch-multiplier=1
+    depends_on:
+      - mysql
+      - redis
+      - minio
+
+  worker_report:
+    build:
+      context: ../backend
+    command: celery -A workers.celery_app worker -Q queue_report -n report@%h -c 1 --prefetch-multiplier=1
+    depends_on:
+      - mysql
+      - redis
+      - minio
+
+  worker_download:
+    build:
+      context: ../backend
+    command: celery -A workers.celery_app worker -Q queue_download -n download@%h -c 2 --prefetch-multiplier=1
     depends_on:
       - mysql
       - redis

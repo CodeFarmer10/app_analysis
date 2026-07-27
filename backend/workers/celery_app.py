@@ -16,6 +16,7 @@ celery_app.conf.update(
     accept_content=["json"],
     timezone="Asia/Shanghai",
     enable_utc=False,
+    worker_prefetch_multiplier=1,
     imports=(
         "workers.download",
         "workers.static_analysis",

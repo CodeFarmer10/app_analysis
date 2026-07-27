@@ -11,6 +11,7 @@ from analyzers.framework_detector import detect_framework
 from analyzers.ioc_extractor import extract_source_iocs
 from analyzers.jadx_workspace import open_jadx_workspace
 from analyzers.sdk_detector import SdkDetectResult, detect_sdks
+from analyzers.source_artifact_scanner import scan_source_artifacts
 from protection import detect_protection
 from celery import Task
 from repositories.task_repo import get_task_by_id, update_task, upsert_static_result
@@ -151,21 +152,25 @@ def _extract_source_artifact_fields(
     is_packed: bool,
 ) -> tuple[dict, SdkDetectResult]:
     if is_packed:
-        return (
-            _extract_source_ioc_fields(local_apk_path, is_packed=True),
-            _extract_sdk_result(local_apk_path),
-        )
+        try:
+            result = scan_source_artifacts(local_apk_path, is_packed=True)
+            return result.iocs.to_static_fields(), result.sdks
+        except Exception as exc:  # pragma: no cover - depends on APK structure
+            logger.warning("shared packed artifact scan failed path=%s err=%s", local_apk_path, exc)
+            return (
+                _extract_source_ioc_fields(local_apk_path, is_packed=True),
+                _extract_sdk_result(local_apk_path),
+            )
 
     try:
         with open_jadx_workspace(local_apk_path) as workspace:
-            return (
-                _extract_source_ioc_fields(
-                    local_apk_path,
-                    is_packed=False,
-                    jadx_sources_dir=workspace.sources_dir,
-                ),
-                _extract_sdk_result(local_apk_path, jadx_output_dir=workspace.output_dir),
+            result = scan_source_artifacts(
+                local_apk_path,
+                is_packed=False,
+                jadx_output_dir=workspace.output_dir,
+                jadx_sources_dir=workspace.sources_dir,
             )
+            return result.iocs.to_static_fields(), result.sdks
     except Exception as exc:  # pragma: no cover - depends on jadx/runtime
         logger.warning("shared jadx analysis failed path=%s err=%s", local_apk_path, exc)
         return (

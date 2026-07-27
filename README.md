@@ -34,20 +34,15 @@
    adb version
    adb devices
    ```
-3. 在后端虚拟环境下重启相关进程（后端 API / Celery Worker / 调度器）：
+3. 使用项目启停脚本管理后端、四类 Celery Worker、调度器和前端：
    ```bash
-   cd /home/yxh/app_analysis/backend
-   source .venv/bin/activate
-
-   # API
-   nohup uvicorn main:app --host 0.0.0.0 --port 8000 --app-dir /home/yxh/app_analysis/backend > /home/yxh/app_analysis/run_logs/backend.log 2>&1 &
-
-   # Worker
-   nohup celery -A workers.celery_app worker --loglevel=info -c 10 > /home/yxh/app_analysis/run_logs/celery_worker.log 2>&1 &
-
-   # Scheduler
-   nohup python -m workers.scheduler > /home/yxh/app_analysis/run_logs/scheduler.log 2>&1 &
+   cd /home/yxh/app_analysis
+   ./stop.sh
+   ./start.sh
    ```
+
+   Celery Worker 分别监听 `queue_static`、`queue_dynamic`、`queue_report`、
+   `queue_download`，默认并发数为 10、13、1、2，预取倍数统一为 1。
 
 > 说明：本项目使用虚拟环境部署时，`adb` 仍是系统命令，需在服务器 OS 层可用，不能仅通过 Python 依赖安装替代。
 

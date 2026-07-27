@@ -139,8 +139,10 @@ def _release_pair(task_id: str, device_id: str, reason: str) -> None:
                         device_id = NULL,
                         error_message = %s
                     WHERE id = %s
+                      AND status = 'dynamic_tracing'
+                      AND device_id = %s
                     """,
-                    (reason, task_id),
+                    (reason, task_id, device_id),
                 )
                 cursor.execute(
                     """
@@ -148,8 +150,9 @@ def _release_pair(task_id: str, device_id: str, reason: str) -> None:
                     SET status = 'online',
                         current_task_id = NULL
                     WHERE id = %s
+                      AND current_task_id = %s
                     """,
-                    (device_id,),
+                    (device_id, task_id),
                 )
                 conn.commit()
             except Exception:
