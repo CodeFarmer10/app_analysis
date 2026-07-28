@@ -115,26 +115,30 @@ def _detect_framework_fields(local_apk_path: str) -> dict:
         }
 
 
-def _extract_dcloud_info(local_apk_path: str, framework_name: object, is_obfuscated: bool) -> dict | None:
+def _extract_dcloud_fields(local_apk_path: str, framework_name: object, is_obfuscated: bool) -> dict:
     if str(framework_name or "").strip() != "uni-app/DCloud":
-        return None
+        return {}
     try:
         info = analyze_dcloud_apk(local_apk_path).to_static_field()
-        info["is_obfuscated"] = bool(is_obfuscated or info.get("is_obfuscated"))
-        return info
+        return {
+            "dcloud_tech_type": info.get("tech_type"),
+            "dcloud_appids": info.get("appids"),
+            "dcloud_pages": info.get("pages"),
+            "dcloud_api_routes": info.get("api_routes"),
+            "dcloud_remote_service_urls": info.get("remote_service_urls"),
+            "dcloud_remote_service_domains": info.get("remote_service_domains"),
+            "dcloud_is_confused": info.get("is_confused"),
+        }
     except Exception as exc:  # pragma: no cover - depends on APK structure
         logger.warning("dcloud asset analysis failed path=%s err=%s", local_apk_path, exc)
         return {
-            "tech_type": "error",
-            "appids": [],
-            "pages": [],
-            "api_routes": [],
-            "remote_service_urls": [],
-            "remote_service_domains": [],
-            "is_confused": False,
-            "confusion_details": [],
-            "is_obfuscated": bool(is_obfuscated),
-            "error": str(exc)[:1000],
+            "dcloud_tech_type": "error",
+            "dcloud_appids": [],
+            "dcloud_pages": [],
+            "dcloud_api_routes": [],
+            "dcloud_remote_service_urls": [],
+            "dcloud_remote_service_domains": [],
+            "dcloud_is_confused": bool(is_obfuscated),
         }
 
 
@@ -145,9 +149,24 @@ def _flutter_asm_roots() -> list[str | Path]:
     ]
 
 
-def _extract_flutter_info(local_apk_path: str, file_md5: object, framework_name: object) -> dict | None:
+def _flutter_static_fields(info: dict) -> dict:
+    return {
+        "flutter_primary_package": info.get("primary_package"),
+        "flutter_primary_entry_uri": info.get("primary_entry_uri"),
+        "flutter_library_uris": info.get("library_uris"),
+        "flutter_primary_package_classes": info.get("primary_package_classes"),
+        "flutter_remote_service_urls": info.get("remote_service_urls"),
+        "flutter_remote_service_domains": info.get("remote_service_domains"),
+        "flutter_primary_remote_service_urls": info.get("primary_remote_service_urls"),
+        "flutter_primary_remote_service_domains": info.get("primary_remote_service_domains"),
+        "flutter_dart_version": info.get("dart_version"),
+        "flutter_blutter_backend_version": info.get("blutter_backend_version"),
+    }
+
+
+def _extract_flutter_fields(local_apk_path: str, file_md5: object, framework_name: object) -> dict:
     if str(framework_name or "").strip() != "Flutter":
-        return None
+        return {}
 
     roots = _flutter_asm_roots()
     asm_dir, candidates = resolve_flutter_asm_dir(str(file_md5 or ""), roots)
@@ -167,16 +186,15 @@ def _extract_flutter_info(local_apk_path: str, file_md5: object, framework_name:
         if asm_dir is None:
             missing = missing_flutter_asm_result(candidates)
             missing.update(blutter_fields)
-            missing["error"] = blutter_fields.get("blutter_error") or missing.get("error")
-            return missing
+            return _flutter_static_fields(missing)
 
     if asm_dir is None:
-        return missing_flutter_asm_result(candidates)
+        return _flutter_static_fields(missing_flutter_asm_result(candidates))
 
     try:
         result = analyze_flutter_asm_dir(asm_dir).to_static_field()
         result.update(blutter_fields)
-        return result
+        return _flutter_static_fields(result)
     except Exception as exc:  # pragma: no cover - depends on blutter output shape
         logger.warning("flutter asm analysis failed md5=%s asm_dir=%s err=%s", file_md5, asm_dir, exc)
         result = {
@@ -194,7 +212,7 @@ def _extract_flutter_info(local_apk_path: str, file_md5: object, framework_name:
             "error": str(exc)[:1000],
         }
         result.update(blutter_fields)
-        return result
+        return _flutter_static_fields(result)
     finally:
         if generated_output_dir:
             shutil.rmtree(generated_output_dir, ignore_errors=True)
@@ -330,12 +348,12 @@ def analyze_apk(self, task_id: str):
         parsed = parse_apk(local_apk_path)
         protection_fields = _detect_protection_fields(local_apk_path)
         framework_fields = _detect_framework_fields(local_apk_path)
-        dcloud_info = _extract_dcloud_info(
+        dcloud_fields = _extract_dcloud_fields(
             local_apk_path,
             framework_fields.get("framework_name"),
             bool(protection_fields.get("is_obfuscated")),
         )
-        flutter_info = _extract_flutter_info(
+        flutter_fields = _extract_flutter_fields(
             local_apk_path,
             task.get("file_md5"),
             framework_fields.get("framework_name"),
@@ -389,8 +407,8 @@ def analyze_apk(self, task_id: str):
                 **framework_fields,
                 **protection_fields,
                 **source_artifact_fields,
-                "dcloud_info": dcloud_info,
-                "flutter_info": flutter_info,
+                **dcloud_fields,
+                **flutter_fields,
             },
         )
         replace_sdk_results(task_id, sdk_result.findings)

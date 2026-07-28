@@ -763,7 +763,312 @@ PREPARE stmt_static_results_source_urls_col FROM @sql_static_results_source_urls
 EXECUTE stmt_static_results_source_urls_col;
 DEALLOCATE PREPARE stmt_static_results_source_urls_col;
 
--- DCloud/uni-app asset-level extraction details.
+-- DCloud/uni-app and Flutter details are stored as queryable columns, not aggregate JSON blobs.
+SET @static_results_dcloud_tech_type_col := (
+  SELECT COUNT(*)
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'dcloud_tech_type'
+);
+SET @sql_static_results_dcloud_tech_type_col := IF(
+  @static_results_dcloud_tech_type_col = 0,
+  'ALTER TABLE static_results ADD COLUMN dcloud_tech_type VARCHAR(64) NULL AFTER source_urls',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_dcloud_tech_type_col FROM @sql_static_results_dcloud_tech_type_col;
+EXECUTE stmt_static_results_dcloud_tech_type_col;
+DEALLOCATE PREPARE stmt_static_results_dcloud_tech_type_col;
+
+SET @static_results_dcloud_appids_col := (
+  SELECT COUNT(*)
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'dcloud_appids'
+);
+SET @sql_static_results_dcloud_appids_col := IF(
+  @static_results_dcloud_appids_col = 0,
+  'ALTER TABLE static_results ADD COLUMN dcloud_appids JSON NULL AFTER dcloud_tech_type',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_dcloud_appids_col FROM @sql_static_results_dcloud_appids_col;
+EXECUTE stmt_static_results_dcloud_appids_col;
+DEALLOCATE PREPARE stmt_static_results_dcloud_appids_col;
+
+SET @static_results_dcloud_pages_col := (
+  SELECT COUNT(*)
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'dcloud_pages'
+);
+SET @sql_static_results_dcloud_pages_col := IF(
+  @static_results_dcloud_pages_col = 0,
+  'ALTER TABLE static_results ADD COLUMN dcloud_pages JSON NULL AFTER dcloud_appids',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_dcloud_pages_col FROM @sql_static_results_dcloud_pages_col;
+EXECUTE stmt_static_results_dcloud_pages_col;
+DEALLOCATE PREPARE stmt_static_results_dcloud_pages_col;
+
+SET @static_results_dcloud_api_routes_col := (
+  SELECT COUNT(*)
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'dcloud_api_routes'
+);
+SET @sql_static_results_dcloud_api_routes_col := IF(
+  @static_results_dcloud_api_routes_col = 0,
+  'ALTER TABLE static_results ADD COLUMN dcloud_api_routes JSON NULL AFTER dcloud_pages',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_dcloud_api_routes_col FROM @sql_static_results_dcloud_api_routes_col;
+EXECUTE stmt_static_results_dcloud_api_routes_col;
+DEALLOCATE PREPARE stmt_static_results_dcloud_api_routes_col;
+
+SET @static_results_dcloud_remote_service_urls_col := (
+  SELECT COUNT(*)
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'dcloud_remote_service_urls'
+);
+SET @sql_static_results_dcloud_remote_service_urls_col := IF(
+  @static_results_dcloud_remote_service_urls_col = 0,
+  'ALTER TABLE static_results ADD COLUMN dcloud_remote_service_urls JSON NULL AFTER dcloud_api_routes',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_dcloud_remote_service_urls_col FROM @sql_static_results_dcloud_remote_service_urls_col;
+EXECUTE stmt_static_results_dcloud_remote_service_urls_col;
+DEALLOCATE PREPARE stmt_static_results_dcloud_remote_service_urls_col;
+
+SET @static_results_dcloud_remote_service_domains_col := (
+  SELECT COUNT(*)
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'dcloud_remote_service_domains'
+);
+SET @sql_static_results_dcloud_remote_service_domains_col := IF(
+  @static_results_dcloud_remote_service_domains_col = 0,
+  'ALTER TABLE static_results ADD COLUMN dcloud_remote_service_domains JSON NULL AFTER dcloud_remote_service_urls',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_dcloud_remote_service_domains_col FROM @sql_static_results_dcloud_remote_service_domains_col;
+EXECUTE stmt_static_results_dcloud_remote_service_domains_col;
+DEALLOCATE PREPARE stmt_static_results_dcloud_remote_service_domains_col;
+
+SET @static_results_dcloud_is_confused_col := (
+  SELECT COUNT(*)
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'dcloud_is_confused'
+);
+SET @sql_static_results_dcloud_is_confused_col := IF(
+  @static_results_dcloud_is_confused_col = 0,
+  'ALTER TABLE static_results ADD COLUMN dcloud_is_confused TINYINT(1) NULL AFTER dcloud_remote_service_domains',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_dcloud_is_confused_col FROM @sql_static_results_dcloud_is_confused_col;
+EXECUTE stmt_static_results_dcloud_is_confused_col;
+DEALLOCATE PREPARE stmt_static_results_dcloud_is_confused_col;
+
+SET @static_results_flutter_primary_package_col := (
+  SELECT COUNT(*)
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'flutter_primary_package'
+);
+SET @sql_static_results_flutter_primary_package_col := IF(
+  @static_results_flutter_primary_package_col = 0,
+  'ALTER TABLE static_results ADD COLUMN flutter_primary_package VARCHAR(256) NULL AFTER dcloud_is_confused',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_flutter_primary_package_col FROM @sql_static_results_flutter_primary_package_col;
+EXECUTE stmt_static_results_flutter_primary_package_col;
+DEALLOCATE PREPARE stmt_static_results_flutter_primary_package_col;
+
+SET @static_results_flutter_primary_entry_uri_col := (
+  SELECT COUNT(*)
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'flutter_primary_entry_uri'
+);
+SET @sql_static_results_flutter_primary_entry_uri_col := IF(
+  @static_results_flutter_primary_entry_uri_col = 0,
+  'ALTER TABLE static_results ADD COLUMN flutter_primary_entry_uri VARCHAR(1024) NULL AFTER flutter_primary_package',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_flutter_primary_entry_uri_col FROM @sql_static_results_flutter_primary_entry_uri_col;
+EXECUTE stmt_static_results_flutter_primary_entry_uri_col;
+DEALLOCATE PREPARE stmt_static_results_flutter_primary_entry_uri_col;
+
+SET @static_results_flutter_library_uris_col := (
+  SELECT COUNT(*)
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'flutter_library_uris'
+);
+SET @sql_static_results_flutter_library_uris_col := IF(
+  @static_results_flutter_library_uris_col = 0,
+  'ALTER TABLE static_results ADD COLUMN flutter_library_uris JSON NULL AFTER flutter_primary_entry_uri',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_flutter_library_uris_col FROM @sql_static_results_flutter_library_uris_col;
+EXECUTE stmt_static_results_flutter_library_uris_col;
+DEALLOCATE PREPARE stmt_static_results_flutter_library_uris_col;
+
+SET @static_results_flutter_primary_package_classes_col := (
+  SELECT COUNT(*)
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'flutter_primary_package_classes'
+);
+SET @sql_static_results_flutter_primary_package_classes_col := IF(
+  @static_results_flutter_primary_package_classes_col = 0,
+  'ALTER TABLE static_results ADD COLUMN flutter_primary_package_classes JSON NULL AFTER flutter_library_uris',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_flutter_primary_package_classes_col FROM @sql_static_results_flutter_primary_package_classes_col;
+EXECUTE stmt_static_results_flutter_primary_package_classes_col;
+DEALLOCATE PREPARE stmt_static_results_flutter_primary_package_classes_col;
+
+SET @static_results_flutter_remote_service_urls_col := (
+  SELECT COUNT(*)
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'flutter_remote_service_urls'
+);
+SET @sql_static_results_flutter_remote_service_urls_col := IF(
+  @static_results_flutter_remote_service_urls_col = 0,
+  'ALTER TABLE static_results ADD COLUMN flutter_remote_service_urls JSON NULL AFTER flutter_primary_package_classes',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_flutter_remote_service_urls_col FROM @sql_static_results_flutter_remote_service_urls_col;
+EXECUTE stmt_static_results_flutter_remote_service_urls_col;
+DEALLOCATE PREPARE stmt_static_results_flutter_remote_service_urls_col;
+
+SET @static_results_flutter_remote_service_domains_col := (
+  SELECT COUNT(*)
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'flutter_remote_service_domains'
+);
+SET @sql_static_results_flutter_remote_service_domains_col := IF(
+  @static_results_flutter_remote_service_domains_col = 0,
+  'ALTER TABLE static_results ADD COLUMN flutter_remote_service_domains JSON NULL AFTER flutter_remote_service_urls',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_flutter_remote_service_domains_col FROM @sql_static_results_flutter_remote_service_domains_col;
+EXECUTE stmt_static_results_flutter_remote_service_domains_col;
+DEALLOCATE PREPARE stmt_static_results_flutter_remote_service_domains_col;
+
+SET @static_results_flutter_primary_remote_service_urls_col := (
+  SELECT COUNT(*)
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'flutter_primary_remote_service_urls'
+);
+SET @sql_static_results_flutter_primary_remote_service_urls_col := IF(
+  @static_results_flutter_primary_remote_service_urls_col = 0,
+  'ALTER TABLE static_results ADD COLUMN flutter_primary_remote_service_urls JSON NULL AFTER flutter_remote_service_domains',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_flutter_primary_remote_service_urls_col FROM @sql_static_results_flutter_primary_remote_service_urls_col;
+EXECUTE stmt_static_results_flutter_primary_remote_service_urls_col;
+DEALLOCATE PREPARE stmt_static_results_flutter_primary_remote_service_urls_col;
+
+SET @static_results_flutter_primary_remote_service_domains_col := (
+  SELECT COUNT(*)
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'flutter_primary_remote_service_domains'
+);
+SET @sql_static_results_flutter_primary_remote_service_domains_col := IF(
+  @static_results_flutter_primary_remote_service_domains_col = 0,
+  'ALTER TABLE static_results ADD COLUMN flutter_primary_remote_service_domains JSON NULL AFTER flutter_primary_remote_service_urls',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_flutter_primary_remote_service_domains_col FROM @sql_static_results_flutter_primary_remote_service_domains_col;
+EXECUTE stmt_static_results_flutter_primary_remote_service_domains_col;
+DEALLOCATE PREPARE stmt_static_results_flutter_primary_remote_service_domains_col;
+
+SET @static_results_flutter_dart_version_col := (
+  SELECT COUNT(*)
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'flutter_dart_version'
+);
+SET @sql_static_results_flutter_dart_version_col := IF(
+  @static_results_flutter_dart_version_col = 0,
+  'ALTER TABLE static_results ADD COLUMN flutter_dart_version VARCHAR(64) NULL AFTER flutter_primary_remote_service_domains',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_flutter_dart_version_col FROM @sql_static_results_flutter_dart_version_col;
+EXECUTE stmt_static_results_flutter_dart_version_col;
+DEALLOCATE PREPARE stmt_static_results_flutter_dart_version_col;
+
+SET @static_results_flutter_blutter_backend_version_col := (
+  SELECT COUNT(*)
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'flutter_blutter_backend_version'
+);
+SET @sql_static_results_flutter_blutter_backend_version_col := IF(
+  @static_results_flutter_blutter_backend_version_col = 0,
+  'ALTER TABLE static_results ADD COLUMN flutter_blutter_backend_version VARCHAR(64) NULL AFTER flutter_dart_version',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_flutter_blutter_backend_version_col FROM @sql_static_results_flutter_blutter_backend_version_col;
+EXECUTE stmt_static_results_flutter_blutter_backend_version_col;
+DEALLOCATE PREPARE stmt_static_results_flutter_blutter_backend_version_col;
+
+-- Backfill split columns from legacy aggregate JSON blobs before dropping them.
+SET @static_results_flutter_remote_service_ips_drop_col := (
+  SELECT COUNT(*)
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'flutter_remote_service_ips'
+);
+SET @sql_static_results_flutter_remote_service_ips_drop_col := IF(
+  @static_results_flutter_remote_service_ips_drop_col = 1,
+  'ALTER TABLE static_results DROP COLUMN flutter_remote_service_ips',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_flutter_remote_service_ips_drop_col FROM @sql_static_results_flutter_remote_service_ips_drop_col;
+EXECUTE stmt_static_results_flutter_remote_service_ips_drop_col;
+DEALLOCATE PREPARE stmt_static_results_flutter_remote_service_ips_drop_col;
+
+SET @static_results_flutter_primary_remote_service_ips_drop_col := (
+  SELECT COUNT(*)
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'flutter_primary_remote_service_ips'
+);
+SET @sql_static_results_flutter_primary_remote_service_ips_drop_col := IF(
+  @static_results_flutter_primary_remote_service_ips_drop_col = 1,
+  'ALTER TABLE static_results DROP COLUMN flutter_primary_remote_service_ips',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_flutter_primary_remote_service_ips_drop_col FROM @sql_static_results_flutter_primary_remote_service_ips_drop_col;
+EXECUTE stmt_static_results_flutter_primary_remote_service_ips_drop_col;
+DEALLOCATE PREPARE stmt_static_results_flutter_primary_remote_service_ips_drop_col;
+
 SET @static_results_dcloud_info_col := (
   SELECT COUNT(*)
   FROM information_schema.columns
@@ -771,16 +1076,15 @@ SET @static_results_dcloud_info_col := (
     AND table_name = 'static_results'
     AND column_name = 'dcloud_info'
 );
-SET @sql_static_results_dcloud_info_col := IF(
-  @static_results_dcloud_info_col = 0,
-  'ALTER TABLE static_results ADD COLUMN dcloud_info JSON NULL AFTER source_urls',
+SET @sql_static_results_dcloud_info_backfill := IF(
+  @static_results_dcloud_info_col = 1,
+  'UPDATE static_results SET dcloud_tech_type = COALESCE(dcloud_tech_type, JSON_UNQUOTE(JSON_EXTRACT(dcloud_info, ''$.tech_type''))), dcloud_appids = COALESCE(dcloud_appids, JSON_EXTRACT(dcloud_info, ''$.appids'')), dcloud_pages = COALESCE(dcloud_pages, JSON_EXTRACT(dcloud_info, ''$.pages'')), dcloud_api_routes = COALESCE(dcloud_api_routes, JSON_EXTRACT(dcloud_info, ''$.api_routes'')), dcloud_remote_service_urls = COALESCE(dcloud_remote_service_urls, JSON_EXTRACT(dcloud_info, ''$.remote_service_urls'')), dcloud_remote_service_domains = COALESCE(dcloud_remote_service_domains, JSON_EXTRACT(dcloud_info, ''$.remote_service_domains'')), dcloud_is_confused = COALESCE(dcloud_is_confused, CAST(JSON_UNQUOTE(JSON_EXTRACT(dcloud_info, ''$.is_confused'')) AS UNSIGNED)) WHERE dcloud_info IS NOT NULL',
   'SELECT 1'
 );
-PREPARE stmt_static_results_dcloud_info_col FROM @sql_static_results_dcloud_info_col;
-EXECUTE stmt_static_results_dcloud_info_col;
-DEALLOCATE PREPARE stmt_static_results_dcloud_info_col;
+PREPARE stmt_static_results_dcloud_info_backfill FROM @sql_static_results_dcloud_info_backfill;
+EXECUTE stmt_static_results_dcloud_info_backfill;
+DEALLOCATE PREPARE stmt_static_results_dcloud_info_backfill;
 
--- Flutter blutter asm primary-package extraction details.
 SET @static_results_flutter_info_col := (
   SELECT COUNT(*)
   FROM information_schema.columns
@@ -788,15 +1092,398 @@ SET @static_results_flutter_info_col := (
     AND table_name = 'static_results'
     AND column_name = 'flutter_info'
 );
-SET @sql_static_results_flutter_info_col := IF(
-  @static_results_flutter_info_col = 0,
-  'ALTER TABLE static_results ADD COLUMN flutter_info JSON NULL AFTER dcloud_info',
+SET @sql_static_results_flutter_info_backfill := IF(
+  @static_results_flutter_info_col = 1,
+  'UPDATE static_results SET flutter_primary_package = COALESCE(flutter_primary_package, JSON_UNQUOTE(JSON_EXTRACT(flutter_info, ''$.primary_package''))), flutter_primary_entry_uri = COALESCE(flutter_primary_entry_uri, JSON_UNQUOTE(JSON_EXTRACT(flutter_info, ''$.primary_entry_uri''))), flutter_library_uris = COALESCE(flutter_library_uris, JSON_EXTRACT(flutter_info, ''$.library_uris'')), flutter_primary_package_classes = COALESCE(flutter_primary_package_classes, JSON_EXTRACT(flutter_info, ''$.primary_package_classes'')), flutter_dart_version = COALESCE(flutter_dart_version, JSON_UNQUOTE(JSON_EXTRACT(flutter_info, ''$.dart_version''))), flutter_blutter_backend_version = COALESCE(flutter_blutter_backend_version, JSON_UNQUOTE(JSON_EXTRACT(flutter_info, ''$.blutter_backend_version''))) WHERE flutter_info IS NOT NULL',
   'SELECT 1'
 );
-PREPARE stmt_static_results_flutter_info_col FROM @sql_static_results_flutter_info_col;
-EXECUTE stmt_static_results_flutter_info_col;
-DEALLOCATE PREPARE stmt_static_results_flutter_info_col;
+PREPARE stmt_static_results_flutter_info_backfill FROM @sql_static_results_flutter_info_backfill;
+EXECUTE stmt_static_results_flutter_info_backfill;
+DEALLOCATE PREPARE stmt_static_results_flutter_info_backfill;
 
+SET @static_results_dcloud_info_drop_col := (
+  SELECT COUNT(*)
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'dcloud_info'
+);
+SET @sql_static_results_dcloud_info_drop_col := IF(
+  @static_results_dcloud_info_drop_col = 1,
+  'ALTER TABLE static_results DROP COLUMN dcloud_info',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_dcloud_info_drop_col FROM @sql_static_results_dcloud_info_drop_col;
+EXECUTE stmt_static_results_dcloud_info_drop_col;
+DEALLOCATE PREPARE stmt_static_results_dcloud_info_drop_col;
+
+SET @static_results_flutter_info_drop_col := (
+  SELECT COUNT(*)
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'flutter_info'
+);
+SET @sql_static_results_flutter_info_drop_col := IF(
+  @static_results_flutter_info_drop_col = 1,
+  'ALTER TABLE static_results DROP COLUMN flutter_info',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_flutter_info_drop_col FROM @sql_static_results_flutter_info_drop_col;
+EXECUTE stmt_static_results_flutter_info_drop_col;
+DEALLOCATE PREPARE stmt_static_results_flutter_info_drop_col;
+
+SET @static_results_dcloud_confusion_details_drop_col := (
+  SELECT COUNT(*)
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'dcloud_confusion_details'
+);
+SET @sql_static_results_dcloud_confusion_details_drop_col := IF(
+  @static_results_dcloud_confusion_details_drop_col = 1,
+  'ALTER TABLE static_results DROP COLUMN dcloud_confusion_details',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_dcloud_confusion_details_drop_col FROM @sql_static_results_dcloud_confusion_details_drop_col;
+EXECUTE stmt_static_results_dcloud_confusion_details_drop_col;
+DEALLOCATE PREPARE stmt_static_results_dcloud_confusion_details_drop_col;
+
+SET @static_results_dcloud_is_obfuscated_drop_col := (
+  SELECT COUNT(*)
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'dcloud_is_obfuscated'
+);
+SET @sql_static_results_dcloud_is_obfuscated_drop_col := IF(
+  @static_results_dcloud_is_obfuscated_drop_col = 1,
+  'ALTER TABLE static_results DROP COLUMN dcloud_is_obfuscated',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_dcloud_is_obfuscated_drop_col FROM @sql_static_results_dcloud_is_obfuscated_drop_col;
+EXECUTE stmt_static_results_dcloud_is_obfuscated_drop_col;
+DEALLOCATE PREPARE stmt_static_results_dcloud_is_obfuscated_drop_col;
+
+SET @static_results_dcloud_error_drop_col := (
+  SELECT COUNT(*)
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'dcloud_error'
+);
+SET @sql_static_results_dcloud_error_drop_col := IF(
+  @static_results_dcloud_error_drop_col = 1,
+  'ALTER TABLE static_results DROP COLUMN dcloud_error',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_dcloud_error_drop_col FROM @sql_static_results_dcloud_error_drop_col;
+EXECUTE stmt_static_results_dcloud_error_drop_col;
+DEALLOCATE PREPARE stmt_static_results_dcloud_error_drop_col;
+
+SET @static_results_flutter_status_drop_col := (
+  SELECT COUNT(*)
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'flutter_status'
+);
+SET @sql_static_results_flutter_status_drop_col := IF(
+  @static_results_flutter_status_drop_col = 1,
+  'ALTER TABLE static_results DROP COLUMN flutter_status',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_flutter_status_drop_col FROM @sql_static_results_flutter_status_drop_col;
+EXECUTE stmt_static_results_flutter_status_drop_col;
+DEALLOCATE PREPARE stmt_static_results_flutter_status_drop_col;
+
+SET @static_results_flutter_asm_dir_drop_col := (
+  SELECT COUNT(*)
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'flutter_asm_dir'
+);
+SET @sql_static_results_flutter_asm_dir_drop_col := IF(
+  @static_results_flutter_asm_dir_drop_col = 1,
+  'ALTER TABLE static_results DROP COLUMN flutter_asm_dir',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_flutter_asm_dir_drop_col FROM @sql_static_results_flutter_asm_dir_drop_col;
+EXECUTE stmt_static_results_flutter_asm_dir_drop_col;
+DEALLOCATE PREPARE stmt_static_results_flutter_asm_dir_drop_col;
+
+SET @static_results_flutter_primary_entry_method_drop_col := (
+  SELECT COUNT(*)
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'flutter_primary_entry_method'
+);
+SET @sql_static_results_flutter_primary_entry_method_drop_col := IF(
+  @static_results_flutter_primary_entry_method_drop_col = 1,
+  'ALTER TABLE static_results DROP COLUMN flutter_primary_entry_method',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_flutter_primary_entry_method_drop_col FROM @sql_static_results_flutter_primary_entry_method_drop_col;
+EXECUTE stmt_static_results_flutter_primary_entry_method_drop_col;
+DEALLOCATE PREPARE stmt_static_results_flutter_primary_entry_method_drop_col;
+
+SET @static_results_flutter_primary_entry_confidence_drop_col := (
+  SELECT COUNT(*)
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'flutter_primary_entry_confidence'
+);
+SET @sql_static_results_flutter_primary_entry_confidence_drop_col := IF(
+  @static_results_flutter_primary_entry_confidence_drop_col = 1,
+  'ALTER TABLE static_results DROP COLUMN flutter_primary_entry_confidence',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_flutter_primary_entry_confidence_drop_col FROM @sql_static_results_flutter_primary_entry_confidence_drop_col;
+EXECUTE stmt_static_results_flutter_primary_entry_confidence_drop_col;
+DEALLOCATE PREPARE stmt_static_results_flutter_primary_entry_confidence_drop_col;
+
+SET @static_results_flutter_root_widget_class_drop_col := (
+  SELECT COUNT(*)
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'flutter_root_widget_class'
+);
+SET @sql_static_results_flutter_root_widget_class_drop_col := IF(
+  @static_results_flutter_root_widget_class_drop_col = 1,
+  'ALTER TABLE static_results DROP COLUMN flutter_root_widget_class',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_flutter_root_widget_class_drop_col FROM @sql_static_results_flutter_root_widget_class_drop_col;
+EXECUTE stmt_static_results_flutter_root_widget_class_drop_col;
+DEALLOCATE PREPARE stmt_static_results_flutter_root_widget_class_drop_col;
+
+SET @static_results_flutter_root_widget_library_uri_drop_col := (
+  SELECT COUNT(*)
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'flutter_root_widget_library_uri'
+);
+SET @sql_static_results_flutter_root_widget_library_uri_drop_col := IF(
+  @static_results_flutter_root_widget_library_uri_drop_col = 1,
+  'ALTER TABLE static_results DROP COLUMN flutter_root_widget_library_uri',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_flutter_root_widget_library_uri_drop_col FROM @sql_static_results_flutter_root_widget_library_uri_drop_col;
+EXECUTE stmt_static_results_flutter_root_widget_library_uri_drop_col;
+DEALLOCATE PREPARE stmt_static_results_flutter_root_widget_library_uri_drop_col;
+
+SET @static_results_flutter_class_count_drop_col := (
+  SELECT COUNT(*)
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'flutter_class_count'
+);
+SET @sql_static_results_flutter_class_count_drop_col := IF(
+  @static_results_flutter_class_count_drop_col = 1,
+  'ALTER TABLE static_results DROP COLUMN flutter_class_count',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_flutter_class_count_drop_col FROM @sql_static_results_flutter_class_count_drop_col;
+EXECUTE stmt_static_results_flutter_class_count_drop_col;
+DEALLOCATE PREPARE stmt_static_results_flutter_class_count_drop_col;
+
+SET @static_results_flutter_error_drop_col := (
+  SELECT COUNT(*)
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'flutter_error'
+);
+SET @sql_static_results_flutter_error_drop_col := IF(
+  @static_results_flutter_error_drop_col = 1,
+  'ALTER TABLE static_results DROP COLUMN flutter_error',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_flutter_error_drop_col FROM @sql_static_results_flutter_error_drop_col;
+EXECUTE stmt_static_results_flutter_error_drop_col;
+DEALLOCATE PREPARE stmt_static_results_flutter_error_drop_col;
+
+SET @static_results_flutter_blutter_status_drop_col := (
+  SELECT COUNT(*)
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'flutter_blutter_status'
+);
+SET @sql_static_results_flutter_blutter_status_drop_col := IF(
+  @static_results_flutter_blutter_status_drop_col = 1,
+  'ALTER TABLE static_results DROP COLUMN flutter_blutter_status',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_flutter_blutter_status_drop_col FROM @sql_static_results_flutter_blutter_status_drop_col;
+EXECUTE stmt_static_results_flutter_blutter_status_drop_col;
+DEALLOCATE PREPARE stmt_static_results_flutter_blutter_status_drop_col;
+
+SET @static_results_flutter_blutter_output_dir_drop_col := (
+  SELECT COUNT(*)
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'flutter_blutter_output_dir'
+);
+SET @sql_static_results_flutter_blutter_output_dir_drop_col := IF(
+  @static_results_flutter_blutter_output_dir_drop_col = 1,
+  'ALTER TABLE static_results DROP COLUMN flutter_blutter_output_dir',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_flutter_blutter_output_dir_drop_col FROM @sql_static_results_flutter_blutter_output_dir_drop_col;
+EXECUTE stmt_static_results_flutter_blutter_output_dir_drop_col;
+DEALLOCATE PREPARE stmt_static_results_flutter_blutter_output_dir_drop_col;
+
+SET @static_results_flutter_blutter_input_dir_drop_col := (
+  SELECT COUNT(*)
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'flutter_blutter_input_dir'
+);
+SET @sql_static_results_flutter_blutter_input_dir_drop_col := IF(
+  @static_results_flutter_blutter_input_dir_drop_col = 1,
+  'ALTER TABLE static_results DROP COLUMN flutter_blutter_input_dir',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_flutter_blutter_input_dir_drop_col FROM @sql_static_results_flutter_blutter_input_dir_drop_col;
+EXECUTE stmt_static_results_flutter_blutter_input_dir_drop_col;
+DEALLOCATE PREPARE stmt_static_results_flutter_blutter_input_dir_drop_col;
+
+SET @static_results_flutter_blutter_log_path_drop_col := (
+  SELECT COUNT(*)
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'flutter_blutter_log_path'
+);
+SET @sql_static_results_flutter_blutter_log_path_drop_col := IF(
+  @static_results_flutter_blutter_log_path_drop_col = 1,
+  'ALTER TABLE static_results DROP COLUMN flutter_blutter_log_path',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_flutter_blutter_log_path_drop_col FROM @sql_static_results_flutter_blutter_log_path_drop_col;
+EXECUTE stmt_static_results_flutter_blutter_log_path_drop_col;
+DEALLOCATE PREPARE stmt_static_results_flutter_blutter_log_path_drop_col;
+
+SET @static_results_flutter_snapshot_hash_drop_col := (
+  SELECT COUNT(*)
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'flutter_snapshot_hash'
+);
+SET @sql_static_results_flutter_snapshot_hash_drop_col := IF(
+  @static_results_flutter_snapshot_hash_drop_col = 1,
+  'ALTER TABLE static_results DROP COLUMN flutter_snapshot_hash',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_flutter_snapshot_hash_drop_col FROM @sql_static_results_flutter_snapshot_hash_drop_col;
+EXECUTE stmt_static_results_flutter_snapshot_hash_drop_col;
+DEALLOCATE PREPARE stmt_static_results_flutter_snapshot_hash_drop_col;
+
+SET @static_results_flutter_target_arch_drop_col := (
+  SELECT COUNT(*)
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'flutter_target_arch'
+);
+SET @sql_static_results_flutter_target_arch_drop_col := IF(
+  @static_results_flutter_target_arch_drop_col = 1,
+  'ALTER TABLE static_results DROP COLUMN flutter_target_arch',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_flutter_target_arch_drop_col FROM @sql_static_results_flutter_target_arch_drop_col;
+EXECUTE stmt_static_results_flutter_target_arch_drop_col;
+DEALLOCATE PREPARE stmt_static_results_flutter_target_arch_drop_col;
+
+SET @static_results_flutter_target_os_drop_col := (
+  SELECT COUNT(*)
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'flutter_target_os'
+);
+SET @sql_static_results_flutter_target_os_drop_col := IF(
+  @static_results_flutter_target_os_drop_col = 1,
+  'ALTER TABLE static_results DROP COLUMN flutter_target_os',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_flutter_target_os_drop_col FROM @sql_static_results_flutter_target_os_drop_col;
+EXECUTE stmt_static_results_flutter_target_os_drop_col;
+DEALLOCATE PREPARE stmt_static_results_flutter_target_os_drop_col;
+
+SET @static_results_flutter_compressed_pointers_drop_col := (
+  SELECT COUNT(*)
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'flutter_compressed_pointers'
+);
+SET @sql_static_results_flutter_compressed_pointers_drop_col := IF(
+  @static_results_flutter_compressed_pointers_drop_col = 1,
+  'ALTER TABLE static_results DROP COLUMN flutter_compressed_pointers',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_flutter_compressed_pointers_drop_col FROM @sql_static_results_flutter_compressed_pointers_drop_col;
+EXECUTE stmt_static_results_flutter_compressed_pointers_drop_col;
+DEALLOCATE PREPARE stmt_static_results_flutter_compressed_pointers_drop_col;
+
+SET @static_results_flutter_blutter_backend_executable_drop_col := (
+  SELECT COUNT(*)
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'flutter_blutter_backend_executable'
+);
+SET @sql_static_results_flutter_blutter_backend_executable_drop_col := IF(
+  @static_results_flutter_blutter_backend_executable_drop_col = 1,
+  'ALTER TABLE static_results DROP COLUMN flutter_blutter_backend_executable',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_flutter_blutter_backend_executable_drop_col FROM @sql_static_results_flutter_blutter_backend_executable_drop_col;
+EXECUTE stmt_static_results_flutter_blutter_backend_executable_drop_col;
+DEALLOCATE PREPARE stmt_static_results_flutter_blutter_backend_executable_drop_col;
+
+SET @static_results_flutter_blutter_backend_match_drop_col := (
+  SELECT COUNT(*)
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'flutter_blutter_backend_match'
+);
+SET @sql_static_results_flutter_blutter_backend_match_drop_col := IF(
+  @static_results_flutter_blutter_backend_match_drop_col = 1,
+  'ALTER TABLE static_results DROP COLUMN flutter_blutter_backend_match',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_flutter_blutter_backend_match_drop_col FROM @sql_static_results_flutter_blutter_backend_match_drop_col;
+EXECUTE stmt_static_results_flutter_blutter_backend_match_drop_col;
+DEALLOCATE PREPARE stmt_static_results_flutter_blutter_backend_match_drop_col;
+
+SET @static_results_flutter_blutter_error_drop_col := (
+  SELECT COUNT(*)
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'flutter_blutter_error'
+);
+SET @sql_static_results_flutter_blutter_error_drop_col := IF(
+  @static_results_flutter_blutter_error_drop_col = 1,
+  'ALTER TABLE static_results DROP COLUMN flutter_blutter_error',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_flutter_blutter_error_drop_col FROM @sql_static_results_flutter_blutter_error_drop_col;
+EXECUTE stmt_static_results_flutter_blutter_error_drop_col;
+DEALLOCATE PREPARE stmt_static_results_flutter_blutter_error_drop_col;
 -- Preserve the complete detector output for later traceability.
 SET @sdk_results_raw_finding_col := (
   SELECT COUNT(*)

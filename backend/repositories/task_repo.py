@@ -7,6 +7,137 @@ from core.database import execute, fetch_all, fetch_one
 from repositories.sdk_repo import get_sdk_findings
 
 
+STATIC_RESULT_FIELDS = [
+    "app_name",
+    "package_name",
+    "version_name",
+    "version_code",
+    "icon_path",
+    "cert_md5",
+    "cert_sha1",
+    "cert_sha256",
+    "cert_info",
+    "permissions",
+    "activities",
+    "services",
+    "providers",
+    "receivers",
+    "so_files",
+    "component_string",
+    "component_md5",
+    "framework_name",
+    "framework_matches",
+    "is_packed",
+    "packer_vendor",
+    "packer_vendors",
+    "packer_details",
+    "is_obfuscated",
+    "obfuscation_vendor",
+    "obfuscation_vendors",
+    "obfuscator_details",
+    "protection_detect_error",
+    "unpack_archive_path",
+    "unpack_error",
+    "source_phones",
+    "source_emails",
+    "source_urls",
+    "dcloud_tech_type",
+    "dcloud_appids",
+    "dcloud_pages",
+    "dcloud_api_routes",
+    "dcloud_remote_service_urls",
+    "dcloud_remote_service_domains",
+    "dcloud_is_confused",
+    "flutter_primary_package",
+    "flutter_primary_entry_uri",
+    "flutter_library_uris",
+    "flutter_primary_package_classes",
+    "flutter_remote_service_urls",
+    "flutter_remote_service_domains",
+    "flutter_primary_remote_service_urls",
+    "flutter_primary_remote_service_domains",
+    "flutter_dart_version",
+    "flutter_blutter_backend_version",
+]
+
+JSON_STATIC_RESULT_FIELDS = {
+    "cert_info",
+    "permissions",
+    "activities",
+    "services",
+    "providers",
+    "receivers",
+    "so_files",
+    "packer_vendors",
+    "packer_details",
+    "obfuscation_vendors",
+    "obfuscator_details",
+    "framework_matches",
+    "source_phones",
+    "source_emails",
+    "source_urls",
+    "dcloud_appids",
+    "dcloud_pages",
+    "dcloud_api_routes",
+    "dcloud_remote_service_urls",
+    "dcloud_remote_service_domains",
+    "flutter_library_uris",
+    "flutter_primary_package_classes",
+    "flutter_remote_service_urls",
+    "flutter_remote_service_domains",
+    "flutter_primary_remote_service_urls",
+    "flutter_primary_remote_service_domains",
+}
+
+JSON_ARRAY_STATIC_RESULT_FIELDS = {
+    "permissions",
+    "activities",
+    "services",
+    "providers",
+    "receivers",
+    "so_files",
+    "packer_vendors",
+    "packer_details",
+    "obfuscation_vendors",
+    "obfuscator_details",
+    "framework_matches",
+    "source_phones",
+    "source_emails",
+    "source_urls",
+}
+
+BOOL_STATIC_RESULT_FIELDS = {
+    "is_packed",
+    "is_obfuscated",
+    "dcloud_is_confused",
+}
+
+
+def _parse_json_value(value: Any) -> Any:
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError:
+            return value
+    return value
+
+
+def _json_or_none(value: Any) -> str | None:
+    return json.dumps(value, ensure_ascii=False) if value is not None else None
+
+
+def _serialize_static_value(field: str, value: Any) -> Any:
+    if field in JSON_STATIC_RESULT_FIELDS:
+        if value is None and field in JSON_ARRAY_STATIC_RESULT_FIELDS:
+            value = []
+        return _json_or_none(value)
+    if field in BOOL_STATIC_RESULT_FIELDS:
+        if value is None:
+            return None
+        return 1 if value else 0
+    return value
+
+
 def create_task(data: dict[str, Any]) -> str:
     sql = """
         INSERT INTO tasks (
@@ -216,44 +347,10 @@ def list_tasks(filters: dict[str, Any], page: int, size: int) -> tuple[list[dict
 
 
 def get_static_result(task_id: str) -> dict | None:
-    sql = """
+    select_fields = ",\n            ".join(["task_id", *STATIC_RESULT_FIELDS])
+    sql = f"""
         SELECT
-            task_id,
-            app_name,
-            package_name,
-            version_name,
-            version_code,
-            icon_path,
-            cert_md5,
-            cert_sha1,
-            cert_sha256,
-            cert_info,
-            permissions,
-            activities,
-            services,
-            providers,
-            receivers,
-            so_files,
-            component_string,
-            component_md5,
-            framework_name,
-            framework_matches,
-            is_packed,
-            packer_vendor,
-            packer_vendors,
-            packer_details,
-            is_obfuscated,
-            obfuscation_vendor,
-            obfuscation_vendors,
-            obfuscator_details,
-            protection_detect_error,
-            unpack_archive_path,
-            unpack_error,
-            source_phones,
-            source_emails,
-            source_urls,
-            dcloud_info,
-            flutter_info
+            {select_fields}
         FROM static_results
         WHERE task_id = %s
         LIMIT 1
@@ -262,151 +359,35 @@ def get_static_result(task_id: str) -> dict | None:
     if not row:
         return None
 
-    for field in (
-        "cert_info",
-        "permissions",
-        "activities",
-        "services",
-        "providers",
-        "receivers",
-        "so_files",
-        "packer_vendors",
-        "packer_details",
-        "obfuscation_vendors",
-        "obfuscator_details",
-        "framework_matches",
-        "source_phones",
-        "source_emails",
-        "source_urls",
-        "dcloud_info",
-        "flutter_info",
-    ):
+    for field in JSON_STATIC_RESULT_FIELDS:
         value = row.get(field)
-        if isinstance(value, str):
-            try:
-                row[field] = json.loads(value)
-            except json.JSONDecodeError:
-                row[field] = value
+        row[field] = _parse_json_value(value)
     row["sdk_findings"] = get_sdk_findings(task_id)
     return row
 
 
 def upsert_static_result(task_id: str, data: dict[str, Any]) -> int:
-    sql = """
+    columns = ["task_id", *STATIC_RESULT_FIELDS]
+    placeholders = ", ".join(["%s"] * len(columns))
+    insert_fields = ",\n            ".join(columns)
+    update_fields = ",\n            ".join(
+        f"{field} = VALUES({field})" for field in STATIC_RESULT_FIELDS
+    )
+    sql = f"""
         INSERT INTO static_results (
-            task_id,
-            app_name,
-            package_name,
-            version_name,
-            version_code,
-            icon_path,
-            cert_md5,
-            cert_sha1,
-            cert_sha256,
-            cert_info,
-            permissions,
-            activities,
-            services,
-            providers,
-            receivers,
-            so_files,
-            component_string,
-            component_md5,
-            framework_name,
-            framework_matches,
-            is_packed,
-            packer_vendor,
-            packer_vendors,
-            packer_details,
-            is_obfuscated,
-            obfuscation_vendor,
-            obfuscation_vendors,
-            obfuscator_details,
-            protection_detect_error,
-            unpack_archive_path,
-            unpack_error,
-            source_phones,
-            source_emails,
-            source_urls,
-            dcloud_info,
-            flutter_info
+            {insert_fields}
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES ({placeholders})
         ON DUPLICATE KEY UPDATE
-            app_name = VALUES(app_name),
-            package_name = VALUES(package_name),
-            version_name = VALUES(version_name),
-            version_code = VALUES(version_code),
-            icon_path = VALUES(icon_path),
-            cert_md5 = VALUES(cert_md5),
-            cert_sha1 = VALUES(cert_sha1),
-            cert_sha256 = VALUES(cert_sha256),
-            cert_info = VALUES(cert_info),
-            permissions = VALUES(permissions),
-            activities = VALUES(activities),
-            services = VALUES(services),
-            providers = VALUES(providers),
-            receivers = VALUES(receivers),
-            so_files = VALUES(so_files),
-            component_string = VALUES(component_string),
-            component_md5 = VALUES(component_md5),
-            framework_name = VALUES(framework_name),
-            framework_matches = VALUES(framework_matches),
-            is_packed = VALUES(is_packed),
-            packer_vendor = VALUES(packer_vendor),
-            packer_vendors = VALUES(packer_vendors),
-            packer_details = VALUES(packer_details),
-            is_obfuscated = VALUES(is_obfuscated),
-            obfuscation_vendor = VALUES(obfuscation_vendor),
-            obfuscation_vendors = VALUES(obfuscation_vendors),
-            obfuscator_details = VALUES(obfuscator_details),
-            protection_detect_error = VALUES(protection_detect_error),
-            source_phones = VALUES(source_phones),
-            source_emails = VALUES(source_emails),
-            source_urls = VALUES(source_urls),
-            dcloud_info = VALUES(dcloud_info),
-            flutter_info = VALUES(flutter_info)
+            {update_fields}
     """
+    values = [task_id] + [
+        _serialize_static_value(field, data.get(field))
+        for field in STATIC_RESULT_FIELDS
+    ]
     rows, _ = execute(
         sql,
-        (
-            task_id,
-            data.get("app_name"),
-            data.get("package_name"),
-            data.get("version_name"),
-            data.get("version_code"),
-            data.get("icon_path"),
-            data.get("cert_md5"),
-            data.get("cert_sha1"),
-            data.get("cert_sha256"),
-            json.dumps(data.get("cert_info"), ensure_ascii=False) if data.get("cert_info") is not None else None,
-            json.dumps(data.get("permissions") or [], ensure_ascii=False),
-            json.dumps(data.get("activities") or [], ensure_ascii=False),
-            json.dumps(data.get("services") or [], ensure_ascii=False),
-            json.dumps(data.get("providers") or [], ensure_ascii=False),
-            json.dumps(data.get("receivers") or [], ensure_ascii=False),
-            json.dumps(data.get("so_files") or [], ensure_ascii=False),
-            data.get("component_string"),
-            data.get("component_md5"),
-            data.get("framework_name"),
-            json.dumps(data.get("framework_matches") or [], ensure_ascii=False),
-            1 if data.get("is_packed") else 0,
-            data.get("packer_vendor"),
-            json.dumps(data.get("packer_vendors") or [], ensure_ascii=False),
-            json.dumps(data.get("packer_details") or [], ensure_ascii=False),
-            1 if data.get("is_obfuscated") else 0,
-            data.get("obfuscation_vendor"),
-            json.dumps(data.get("obfuscation_vendors") or [], ensure_ascii=False),
-            json.dumps(data.get("obfuscator_details") or [], ensure_ascii=False),
-            data.get("protection_detect_error"),
-            data.get("unpack_archive_path"),
-            data.get("unpack_error"),
-            json.dumps(data.get("source_phones") or [], ensure_ascii=False),
-            json.dumps(data.get("source_emails") or [], ensure_ascii=False),
-            json.dumps(data.get("source_urls") or [], ensure_ascii=False),
-            json.dumps(data.get("dcloud_info"), ensure_ascii=False) if data.get("dcloud_info") is not None else None,
-            json.dumps(data.get("flutter_info"), ensure_ascii=False) if data.get("flutter_info") is not None else None,
-        ),
+        tuple(values),
     )
     return rows
 
@@ -415,34 +396,13 @@ def update_static_result_fields(task_id: str, fields: dict[str, Any]) -> int:
     if not fields:
         return 0
 
-    json_fields = {
-        "permissions",
-        "activities",
-        "services",
-        "providers",
-        "receivers",
-        "so_files",
-        "packer_vendors",
-        "packer_details",
-        "obfuscation_vendors",
-        "obfuscator_details",
-        "framework_matches",
-        "source_phones",
-        "source_emails",
-        "source_urls",
-        "dcloud_info",
-        "flutter_info",
-    }
     set_fragments: list[str] = []
     values: list[Any] = []
     for key, value in fields.items():
+        if key not in STATIC_RESULT_FIELDS:
+            raise ValueError(f"不支持更新 static_results 字段: {key}")
         set_fragments.append(f"{key} = %s")
-        if key in json_fields:
-            values.append(json.dumps(value or [], ensure_ascii=False))
-        elif key in {"is_packed", "is_obfuscated"}:
-            values.append(1 if value else 0)
-        else:
-            values.append(value)
+        values.append(_serialize_static_value(key, value))
 
     sql = f"""
         UPDATE static_results

@@ -43,6 +43,9 @@ class LoginPage extends StatefulWidget {
 }
 class LoginState extends State<LoginPage> {
   Widget build(BuildContext context) {
+    final api = "https://api.fraud.example.com/v1/login";
+    final domain = "data.fraud.example.net:8443";
+    final ip = "10.0.0.8:9000";
   }
 }
 """.lstrip(),
@@ -53,6 +56,7 @@ class LoginState extends State<LoginPage> {
                 """
 // lib: , url: package:dio/src/dio.dart
 class Dio {
+  static const endpoint = "https://sdk.example.com/collect";
 }
 """.lstrip(),
                 encoding="utf-8",
@@ -73,6 +77,16 @@ class Dio {
             result["primary_package_classes"],
             ["LoginPage", "LoginState", "MyRootApp"],
         )
+        self.assertEqual(
+            result["remote_service_urls"],
+            ["https://api.fraud.example.com/v1/login", "https://sdk.example.com/collect"],
+        )
+        self.assertEqual(
+            result["remote_service_domains"],
+            ["api.fraud.example.com", "data.fraud.example.net:8443", "sdk.example.com"],
+        )
+        self.assertEqual(result["primary_remote_service_urls"], ["https://api.fraud.example.com/v1/login"])
+        self.assertEqual(result["primary_remote_service_domains"], ["api.fraud.example.com", "data.fraud.example.net:8443"])
 
     def test_resolves_configured_md5_asm_dir(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -232,14 +246,13 @@ class DemoApp extends StatelessWidget {
             static_analysis.settings.FLUTTER_BLUTTER_OUTPUT_ROOT = str(output_root)
             static_analysis.settings.FLUTTER_BLUTTER_ENABLED = True
             try:
-                result = static_analysis._extract_flutter_info(str(apk_path), md5, "Flutter")
+                result = static_analysis._extract_flutter_fields(str(apk_path), md5, "Flutter")
             finally:
                 static_analysis.settings.FLUTTER_BLUTTER_TOOL_ROOT = original_tool_root
                 static_analysis.settings.FLUTTER_BLUTTER_OUTPUT_ROOT = original_output_root
                 static_analysis.settings.FLUTTER_BLUTTER_ENABLED = original_enabled
 
-            self.assertEqual(result["status"], "ok")
-            self.assertEqual(result["primary_package"], "demo")
+            self.assertEqual(result["flutter_primary_package"], "demo")
             self.assertFalse((output_root / md5).exists())
 
 

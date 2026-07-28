@@ -6,6 +6,7 @@ import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 
 LIBRARY_RE = re.compile(r"^// lib:.*?, url:\s*(.*?)\s*$")
@@ -17,6 +18,14 @@ CLASS_RE = re.compile(
 )
 MAIN_RE = re.compile(r"^\s+(?:\[closure\]\s+)?static\s+(?:Future(?:<[^>]+>)?|void|dynamic|_)\s+main\s*\(")
 RUN_APP_RE = re.compile(r"\br\d+\s*=\s*runApp\(\)|\[package:flutter/src/widgets/binding\.dart\]\s+::runApp")
+QUOTED_RE = re.compile(r'"(?:\\.|[^"\\])*"')
+URL_RE = re.compile(r"(?i)\b(?:https?|wss?|ftp)://[^\s\"'<>\\\]\[{}()]+")
+DOMAIN_RE = re.compile(
+    r"(?i)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+"
+    r"(?:com|net|org|cn|io|co|cc|app|dev|me|tv|xyz|top|vip|club|cloud|tech|ai|info|biz|site|link|live)"
+    r"(?::\d{1,5})?"
+)
+IP_RE = re.compile(r"(?:\d{1,3}\.){3}\d{1,3}(?::\d{1,5})?")
 ALLOCATED_CLASS_RE = re.compile(r"Allocate([A-Za-z_$][A-Za-z0-9_$]*)Stub(?:\s*->\s*([A-Za-z_$][A-Za-z0-9_$]*))?")
 INSTANCE_CLASS_RE = re.compile(r"\bInstance_([A-Za-z_$][A-Za-z0-9_$]*)\b")
 BUILD_RE = re.compile(r"^\s{2}(?!//).*\bbuild\s*\(")
@@ -69,6 +78,10 @@ class FlutterAnalysisResult:
     root_widget_library_uri: str = ""
     library_uris: list[str] = field(default_factory=list)
     primary_package_classes: list[str] = field(default_factory=list)
+    remote_service_urls: list[str] = field(default_factory=list)
+    remote_service_domains: list[str] = field(default_factory=list)
+    primary_remote_service_urls: list[str] = field(default_factory=list)
+    primary_remote_service_domains: list[str] = field(default_factory=list)
     class_count: int = 0
     error: str = ""
 
@@ -84,6 +97,10 @@ class FlutterAnalysisResult:
             "root_widget_library_uri": self.root_widget_library_uri,
             "library_uris": self.library_uris,
             "primary_package_classes": self.primary_package_classes,
+            "remote_service_urls": self.remote_service_urls,
+            "remote_service_domains": self.remote_service_domains,
+            "primary_remote_service_urls": self.primary_remote_service_urls,
+            "primary_remote_service_domains": self.primary_remote_service_domains,
             "class_count": self.class_count,
             "error": self.error,
         }
@@ -95,6 +112,10 @@ def missing_flutter_asm_result(candidates: list[str]) -> dict[str, Any]:
         error="未找到 Flutter blutter asm 产物",
         library_uris=[],
         primary_package_classes=[],
+        remote_service_urls=[],
+        remote_service_domains=[],
+        primary_remote_service_urls=[],
+        primary_remote_service_domains=[],
     ).to_static_field() | {"candidate_asm_dirs": candidates}
 
 
@@ -106,6 +127,8 @@ def analyze_flutter_asm_dir(asm_dir: str | Path) -> FlutterAnalysisResult:
     records = _scan_library_records(root)
     primary = _locate_primary_entry(records)
     features = _extract_primary_features(records, primary)
+    network = _network_features_from_records(records)
+    primary_network = _network_features_from_records(_primary_library_records(records, primary))
 
     return FlutterAnalysisResult(
         status="ok" if records else "empty_asm",
@@ -118,6 +141,10 @@ def analyze_flutter_asm_dir(asm_dir: str | Path) -> FlutterAnalysisResult:
         root_widget_library_uri=str(primary["root_widget_library_uri"]),
         library_uris=features["library_uris"],
         primary_package_classes=features["classes"],
+        remote_service_urls=network["urls"],
+        remote_service_domains=network["domains"],
+        primary_remote_service_urls=primary_network["urls"] if primary["package"] else [],
+        primary_remote_service_domains=primary_network["domains"] if primary["package"] else [],
         class_count=len(features["classes"]),
     )
 
@@ -158,6 +185,49 @@ def _decode_quoted(value: str) -> str:
     except (SyntaxError, ValueError):
         return value[1:-1]
     return decoded if isinstance(decoded, str) else str(decoded)
+
+
+def _network_features(strings: set[str]) -> dict[str, list[str]]:
+    urls: set[str] = set()
+    domains: set[str] = set()
+
+    for source in strings:
+        value = source.strip()
+        if not value:
+            continue
+
+        if URL_RE.fullmatch(value):
+            try:
+                parts = urlsplit(value)
+                port = parts.port
+            except ValueError:
+                continue
+            if parts.hostname:
+                urls.add(value)
+                host = parts.hostname.lower()
+                host_with_port = f"{host}:{port}" if port is not None else host
+                if not IP_RE.fullmatch(host_with_port):
+                    domains.add(host_with_port)
+            continue
+
+        if DOMAIN_RE.fullmatch(value):
+            host, separator, port = value.rpartition(":")
+            if separator and (not port.isdigit() or int(port) > 65535):
+                continue
+            domains.add(value.lower())
+            continue
+
+    return {
+        "urls": sorted(urls),
+        "domains": sorted(domains),
+    }
+
+
+def _network_features_from_records(records: list[dict[str, Any]]) -> dict[str, list[str]]:
+    strings: set[str] = set()
+    for record in records:
+        strings.update(record.get("strings") or set())
+    return _network_features(strings)
 
 
 def _strip_generic_segments(value: str) -> str:
@@ -212,6 +282,7 @@ def _excluded_non_common_library(uri: str) -> bool:
 def _parse_library_record(path: Path) -> dict[str, Any]:
     uri = ""
     classes: set[str] = set()
+    strings: set[str] = set()
     class_details: dict[str, dict[str, Any]] = {}
     current_class = ""
     in_main = False
@@ -272,6 +343,8 @@ def _parse_library_record(path: Path) -> dict[str, Any]:
                 for match in ALLOCATED_CLASS_RE.finditer(line):
                     main_instances.add(match.group(2) or match.group(1))
                 main_instances.update(INSTANCE_CLASS_RE.findall(line))
+            for quoted in QUOTED_RE.findall(line):
+                strings.add(_decode_quoted(quoted))
 
     for widget_name, detail in class_details.items():
         for state_name in detail["created_states"]:
@@ -286,6 +359,7 @@ def _parse_library_record(path: Path) -> dict[str, Any]:
         "calls_run_app": calls_run_app,
         "main_instances": main_instances,
         "classes": classes,
+        "strings": strings,
         "class_details": class_details,
     }
 
