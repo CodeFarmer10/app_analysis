@@ -44,6 +44,11 @@ class Settings(BaseSettings):
 
     DYNAMIC_TRACE_TASK_TEXT: str = "模拟操作探索APP功能"
     DYNAMIC_TRACE_RESULT_DIR: str = str(BASE_DIR / "data" / "dynamic_trace")
+    FLUTTER_BLUTTER_ROOT: str = ""
+    FLUTTER_BLUTTER_ENABLED: bool = True
+    FLUTTER_BLUTTER_TOOL_ROOT: str = str(BASE_DIR / "tools" / "blutter")
+    FLUTTER_BLUTTER_OUTPUT_ROOT: str = str(BASE_DIR / "data" / "flutter_blutter")
+    FLUTTER_BLUTTER_TIMEOUT_SECONDS: int = 900
     REAL_CONTROLLER_TAGGING_ENABLED: bool = True
     REAL_CONTROLLER_TAGGING_BASE_URL: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     REAL_CONTROLLER_TAGGING_MODEL: str = "qwen3-vl-235b-a22b-instruct"

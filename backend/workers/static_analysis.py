@@ -7,7 +7,10 @@ from pathlib import Path
 
 import pymysql
 from analyzers.apk_parser import parse_apk
+from analyzers.dcloud_analyzer import analyze_dcloud_apk
 from analyzers.framework_detector import detect_framework
+from analyzers.flutter_blutter_runner import run_flutter_blutter
+from analyzers.flutter_analyzer import analyze_flutter_asm_dir, missing_flutter_asm_result, resolve_flutter_asm_dir
 from analyzers.ioc_extractor import extract_source_iocs
 from analyzers.jadx_workspace import open_jadx_workspace
 from analyzers.sdk_detector import SdkDetectResult, detect_sdks
@@ -16,6 +19,7 @@ from protection import detect_protection
 from celery import Task
 from repositories.task_repo import get_task_by_id, update_task, upsert_static_result
 from repositories.sdk_repo import replace_sdk_results
+from core.config import settings
 from services.storage_service import storage_service
 from workers.celery_app import celery_app
 
@@ -109,6 +113,91 @@ def _detect_framework_fields(local_apk_path: str) -> dict:
             "framework_name": None,
             "framework_matches": [],
         }
+
+
+def _extract_dcloud_info(local_apk_path: str, framework_name: object, is_obfuscated: bool) -> dict | None:
+    if str(framework_name or "").strip() != "uni-app/DCloud":
+        return None
+    try:
+        info = analyze_dcloud_apk(local_apk_path).to_static_field()
+        info["is_obfuscated"] = bool(is_obfuscated or info.get("is_obfuscated"))
+        return info
+    except Exception as exc:  # pragma: no cover - depends on APK structure
+        logger.warning("dcloud asset analysis failed path=%s err=%s", local_apk_path, exc)
+        return {
+            "tech_type": "error",
+            "appids": [],
+            "pages": [],
+            "api_routes": [],
+            "remote_service_urls": [],
+            "remote_service_domains": [],
+            "is_confused": False,
+            "confusion_details": [],
+            "is_obfuscated": bool(is_obfuscated),
+            "error": str(exc)[:1000],
+        }
+
+
+def _flutter_asm_roots() -> list[str | Path]:
+    return [
+        settings.FLUTTER_BLUTTER_ROOT,
+        settings.FLUTTER_BLUTTER_OUTPUT_ROOT,
+    ]
+
+
+def _extract_flutter_info(local_apk_path: str, file_md5: object, framework_name: object) -> dict | None:
+    if str(framework_name or "").strip() != "Flutter":
+        return None
+
+    roots = _flutter_asm_roots()
+    asm_dir, candidates = resolve_flutter_asm_dir(str(file_md5 or ""), roots)
+    blutter_fields: dict = {}
+    generated_output_dir = ""
+    if asm_dir is None and settings.FLUTTER_BLUTTER_ENABLED:
+        run_result = run_flutter_blutter(
+            local_apk_path,
+            str(file_md5 or ""),
+            tool_root=settings.FLUTTER_BLUTTER_TOOL_ROOT,
+            output_root=settings.FLUTTER_BLUTTER_OUTPUT_ROOT,
+            timeout_seconds=settings.FLUTTER_BLUTTER_TIMEOUT_SECONDS,
+        )
+        blutter_fields = run_result.to_static_fields()
+        generated_output_dir = run_result.output_dir
+        asm_dir, candidates = resolve_flutter_asm_dir(str(file_md5 or ""), roots)
+        if asm_dir is None:
+            missing = missing_flutter_asm_result(candidates)
+            missing.update(blutter_fields)
+            missing["error"] = blutter_fields.get("blutter_error") or missing.get("error")
+            return missing
+
+    if asm_dir is None:
+        return missing_flutter_asm_result(candidates)
+
+    try:
+        result = analyze_flutter_asm_dir(asm_dir).to_static_field()
+        result.update(blutter_fields)
+        return result
+    except Exception as exc:  # pragma: no cover - depends on blutter output shape
+        logger.warning("flutter asm analysis failed md5=%s asm_dir=%s err=%s", file_md5, asm_dir, exc)
+        result = {
+            "status": "error",
+            "asm_dir": str(asm_dir),
+            "primary_package": "",
+            "primary_entry_uri": "",
+            "primary_entry_method": "",
+            "primary_entry_confidence": "none",
+            "root_widget_class": "",
+            "root_widget_library_uri": "",
+            "library_uris": [],
+            "primary_package_classes": [],
+            "class_count": 0,
+            "error": str(exc)[:1000],
+        }
+        result.update(blutter_fields)
+        return result
+    finally:
+        if generated_output_dir:
+            shutil.rmtree(generated_output_dir, ignore_errors=True)
 
 
 def _extract_source_ioc_fields(
@@ -241,6 +330,16 @@ def analyze_apk(self, task_id: str):
         parsed = parse_apk(local_apk_path)
         protection_fields = _detect_protection_fields(local_apk_path)
         framework_fields = _detect_framework_fields(local_apk_path)
+        dcloud_info = _extract_dcloud_info(
+            local_apk_path,
+            framework_fields.get("framework_name"),
+            bool(protection_fields.get("is_obfuscated")),
+        )
+        flutter_info = _extract_flutter_info(
+            local_apk_path,
+            task.get("file_md5"),
+            framework_fields.get("framework_name"),
+        )
         source_artifact_fields, sdk_result = _extract_source_artifact_fields(
             local_apk_path,
             is_packed=bool(protection_fields.get("is_packed")),
@@ -290,6 +389,8 @@ def analyze_apk(self, task_id: str):
                 **framework_fields,
                 **protection_fields,
                 **source_artifact_fields,
+                "dcloud_info": dcloud_info,
+                "flutter_info": flutter_info,
             },
         )
         replace_sdk_results(task_id, sdk_result.findings)

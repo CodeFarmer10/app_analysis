@@ -763,6 +763,40 @@ PREPARE stmt_static_results_source_urls_col FROM @sql_static_results_source_urls
 EXECUTE stmt_static_results_source_urls_col;
 DEALLOCATE PREPARE stmt_static_results_source_urls_col;
 
+-- DCloud/uni-app asset-level extraction details.
+SET @static_results_dcloud_info_col := (
+  SELECT COUNT(*)
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'dcloud_info'
+);
+SET @sql_static_results_dcloud_info_col := IF(
+  @static_results_dcloud_info_col = 0,
+  'ALTER TABLE static_results ADD COLUMN dcloud_info JSON NULL AFTER source_urls',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_dcloud_info_col FROM @sql_static_results_dcloud_info_col;
+EXECUTE stmt_static_results_dcloud_info_col;
+DEALLOCATE PREPARE stmt_static_results_dcloud_info_col;
+
+-- Flutter blutter asm primary-package extraction details.
+SET @static_results_flutter_info_col := (
+  SELECT COUNT(*)
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'flutter_info'
+);
+SET @sql_static_results_flutter_info_col := IF(
+  @static_results_flutter_info_col = 0,
+  'ALTER TABLE static_results ADD COLUMN flutter_info JSON NULL AFTER dcloud_info',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_flutter_info_col FROM @sql_static_results_flutter_info_col;
+EXECUTE stmt_static_results_flutter_info_col;
+DEALLOCATE PREPARE stmt_static_results_flutter_info_col;
+
 -- Preserve the complete detector output for later traceability.
 SET @sdk_results_raw_finding_col := (
   SELECT COUNT(*)

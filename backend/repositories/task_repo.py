@@ -251,7 +251,9 @@ def get_static_result(task_id: str) -> dict | None:
             unpack_error,
             source_phones,
             source_emails,
-            source_urls
+            source_urls,
+            dcloud_info,
+            flutter_info
         FROM static_results
         WHERE task_id = %s
         LIMIT 1
@@ -276,6 +278,8 @@ def get_static_result(task_id: str) -> dict | None:
         "source_phones",
         "source_emails",
         "source_urls",
+        "dcloud_info",
+        "flutter_info",
     ):
         value = row.get(field)
         if isinstance(value, str):
@@ -323,9 +327,11 @@ def upsert_static_result(task_id: str, data: dict[str, Any]) -> int:
             unpack_error,
             source_phones,
             source_emails,
-            source_urls
+            source_urls,
+            dcloud_info,
+            flutter_info
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         ON DUPLICATE KEY UPDATE
             app_name = VALUES(app_name),
             package_name = VALUES(package_name),
@@ -357,7 +363,9 @@ def upsert_static_result(task_id: str, data: dict[str, Any]) -> int:
             protection_detect_error = VALUES(protection_detect_error),
             source_phones = VALUES(source_phones),
             source_emails = VALUES(source_emails),
-            source_urls = VALUES(source_urls)
+            source_urls = VALUES(source_urls),
+            dcloud_info = VALUES(dcloud_info),
+            flutter_info = VALUES(flutter_info)
     """
     rows, _ = execute(
         sql,
@@ -396,6 +404,8 @@ def upsert_static_result(task_id: str, data: dict[str, Any]) -> int:
             json.dumps(data.get("source_phones") or [], ensure_ascii=False),
             json.dumps(data.get("source_emails") or [], ensure_ascii=False),
             json.dumps(data.get("source_urls") or [], ensure_ascii=False),
+            json.dumps(data.get("dcloud_info"), ensure_ascii=False) if data.get("dcloud_info") is not None else None,
+            json.dumps(data.get("flutter_info"), ensure_ascii=False) if data.get("flutter_info") is not None else None,
         ),
     )
     return rows
@@ -420,6 +430,8 @@ def update_static_result_fields(task_id: str, fields: dict[str, Any]) -> int:
         "source_phones",
         "source_emails",
         "source_urls",
+        "dcloud_info",
+        "flutter_info",
     }
     set_fragments: list[str] = []
     values: list[Any] = []

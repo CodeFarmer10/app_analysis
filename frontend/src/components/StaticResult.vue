@@ -127,6 +127,67 @@ const sourceIocGroups = computed(() => {
 
 const hasSourceIocs = computed(() => sourceIocGroups.value.some((group) => group.items.length > 0))
 
+const dcloudInfo = computed(() => {
+  const info = props.result?.dcloud_info
+  if (info && typeof info === 'object') {
+    return info
+  }
+  if (typeof info === 'string' && info.trim()) {
+    try {
+      const parsed = JSON.parse(info)
+      return parsed && typeof parsed === 'object' ? parsed : null
+    } catch {
+      return null
+    }
+  }
+  return null
+})
+
+const isDcloudFramework = computed(() => props.result?.framework_name === 'uni-app/DCloud')
+
+const hasDcloudPanel = computed(() => isDcloudFramework.value || Boolean(dcloudInfo.value))
+
+const dcloudExtractionStatus = computed(() => {
+  if (!isDcloudFramework.value) {
+    return '非 DCloud 应用'
+  }
+  if (!dcloudInfo.value) {
+    return '未提取或历史结果未回填'
+  }
+  if (dcloudInfo.value.error) {
+    return dcloudInfo.value.error
+  }
+  return '已提取'
+})
+
+const dcloudRouteGroups = computed(() => {
+  if (!dcloudInfo.value) {
+    return []
+  }
+  return [
+    {
+      key: 'pages',
+      label: 'pages',
+      items: Array.isArray(dcloudInfo.value.pages) ? dcloudInfo.value.pages : [],
+    },
+    {
+      key: 'api_routes',
+      label: 'API 路由',
+      items: Array.isArray(dcloudInfo.value.api_routes) ? dcloudInfo.value.api_routes : [],
+    },
+    {
+      key: 'remote_service_urls',
+      label: '数据服务 URL',
+      items: Array.isArray(dcloudInfo.value.remote_service_urls) ? dcloudInfo.value.remote_service_urls : [],
+    },
+    {
+      key: 'remote_service_domains',
+      label: '数据服务域名',
+      items: Array.isArray(dcloudInfo.value.remote_service_domains) ? dcloudInfo.value.remote_service_domains : [],
+    },
+  ]
+})
+
 const sdkFindings = computed(() => {
   const source = Array.isArray(props.result?.sdk_findings) ? props.result.sdk_findings : []
   return source.filter((item) => item && typeof item === 'object' && item.sdk_id)
@@ -328,6 +389,43 @@ function formatPublicKey(cert) {
         </a-descriptions>
       </a-card>
 
+      <a-card v-if="hasDcloudPanel" :bordered="false" class="section-card">
+        <template #title>DCloud 资源特征</template>
+        <a-descriptions :column="2" size="small">
+          <a-descriptions-item label="提取状态">
+            {{ dcloudExtractionStatus }}
+          </a-descriptions-item>
+          <a-descriptions-item label="开发类型">
+            {{ dcloudInfo?.tech_type || '--' }}
+          </a-descriptions-item>
+          <a-descriptions-item label="是否混淆">
+            <a-tag :color="dcloudInfo?.is_obfuscated || dcloudInfo?.is_confused ? 'orange' : 'green'">
+              {{ dcloudInfo?.is_obfuscated || dcloudInfo?.is_confused ? '是' : '否' }}
+            </a-tag>
+          </a-descriptions-item>
+          <a-descriptions-item label="DCloud AppID">
+            <span class="mono-text">{{ dcloudInfo?.appids?.length ? dcloudInfo.appids.join('、') : '--' }}</span>
+          </a-descriptions-item>
+          <a-descriptions-item label="混淆证据">
+            <span class="mono-text">
+              {{ dcloudInfo?.confusion_details?.length ? dcloudInfo.confusion_details.join('、') : '--' }}
+            </span>
+          </a-descriptions-item>
+        </a-descriptions>
+        <a-collapse class="framework-feature-collapse">
+          <a-collapse-panel
+            v-for="group in dcloudRouteGroups"
+            :key="group.key"
+            :header="`${group.label} ${getComponentCountText(group.items.length)}`"
+          >
+            <a-empty v-if="group.items.length === 0" :description="`未发现${group.label}`" />
+            <div v-else class="framework-feature-list">
+              <div v-for="item in group.items" :key="item" class="framework-feature-item mono-text">{{ item }}</div>
+            </div>
+          </a-collapse-panel>
+        </a-collapse>
+      </a-card>
+
       <a-card :bordered="false" class="section-card">
         <template #title>源码线索</template>
         <a-empty v-if="!hasSourceIocs" :description="sourceIocStatusText" />
@@ -477,6 +575,26 @@ function formatPublicKey(cert) {
 
 .cert-block {
   margin-top: 16px;
+}
+
+.framework-feature-collapse {
+  margin-top: 12px;
+}
+
+.framework-feature-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 8px;
+}
+
+.framework-feature-item {
+  min-height: 28px;
+  padding: 5px 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  background: rgba(148, 163, 184, 0.12);
+  color: #d7e3ef;
+  word-break: break-all;
 }
 
 /* "否" 的签名版本徽标：固定浅底深字，避免暗色主题下黑字看不清 */

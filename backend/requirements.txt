@@ -17,6 +17,8 @@ passlib[bcrypt]==1.7.4
 pydantic-settings==2.3.4
 python-dotenv==1.0.1
 httpx==0.27.0
+requests>=2.32.0
+pyelftools>=0.31
 Pillow>=12.0.0
 openai>=2.9.0
 geoip2>=5.0.0
