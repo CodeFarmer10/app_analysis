@@ -38,12 +38,15 @@ URL_PATTERN = re.compile(
 EMAIL_LOCAL_MAX_CHARS = 32
 EMAIL_DOMAIN_MAX_CHARS = 32
 EMAIL_LOCAL_CHARS = frozenset(
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._+-"
+)
+EMAIL_LOCAL_BOUNDARY_CHARS = frozenset(
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._%+-"
 )
 EMAIL_DOMAIN_CHARS = frozenset(
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.-"
 )
-EMAIL_LOCAL = r"[A-Za-z0-9_%+-]+(?:\.[A-Za-z0-9_%+-]+)*"
+EMAIL_LOCAL = r"[A-Za-z0-9_+-]+(?:\.[A-Za-z0-9_+-]+)*"
 EMAIL_DOMAIN_LABEL = r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
 EMAIL_TLD = r"(?:[A-Za-z]{2,63}|xn--[A-Za-z0-9-]{1,59})"
 EMAIL_CANDIDATE_PATTERN = re.compile(
@@ -447,7 +450,7 @@ def _iter_emails(text: str):
         left = at
         while left > left_limit and text[left - 1] in EMAIL_LOCAL_CHARS:
             left -= 1
-        if left == at or (left > 0 and text[left - 1] in EMAIL_LOCAL_CHARS):
+        if left == at or (left > 0 and text[left - 1] in EMAIL_LOCAL_BOUNDARY_CHARS):
             continue
 
         right_limit = min(text_length, at + 1 + EMAIL_DOMAIN_MAX_CHARS)

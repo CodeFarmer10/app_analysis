@@ -25,6 +25,7 @@ class IocExtractorTest(unittest.TestCase):
                 "normal.user@-bad.top",
                 "normal.user@bad..top",
                 "normal.user@localhost",
+                "percent%user@example.top",
             ]
         )
         collector = SourceIocCollector()
@@ -35,6 +36,20 @@ class IocExtractorTest(unittest.TestCase):
         self.assertEqual(
             {item.value for item in result.items["email"]},
             {"normal.user@example.top", f"{valid_local}@{valid_domain}"},
+        )
+
+    def test_email_extraction_excludes_percent_local_part(self) -> None:
+        collector = SourceIocCollector()
+        collector.scan_blob(
+            "classes.dex",
+            b"valid.user@example.top percent%user@example.top bad%@example.top",
+        )
+
+        result = collector.build_result()
+
+        self.assertEqual(
+            {item.value for item in result.items["email"]},
+            {"valid.user@example.top"},
         )
 
     def test_email_extraction_skips_long_text_without_at_sign(self) -> None:
