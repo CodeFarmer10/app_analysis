@@ -4,6 +4,7 @@ import glob
 import mmap
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -147,6 +148,10 @@ def cmake_blutter(input: BlutterInput):
     blutter_dir = os.path.join(SCRIPT_DIR, 'blutter')
     builddir = os.path.join(BUILD_DIR, input.blutter_name)
     
+    if os.getenv('BLUTTER_STATIC_LINK') == '1':
+        _prepare_static_link(input.dart_info.lib_name)
+        shutil.rmtree(builddir, ignore_errors=True)
+
     macros = find_compat_macro(input.dart_info.version, input.no_analysis)
     my_env = None
     if platform.system() == 'Darwin':
@@ -161,6 +166,31 @@ def cmake_blutter(input: BlutterInput):
     # build and install blutter
     subprocess.run([NINJA_CMD], cwd=builddir, check=True)
     subprocess.run([CMAKE_CMD, '--install', '.'], cwd=builddir, check=True)
+
+
+def _prepare_static_link(dartlib_name: str):
+    target_file = os.path.join(PKG_LIB_DIR, 'cmake', dartlib_name, 'dartvmTarget.cmake')
+    if not os.path.isfile(target_file):
+        raise FileNotFoundError('Cannot find Dart VM CMake target: ' + target_file)
+
+    icu_libdir = subprocess.run(
+        ['pkg-config', '--variable=libdir', 'icu-uc'],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    icu_static_libs = f'{icu_libdir}/libicuuc.a;{icu_libdir}/libicudata.a'
+    with open(target_file, 'r+', encoding='utf-8') as target:
+        content = target.read()
+        content, count = re.subn(r'[^;"]*/libicuuc\.so(?:\.\d+)*', icu_static_libs, content)
+        if count:
+            target.seek(0)
+            target.truncate()
+            target.write(content)
+
+    static_flags = '-static -static-libgcc -static-libstdc++'
+    existing_flags = os.environ.get('LDFLAGS', '').strip()
+    os.environ['LDFLAGS'] = f'{existing_flags} {static_flags}'.strip()
 
 def get_dart_lib_info(libapp_path: str, libflutter_path: str) -> DartLibInfo:
     # getting dart version

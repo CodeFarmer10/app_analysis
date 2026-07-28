@@ -49,6 +49,7 @@ class Settings(BaseSettings):
     FLUTTER_BLUTTER_TOOL_ROOT: str = str(BASE_DIR / "tools" / "blutter")
     FLUTTER_BLUTTER_OUTPUT_ROOT: str = str(BASE_DIR / "data" / "flutter_blutter")
     FLUTTER_BLUTTER_TIMEOUT_SECONDS: int = 900
+    FLUTTER_BLUTTER_BUILD_DOCKER_IMAGE: str = ""
     REAL_CONTROLLER_TAGGING_ENABLED: bool = True
     REAL_CONTROLLER_TAGGING_BASE_URL: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     REAL_CONTROLLER_TAGGING_MODEL: str = "qwen3-vl-235b-a22b-instruct"

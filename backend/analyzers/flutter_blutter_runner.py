@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import subprocess
 import sys
 import zipfile
@@ -63,6 +64,7 @@ def run_flutter_blutter(
     tool_root: str | Path,
     output_root: str | Path,
     timeout_seconds: int,
+    build_docker_image: str = "",
 ) -> FlutterBlutterRunResult:
     md5 = str(file_md5 or "").strip().lower()
     if not md5:
@@ -93,6 +95,9 @@ def run_flutter_blutter(
     output_dir.mkdir(parents=True, exist_ok=True)
     input_dir.mkdir(parents=True, exist_ok=True)
 
+    dart_info: dict[str, Any] = {}
+    backend: dict[str, Any] = {}
+    command: list[str] = []
     try:
         _extract_flutter_libs(apk, input_dir)
         dart_info = _extract_dart_info(blutter_root, input_dir)
@@ -102,20 +107,50 @@ def run_flutter_blutter(
             input_dir,
             output_dir,
             backend,
+            build_docker_image=build_docker_image,
         )
         env = _build_blutter_env(blutter_root)
         with log_path.open("w", encoding="utf-8") as log_file:
-            subprocess.run(
-                command,
-                cwd=str(_tool_workspace(blutter_root)),
-                env=env,
-                stdout=log_file,
-                stderr=subprocess.STDOUT,
-                timeout=max(1, int(timeout_seconds or 1)),
-                check=True,
-            )
-        if not asm_dir.is_dir():
-            raise RuntimeError("Blutter 执行完成但未生成 asm 目录")
+            try:
+                _run_blutter_command(
+                    command,
+                    asm_dir=asm_dir,
+                    blutter_root=blutter_root,
+                    env=env,
+                    log_file=log_file,
+                    timeout_seconds=timeout_seconds,
+                )
+            except (OSError, subprocess.CalledProcessError, RuntimeError, subprocess.TimeoutExpired) as compatible_exc:
+                if backend.get("match") != "compatible":
+                    raise
+                log_file.write(
+                    f"\n[app_analysis] compatible backend failed: {compatible_exc}\n"
+                    "[app_analysis] retrying with build_required backend\n"
+                )
+                log_file.flush()
+                _clear_blutter_output(output_dir, input_dir, log_path)
+                backend = _build_required_backend(blutter_root, dart_info)
+                command = _build_blutter_command(
+                    blutter_script,
+                    input_dir,
+                    output_dir,
+                    backend,
+                    build_docker_image=build_docker_image,
+                )
+                try:
+                    _run_blutter_command(
+                        command,
+                        asm_dir=asm_dir,
+                        blutter_root=blutter_root,
+                        env=env,
+                        log_file=log_file,
+                        timeout_seconds=timeout_seconds,
+                    )
+                except (OSError, subprocess.CalledProcessError, RuntimeError, subprocess.TimeoutExpired) as build_exc:
+                    raise RuntimeError(
+                        f"相近 Blutter 后端执行失败: {compatible_exc}; "
+                        f"精确后端自动构建或执行失败: {build_exc}"
+                    ) from build_exc
         return FlutterBlutterRunResult(
             status="complete",
             output_dir=str(output_dir),
@@ -133,9 +168,59 @@ def run_flutter_blutter(
             command=command,
         )
     except subprocess.TimeoutExpired as exc:
-        return _failed_result(output_dir, asm_dir, input_dir, log_path, f"Blutter 执行超时: {exc}")
+        return _failed_result(
+            output_dir,
+            asm_dir,
+            input_dir,
+            log_path,
+            f"Blutter 执行超时: {exc}",
+            dart_info=dart_info,
+            backend=backend,
+            command=command,
+        )
     except (OSError, subprocess.CalledProcessError, RuntimeError, zipfile.BadZipFile, KeyError, AssertionError) as exc:
-        return _failed_result(output_dir, asm_dir, input_dir, log_path, str(exc))
+        return _failed_result(
+            output_dir,
+            asm_dir,
+            input_dir,
+            log_path,
+            str(exc),
+            dart_info=dart_info,
+            backend=backend,
+            command=command,
+        )
+
+
+def _run_blutter_command(
+    command: list[str],
+    *,
+    asm_dir: Path,
+    blutter_root: Path,
+    env: dict[str, str],
+    log_file: Any,
+    timeout_seconds: int,
+) -> None:
+    subprocess.run(
+        command,
+        cwd=str(_tool_workspace(blutter_root)),
+        env=env,
+        stdout=log_file,
+        stderr=subprocess.STDOUT,
+        timeout=max(1, int(timeout_seconds or 1)),
+        check=True,
+    )
+    if not asm_dir.is_dir():
+        raise RuntimeError("Blutter 执行完成但未生成 asm 目录")
+
+
+def _clear_blutter_output(output_dir: Path, input_dir: Path, log_path: Path) -> None:
+    for path in output_dir.iterdir():
+        if path == input_dir or path == log_path:
+            continue
+        if path.is_dir():
+            shutil.rmtree(path, ignore_errors=True)
+        else:
+            path.unlink(missing_ok=True)
 
 
 def _extract_flutter_libs(apk: Path, input_dir: Path) -> None:
@@ -200,9 +285,14 @@ def _select_backend(blutter_root: Path, dart_info: dict[str, Any]) -> dict[str, 
             "use_dart_version_arg": True,
         }
 
+    return _build_required_backend(blutter_root, dart_info)
+
+
+def _build_required_backend(blutter_root: Path, dart_info: dict[str, Any]) -> dict[str, Any]:
+    actual_version = str(dart_info["dart_version"])
     return {
         "version": actual_version,
-        "executable": exact,
+        "executable": _backend_executable(blutter_root, dart_info),
         "match": "build_required",
         "use_dart_version_arg": False,
     }
@@ -242,7 +332,32 @@ def _build_blutter_command(
     input_dir: Path,
     output_dir: Path,
     backend: dict[str, Any],
+    *,
+    build_docker_image: str = "",
 ) -> list[str]:
+    image = str(build_docker_image or "").strip()
+    if backend["match"] == "build_required" and image:
+        blutter_root = blutter_script.parent.resolve()
+        output_root = output_dir.resolve()
+        return [
+            "docker",
+            "run",
+            "--rm",
+            "--volume",
+            f"{blutter_root}:{blutter_root}",
+            "--volume",
+            f"{output_root}:{output_root}",
+            "--workdir",
+            str(_tool_workspace(blutter_root)),
+            "--env",
+            "BLUTTER_STATIC_LINK=1",
+            image,
+            "python3",
+            str(blutter_script.resolve()),
+            str(input_dir.resolve()),
+            str(output_root),
+        ]
+
     command = [sys.executable, str(blutter_script)]
     if backend["use_dart_version_arg"]:
         command.extend(
@@ -301,12 +416,33 @@ def _tool_workspace(blutter_root: Path) -> Path:
     return blutter_root.resolve().parent
 
 
-def _failed_result(output_dir: Path, asm_dir: Path, input_dir: Path, log_path: Path, error: str) -> FlutterBlutterRunResult:
+def _failed_result(
+    output_dir: Path,
+    asm_dir: Path,
+    input_dir: Path,
+    log_path: Path,
+    error: str,
+    *,
+    dart_info: dict[str, Any] | None = None,
+    backend: dict[str, Any] | None = None,
+    command: list[str] | None = None,
+) -> FlutterBlutterRunResult:
+    dart_info = dart_info or {}
+    backend = backend or {}
     return FlutterBlutterRunResult(
         status="failed",
         output_dir=str(output_dir),
         asm_dir=str(asm_dir),
         input_dir=str(input_dir),
         log_path=str(log_path),
+        dart_version=str(dart_info.get("dart_version") or ""),
+        snapshot_hash=str(dart_info.get("snapshot_hash") or ""),
+        target_arch=str(dart_info.get("target_arch") or ""),
+        target_os=str(dart_info.get("target_os") or ""),
+        compressed_pointers=dart_info.get("compressed_pointers"),
+        backend_version=str(backend.get("version") or ""),
+        backend_executable=str(backend.get("executable") or ""),
+        backend_match=str(backend.get("match") or ""),
         error=error[:1000],
+        command=command or [],
     )

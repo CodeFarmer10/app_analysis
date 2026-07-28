@@ -179,6 +179,7 @@ def _extract_flutter_fields(local_apk_path: str, file_md5: object, framework_nam
             tool_root=settings.FLUTTER_BLUTTER_TOOL_ROOT,
             output_root=settings.FLUTTER_BLUTTER_OUTPUT_ROOT,
             timeout_seconds=settings.FLUTTER_BLUTTER_TIMEOUT_SECONDS,
+            build_docker_image=settings.FLUTTER_BLUTTER_BUILD_DOCKER_IMAGE,
         )
         blutter_fields = run_result.to_static_fields()
         generated_output_dir = run_result.output_dir
@@ -186,6 +187,8 @@ def _extract_flutter_fields(local_apk_path: str, file_md5: object, framework_nam
         if asm_dir is None:
             missing = missing_flutter_asm_result(candidates)
             missing.update(blutter_fields)
+            if generated_output_dir:
+                shutil.rmtree(generated_output_dir, ignore_errors=True)
             return _flutter_static_fields(missing)
 
     if asm_dir is None:

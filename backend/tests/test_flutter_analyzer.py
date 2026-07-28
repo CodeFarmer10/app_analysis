@@ -193,6 +193,63 @@ out = pathlib.Path(sys.argv[2])
             self.assertEqual(result.backend_version, "3.12.0")
             self.assertIn("--dart-version\n3.12.0_android_arm64", args_text)
 
+    def test_builds_exact_backend_after_compatible_backend_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            apk_path = root / "sample.apk"
+            with zipfile.ZipFile(apk_path, "w") as archive:
+                archive.writestr("lib/arm64-v8a/libapp.so", b"app")
+                archive.writestr("lib/arm64-v8a/libflutter.so", b"flutter")
+
+            tool_root = root / "tools" / "blutter"
+            (tool_root / "bin").mkdir(parents=True)
+            (tool_root / "bin" / "blutter_dartvm3.12.0_android_arm64").write_text("", encoding="utf-8")
+            (tool_root / "extract_dart_info.py").write_text(
+                """
+def extract_dart_info(libapp_file, libflutter_file):
+    return "3.12.1", "app-snapshot", ["compressed-pointers"], "arm64", "android"
+""".lstrip(),
+                encoding="utf-8",
+            )
+            (tool_root / "blutter.py").write_text(
+                """
+import pathlib
+import sys
+
+tool_root = pathlib.Path(__file__).parent
+with (tool_root / "calls.txt").open("a", encoding="utf-8") as call_log:
+    call_log.write("\\n".join(sys.argv[1:]) + "\\n---\\n")
+
+if "--dart-version" in sys.argv:
+    raise SystemExit(7)
+
+out = pathlib.Path(sys.argv[2])
+(tool_root / "bin" / "blutter_dartvm3.12.1_android_arm64").write_text("built", encoding="utf-8")
+(out / "asm").mkdir(parents=True, exist_ok=True)
+(out / "pp.txt").write_text("ok", encoding="utf-8")
+""".lstrip(),
+                encoding="utf-8",
+            )
+            output_root = root / "outputs"
+            md5 = "abcdef0123456789abcdef0123456789"
+
+            result = run_flutter_blutter(
+                apk_path,
+                md5,
+                tool_root=tool_root,
+                output_root=output_root,
+                timeout_seconds=10,
+            )
+
+            calls = (tool_root / "calls.txt").read_text(encoding="utf-8").split("\n---\n")
+            self.assertEqual(result.status, "complete")
+            self.assertEqual(result.backend_match, "build_required")
+            self.assertEqual(result.backend_version, "3.12.1")
+            self.assertNotIn("--dart-version", result.command)
+            self.assertIn("--dart-version\n3.12.0_android_arm64", calls[0])
+            self.assertNotIn("--dart-version", calls[1])
+            self.assertTrue((tool_root / "bin" / "blutter_dartvm3.12.1_android_arm64").is_file())
+
     def test_static_flutter_extraction_removes_generated_md5_dir(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
