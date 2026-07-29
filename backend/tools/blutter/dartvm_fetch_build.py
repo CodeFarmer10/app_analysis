@@ -1,5 +1,6 @@
 import mmap
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -37,18 +38,21 @@ class DartLibInfo:
         self.version = version
         self.os_name = os_name
         self.arch = arch
-        self.snapshot_hash = snapshot_hash
+        self.snapshot_hash = str(snapshot_hash or "")
         if has_compressed_ptrs is None:
             # use same as flutter default configuration
             # TODO: old Dart version has no pointer compression
             self.has_compressed_ptrs = os_name != 'ios'
         else:
             self.has_compressed_ptrs = has_compressed_ptrs
-        self.lib_name = f'dartvm{version}_{os_name}_{arch}'
+        snapshot_token = re.sub(r'[^a-z0-9.-]+', '-', self.snapshot_hash.lower()).strip('-') or 'unknown'
+        pointer_mode = 'compressed' if self.has_compressed_ptrs else 'uncompressed'
+        self.cache_name = f'{version}_snapshot_{snapshot_token}_{os_name}_{arch}_{pointer_mode}'
+        self.lib_name = f'dartvm{self.cache_name}'
 
 
 def checkout_dart(info: DartLibInfo):
-    clonedir = os.path.join(SDK_DIR, 'v'+info.version)
+    clonedir = os.path.join(SDK_DIR, 'v'+info.cache_name)
 
     # if no version file,assume previous clone is failed. delete the whole directory and try again.
     version_file = os.path.join(clonedir, 'runtime', 'vm', 'version.cc')
@@ -75,7 +79,7 @@ def checkout_dart(info: DartLibInfo):
                     # should ".git" directory be removed?
                     pass
 
-        if info.snapshot_hash is None:
+        if not info.snapshot_hash:
             # if running with Python 3.12, tools/utils.py should be patched to replace imp module with importlib
             # due to its remotion as stated in: https://docs.python.org/3.12/whatsnew/3.12.html#imp
             if sys.version_info[:2] >= (3, 12):
@@ -137,7 +141,11 @@ def cmake_dart(info: DartLibInfo, target_dir: str):
     with open(CMAKE_TEMPLATE_FILE, 'r') as f:
         code = f.read()
     with open(os.path.join(target_dir, 'CMakeLists.txt'), 'w') as f:
-        f.write(code.replace('VERSION_PLACE_HOLDER', info.version).replace('CXX_STD_PLACE_HOLDER', cpp_std))
+        f.write(
+            code.replace('DARTLIB_NAME_PLACE_HOLDER', info.lib_name)
+            .replace('VERSION_PLACE_HOLDER', info.version)
+            .replace('CXX_STD_PLACE_HOLDER', cpp_std)
+        )
 
     # create dartsdk/vx.y.z/Config.cmake.in
     with open(os.path.join(target_dir, 'Config.cmake.in'), 'w') as f:

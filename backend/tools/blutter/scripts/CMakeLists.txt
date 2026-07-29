@@ -2,7 +2,7 @@
 # this is CMakeLists.txt template file for building dart AOT VM
 cmake_minimum_required (VERSION 3.20)
 
-project(dartvmVERSION_PLACE_HOLDER)
+project(DARTLIB_NAME_PLACE_HOLDER)
 if (${PROJECT_NAME} MATCHES "_PLACE_HOLDER")
 	message(FATAL_ERROR "Do NOT use this file directly")
 endif()
@@ -21,7 +21,7 @@ elseif (${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
 endif()
 find_package(ICU REQUIRED uc)
 
-string(SUBSTRING ${PROJECT_NAME} 6 -1 DART_VERSION)
+set(DART_VERSION "VERSION_PLACE_HOLDER")
 
 if (NOT DEFINED TARGET_OS)
 	set(TARGET_OS "android")
@@ -38,7 +38,7 @@ if (NOT "${TARGET_ARCH}" MATCHES "^(arm64|x64)$")
 endif()
 
 set(SRCDIR "runtime")
-set(LIBNAME "dartvm${DART_VERSION}_${TARGET_OS}_${TARGET_ARCH}")
+set(LIBNAME "${PROJECT_NAME}")
 
 set(CMAKE_DEBUG_POSTFIX "_d")
 

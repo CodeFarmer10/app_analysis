@@ -5,12 +5,54 @@ import unittest
 import zipfile
 from pathlib import Path
 
+from analyzers import flutter_blutter_runner
 from analyzers.flutter_blutter_runner import run_flutter_blutter
 from analyzers.flutter_analyzer import analyze_flutter_asm_dir, resolve_flutter_asm_dir
 from workers import static_analysis
 
 
 class FlutterAnalyzerTest(unittest.TestCase):
+    def test_backend_selection_uses_full_fingerprint(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            exact = (
+                bin_dir
+                / "blutter_dartvm3.7.2_snapshot_hash-a_android_arm64_compressed"
+            )
+            compatible = (
+                bin_dir
+                / "blutter_dartvm3.7.1_snapshot_hash-a_android_arm64_compressed"
+            )
+            wrong_snapshot = (
+                bin_dir
+                / "blutter_dartvm3.7.2_snapshot_hash-b_android_arm64_compressed"
+            )
+            wrong_pointers = (
+                bin_dir
+                / "blutter_dartvm3.7.2_snapshot_hash-a_android_arm64_uncompressed"
+            )
+            for path in (exact, compatible, wrong_snapshot, wrong_pointers):
+                path.touch()
+
+            dart_info = {
+                "dart_version": "3.7.2",
+                "snapshot_hash": "hash-a",
+                "target_os": "android",
+                "target_arch": "arm64",
+                "compressed_pointers": True,
+            }
+
+            selected = flutter_blutter_runner._select_backend(root, dart_info)
+            self.assertEqual(selected["match"], "exact")
+            self.assertEqual(selected["executable"], exact)
+
+            exact.unlink()
+            selected = flutter_blutter_runner._select_backend(root, dart_info)
+            self.assertEqual(selected["match"], "compatible")
+            self.assertEqual(selected["executable"], compatible)
+
     def test_extracts_primary_package_library_uris_and_classes(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             asm_dir = Path(temp_dir, "abc123", "asm")
@@ -71,7 +113,11 @@ class Dio {
         self.assertEqual(result["root_widget_class"], "MyRootApp")
         self.assertEqual(
             result["library_uris"],
-            ["package:fraud_app/main.dart", "package:fraud_app/pages/login.dart"],
+            [
+                "package:dio/src/dio.dart",
+                "package:fraud_app/main.dart",
+                "package:fraud_app/pages/login.dart",
+            ],
         )
         self.assertEqual(
             result["primary_package_classes"],
@@ -87,6 +133,26 @@ class Dio {
         )
         self.assertEqual(result["primary_remote_service_urls"], ["https://api.fraud.example.com/v1/login"])
         self.assertEqual(result["primary_remote_service_domains"], ["api.fraud.example.com", "data.fraud.example.net:8443"])
+
+    def test_extracts_obfuscated_library_uris_without_primary_package(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            asm_dir = Path(temp_dir, "abc123", "asm")
+            asm_dir.mkdir(parents=True)
+            (asm_dir / "AFi.dart").write_text(
+                "// lib: , url: AFi\nclass A {}\n",
+                encoding="utf-8",
+            )
+            (asm_dir / "AGi.dart").write_text(
+                "// lib: , url: AGi\nclass B {}\n",
+                encoding="utf-8",
+            )
+
+            result = analyze_flutter_asm_dir(asm_dir).to_static_field()
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["primary_package"], "")
+        self.assertEqual(result["primary_package_classes"], [])
+        self.assertEqual(result["library_uris"], ["AFi", "AGi"])
 
     def test_resolves_configured_md5_asm_dir(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -155,8 +221,25 @@ out = pathlib.Path(sys.argv[2])
 
             tool_root = root / "tools" / "blutter"
             (tool_root / "bin").mkdir(parents=True)
-            (tool_root / "bin" / "blutter_dartvm3.12.0_android_arm64").write_text("", encoding="utf-8")
-            (tool_root / "bin" / "blutter_dartvm3.8.1_android_arm64").write_text("", encoding="utf-8")
+            backend_script = """
+#!/usr/bin/env python3
+import pathlib
+import sys
+
+out = pathlib.Path(sys.argv[sys.argv.index("-o") + 1])
+out.mkdir(parents=True, exist_ok=True)
+(out / "args.txt").write_text("\\n".join(sys.argv[1:]), encoding="utf-8")
+(out / "asm").mkdir(parents=True, exist_ok=True)
+(out / "pp.txt").write_text("ok", encoding="utf-8")
+""".lstrip()
+            for version in ("3.12.0", "3.8.1"):
+                backend = (
+                    tool_root
+                    / "bin"
+                    / f"blutter_dartvm{version}_snapshot_snapshot_android_arm64_compressed"
+                )
+                backend.write_text(backend_script, encoding="utf-8")
+                backend.chmod(0o755)
             (tool_root / "extract_dart_info.py").write_text(
                 """
 def extract_dart_info(libapp_file, libflutter_file):
@@ -166,13 +249,7 @@ def extract_dart_info(libapp_file, libflutter_file):
             )
             (tool_root / "blutter.py").write_text(
                 """
-import pathlib
-import sys
-
-pathlib.Path(sys.argv[2], "args.txt").write_text("\\n".join(sys.argv[1:]), encoding="utf-8")
-out = pathlib.Path(sys.argv[2])
-(out / "asm").mkdir(parents=True, exist_ok=True)
-(out / "pp.txt").write_text("ok", encoding="utf-8")
+raise SystemExit("compatible backend should run directly")
 """.lstrip(),
                 encoding="utf-8",
             )
@@ -191,7 +268,8 @@ out = pathlib.Path(sys.argv[2])
             self.assertEqual(result.status, "complete")
             self.assertEqual(result.backend_match, "compatible")
             self.assertEqual(result.backend_version, "3.12.0")
-            self.assertIn("--dart-version\n3.12.0_android_arm64", args_text)
+            self.assertIn("-i\n", args_text)
+            self.assertIn("-o\n", args_text)
 
     def test_builds_exact_backend_after_compatible_backend_fails(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -203,7 +281,26 @@ out = pathlib.Path(sys.argv[2])
 
             tool_root = root / "tools" / "blutter"
             (tool_root / "bin").mkdir(parents=True)
-            (tool_root / "bin" / "blutter_dartvm3.12.0_android_arm64").write_text("", encoding="utf-8")
+            compatible = (
+                tool_root
+                / "bin"
+                / "blutter_dartvm3.12.0_snapshot_app-snapshot_android_arm64_compressed"
+            )
+            compatible.write_text(
+                """
+#!/usr/bin/env python3
+import pathlib
+import sys
+
+pathlib.Path(__file__).with_name("compatible_args.txt").write_text(
+    "\\n".join(sys.argv[1:]),
+    encoding="utf-8",
+)
+raise SystemExit(7)
+""".lstrip(),
+                encoding="utf-8",
+            )
+            compatible.chmod(0o755)
             (tool_root / "extract_dart_info.py").write_text(
                 """
 def extract_dart_info(libapp_file, libflutter_file):
@@ -220,11 +317,8 @@ tool_root = pathlib.Path(__file__).parent
 with (tool_root / "calls.txt").open("a", encoding="utf-8") as call_log:
     call_log.write("\\n".join(sys.argv[1:]) + "\\n---\\n")
 
-if "--dart-version" in sys.argv:
-    raise SystemExit(7)
-
 out = pathlib.Path(sys.argv[2])
-(tool_root / "bin" / "blutter_dartvm3.12.1_android_arm64").write_text("built", encoding="utf-8")
+(tool_root / "bin" / "blutter_dartvm3.12.1_snapshot_app-snapshot_android_arm64_compressed").write_text("built", encoding="utf-8")
 (out / "asm").mkdir(parents=True, exist_ok=True)
 (out / "pp.txt").write_text("ok", encoding="utf-8")
 """.lstrip(),
@@ -242,13 +336,75 @@ out = pathlib.Path(sys.argv[2])
             )
 
             calls = (tool_root / "calls.txt").read_text(encoding="utf-8").split("\n---\n")
+            compatible_args = (tool_root / "bin" / "compatible_args.txt").read_text(encoding="utf-8")
             self.assertEqual(result.status, "complete")
             self.assertEqual(result.backend_match, "build_required")
             self.assertEqual(result.backend_version, "3.12.1")
             self.assertNotIn("--dart-version", result.command)
-            self.assertIn("--dart-version\n3.12.0_android_arm64", calls[0])
-            self.assertNotIn("--dart-version", calls[1])
-            self.assertTrue((tool_root / "bin" / "blutter_dartvm3.12.1_android_arm64").is_file())
+            self.assertIn("-i\n", compatible_args)
+            self.assertNotIn("--dart-version", calls[0])
+            self.assertTrue(
+                (
+                    tool_root
+                    / "bin"
+                    / "blutter_dartvm3.12.1_snapshot_app-snapshot_android_arm64_compressed"
+                ).is_file()
+            )
+
+    def test_does_not_reuse_same_version_backend_with_different_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            apk_path = root / "sample.apk"
+            with zipfile.ZipFile(apk_path, "w") as archive:
+                archive.writestr("lib/arm64-v8a/libapp.so", b"app")
+                archive.writestr("lib/arm64-v8a/libflutter.so", b"flutter")
+
+            tool_root = root / "tools" / "blutter"
+            (tool_root / "bin").mkdir(parents=True)
+            wrong_snapshot = (
+                tool_root
+                / "bin"
+                / "blutter_dartvm3.7.2_snapshot_old-snapshot_android_arm64_compressed"
+            )
+            wrong_snapshot.write_text(
+                """
+#!/usr/bin/env python3
+import pathlib
+pathlib.Path(__file__).with_name("wrong_backend_used").touch()
+""".lstrip(),
+                encoding="utf-8",
+            )
+            wrong_snapshot.chmod(0o755)
+            (tool_root / "extract_dart_info.py").write_text(
+                """
+def extract_dart_info(libapp_file, libflutter_file):
+    return "3.7.2", "new-snapshot", ["compressed-pointers"], "arm64", "android"
+""".lstrip(),
+                encoding="utf-8",
+            )
+            (tool_root / "blutter.py").write_text(
+                """
+import pathlib
+import sys
+
+out = pathlib.Path(sys.argv[2])
+(out / "asm").mkdir(parents=True, exist_ok=True)
+(out / "pp.txt").write_text("ok", encoding="utf-8")
+""".lstrip(),
+                encoding="utf-8",
+            )
+
+            result = run_flutter_blutter(
+                apk_path,
+                "abcdef0123456789abcdef0123456789",
+                tool_root=tool_root,
+                output_root=root / "outputs",
+                timeout_seconds=10,
+            )
+
+            self.assertEqual(result.status, "complete")
+            self.assertEqual(result.backend_match, "build_required")
+            self.assertFalse((tool_root / "bin" / "wrong_backend_used").exists())
 
     def test_static_flutter_extraction_removes_generated_md5_dir(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

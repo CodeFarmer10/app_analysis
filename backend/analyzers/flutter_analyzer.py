@@ -126,7 +126,8 @@ def analyze_flutter_asm_dir(asm_dir: str | Path) -> FlutterAnalysisResult:
 
     records = _scan_library_records(root)
     primary = _locate_primary_entry(records)
-    features = _extract_primary_features(records, primary)
+    library_uris = _extract_library_uris(records)
+    primary_classes = _extract_primary_classes(records, primary)
     network = _network_features_from_records(records)
     primary_network = _network_features_from_records(_primary_library_records(records, primary))
 
@@ -139,13 +140,13 @@ def analyze_flutter_asm_dir(asm_dir: str | Path) -> FlutterAnalysisResult:
         primary_entry_confidence=str(primary["confidence"]),
         root_widget_class=str(primary["root_widget_class"]),
         root_widget_library_uri=str(primary["root_widget_library_uri"]),
-        library_uris=features["library_uris"],
-        primary_package_classes=features["classes"],
+        library_uris=library_uris,
+        primary_package_classes=primary_classes,
         remote_service_urls=network["urls"],
         remote_service_domains=network["domains"],
         primary_remote_service_urls=primary_network["urls"] if primary["package"] else [],
         primary_remote_service_domains=primary_network["domains"] if primary["package"] else [],
-        class_count=len(features["classes"]),
+        class_count=len(primary_classes),
     )
 
 
@@ -481,12 +482,12 @@ def _primary_library_records(records: list[dict[str, Any]], primary: dict[str, A
     return [record for record in records if Path(record["path"]) == entry_path]
 
 
-def _extract_primary_features(records: list[dict[str, Any]], primary: dict[str, Any]) -> dict[str, list[str]]:
+def _extract_library_uris(records: list[dict[str, Any]]) -> list[str]:
+    return sorted({str(record["uri"]) for record in records if record["uri"]})
+
+
+def _extract_primary_classes(records: list[dict[str, Any]], primary: dict[str, Any]) -> list[str]:
     classes: set[str] = set()
-    library_uris: set[str] = set()
     for record in _primary_library_records(records, primary):
-        uri = str(record["uri"])
-        if uri:
-            library_uris.add(uri)
         classes.update(record["classes"])
-    return {"library_uris": sorted(library_uris), "classes": sorted(classes)}
+    return sorted(classes)

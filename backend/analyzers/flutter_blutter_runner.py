@@ -16,7 +16,10 @@ ARM64_APP = "lib/arm64-v8a/libapp.so"
 ARM64_FLUTTER = "lib/arm64-v8a/libflutter.so"
 BLUTTER_BACKEND_RE = re.compile(
     r"^blutter_dartvm(?P<version>\d+(?:\.\d+){1,3})_"
-    r"(?P<os>[^_]+)_(?P<arch>[^_]+)(?P<suffix>.*)$"
+    r"snapshot_(?P<snapshot>[a-z0-9.-]+)_"
+    r"(?P<os>[^_]+)_(?P<arch>[^_]+)_"
+    r"(?P<pointers>compressed|uncompressed)"
+    r"(?P<suffix>_no-analysis)?$"
 )
 
 
@@ -256,16 +259,21 @@ def _extract_dart_info(blutter_root: Path, input_dir: Path) -> dict[str, Any]:
 
 
 def _backend_executable(blutter_root: Path, dart_info: dict[str, Any]) -> Path:
-    suffix = ""
-    if dart_info["compressed_pointers"] is False:
-        suffix += "_no-compressed-ptrs"
     version = str(dart_info["dart_version"])
-    if version.startswith("2.10.") or version.startswith("2.11.") or version.startswith("2.12.") or version.startswith("2.13.") or version.startswith("2.14."):
-        suffix += "_no-analysis"
-    return blutter_root / "bin" / f"blutter_dartvm{version}_{dart_info['target_os']}_{dart_info['target_arch']}{suffix}"
+    snapshot_hash = _snapshot_cache_token(dart_info.get("snapshot_hash"))
+    pointer_mode = _pointer_mode(dart_info.get("compressed_pointers"))
+    suffix = "_no-analysis" if _requires_no_analysis(version) else ""
+    name = (
+        f"blutter_dartvm{version}_snapshot_{snapshot_hash}_"
+        f"{dart_info['target_os']}_{dart_info['target_arch']}_{pointer_mode}{suffix}"
+    )
+    return blutter_root / "bin" / name
 
 
 def _select_backend(blutter_root: Path, dart_info: dict[str, Any]) -> dict[str, Any]:
+    if not str(dart_info.get("snapshot_hash") or "").strip():
+        raise RuntimeError("缺少 Snapshot Hash，无法选择 Blutter 后端")
+
     exact = _backend_executable(blutter_root, dart_info)
     actual_version = str(dart_info["dart_version"])
     if exact.is_file():
@@ -273,7 +281,6 @@ def _select_backend(blutter_root: Path, dart_info: dict[str, Any]) -> dict[str, 
             "version": actual_version,
             "executable": exact,
             "match": "exact",
-            "use_dart_version_arg": False,
         }
 
     compatible = _nearest_compatible_backend(blutter_root, dart_info)
@@ -282,7 +289,6 @@ def _select_backend(blutter_root: Path, dart_info: dict[str, Any]) -> dict[str, 
             "version": compatible["version"],
             "executable": compatible["path"],
             "match": "compatible",
-            "use_dart_version_arg": True,
         }
 
     return _build_required_backend(blutter_root, dart_info)
@@ -294,25 +300,29 @@ def _build_required_backend(blutter_root: Path, dart_info: dict[str, Any]) -> di
         "version": actual_version,
         "executable": _backend_executable(blutter_root, dart_info),
         "match": "build_required",
-        "use_dart_version_arg": False,
     }
 
 
 def _nearest_compatible_backend(blutter_root: Path, dart_info: dict[str, Any]) -> dict[str, Any] | None:
-    if dart_info["compressed_pointers"] is not True:
-        return None
     actual = _version_tuple(str(dart_info["dart_version"]))
     if not actual:
         return None
+    snapshot_hash = _snapshot_cache_token(dart_info.get("snapshot_hash"))
+    pointer_mode = _pointer_mode(dart_info.get("compressed_pointers"))
+    expected_suffix = "_no-analysis" if _requires_no_analysis(str(dart_info["dart_version"])) else None
     candidates = []
     for path in (blutter_root / "bin").glob("blutter_dartvm*"):
         match = BLUTTER_BACKEND_RE.match(path.name)
-        if not match or match.group("suffix"):
+        if not match:
             continue
         if match.group("os") != dart_info["target_os"] or match.group("arch") != dart_info["target_arch"]:
             continue
+        if match.group("snapshot") != snapshot_hash or match.group("pointers") != pointer_mode:
+            continue
+        if match.group("suffix") != expected_suffix:
+            continue
         version = _version_tuple(match.group("version"))
-        if not version or version[0] != actual[0]:
+        if not version:
             continue
         candidates.append(
             {
@@ -336,6 +346,15 @@ def _build_blutter_command(
     build_docker_image: str = "",
 ) -> list[str]:
     image = str(build_docker_image or "").strip()
+    if backend["match"] == "compatible":
+        return [
+            str(Path(str(backend["executable"])).resolve()),
+            "-i",
+            str((input_dir / "libapp.so").resolve()),
+            "-o",
+            str(output_dir.resolve()),
+        ]
+
     if backend["match"] == "build_required" and image:
         blutter_root = blutter_script.parent.resolve()
         output_root = output_dir.resolve()
@@ -358,26 +377,21 @@ def _build_blutter_command(
             str(output_root),
         ]
 
-    command = [sys.executable, str(blutter_script)]
-    if backend["use_dart_version_arg"]:
-        command.extend(
-            [
-                str(input_dir / "libapp.so"),
-                str(output_dir),
-                "--dart-version",
-                _dart_version_arg(str(backend["version"]), Path(str(backend["executable"]))),
-            ]
-        )
-    else:
-        command.extend([str(input_dir), str(output_dir)])
-    return command
+    return [sys.executable, str(blutter_script), str(input_dir), str(output_dir)]
 
 
-def _dart_version_arg(version: str, backend_executable: Path) -> str:
-    match = BLUTTER_BACKEND_RE.match(backend_executable.name)
-    if match:
-        return f"{version}_{match.group('os')}_{match.group('arch')}"
-    return version
+def _snapshot_cache_token(snapshot_hash: object) -> str:
+    value = str(snapshot_hash or "").strip().lower()
+    return re.sub(r"[^a-z0-9.-]+", "-", value).strip("-") or "unknown"
+
+
+def _pointer_mode(compressed_pointers: object) -> str:
+    return "compressed" if compressed_pointers is True else "uncompressed"
+
+
+def _requires_no_analysis(version: str) -> bool:
+    parsed = _version_tuple(version)
+    return bool(parsed and parsed[0] == 2 and len(parsed) > 1 and parsed[1] < 15)
 
 
 def _version_tuple(version: str) -> tuple[int, ...]:

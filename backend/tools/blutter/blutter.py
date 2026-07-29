@@ -1,5 +1,6 @@
 #!/usr/bin/python3
 import argparse
+from contextlib import contextmanager
 import glob
 import mmap
 import os
@@ -11,6 +12,11 @@ import sys
 import zipfile
 import tempfile
 from dartvm_fetch_build import DartLibInfo
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - Windows fallback
+    fcntl = None
 
 CMAKE_CMD = "cmake"
 NINJA_CMD = "ninja"
@@ -39,8 +45,6 @@ class BlutterInput:
 
         # Note: null-safety is detected in blutter application, so no need another build of blutter for null-safety
         self.name_suffix = ''
-        if not dart_info.has_compressed_ptrs:
-            self.name_suffix += '_no-compressed-ptrs'
         if no_analysis:
             self.name_suffix += '_no-analysis'
         # derive blutter executable filename
@@ -78,9 +82,9 @@ def extract_libs_from_apk(apk_file: str, out_dir: str):
         flutter_file = os.path.join(out_dir, flutter_info.filename)
         return app_file, flutter_file
 
-def find_compat_macro(dart_version: str, no_analysis: bool):
+def find_compat_macro(dart_version: str, no_analysis: bool, dartlib_name: str | None = None):
     macros = []
-    include_path = os.path.join(PKG_INC_DIR, f'dartvm{dart_version}')
+    include_path = os.path.join(PKG_INC_DIR, dartlib_name or f'dartvm{dart_version}')
     vm_path = os.path.join(include_path, 'vm')
     with open(os.path.join(vm_path, 'class_id.h'), 'rb') as f:
         mm = mmap.mmap(f.fileno(), 0, access = mmap.ACCESS_READ)
@@ -152,7 +156,7 @@ def cmake_blutter(input: BlutterInput):
         _prepare_static_link(input.dart_info.lib_name)
         shutil.rmtree(builddir, ignore_errors=True)
 
-    macros = find_compat_macro(input.dart_info.version, input.no_analysis)
+    macros = find_compat_macro(input.dart_info.version, input.no_analysis, input.dart_info.lib_name)
     my_env = None
     if platform.system() == 'Darwin':
         mac_ver = int(platform.mac_ver()[0].split('.', 1)[0])
@@ -202,23 +206,68 @@ def get_dart_lib_info(libapp_path: str, libflutter_path: str) -> DartLibInfo:
     has_compressed_ptrs = 'compressed-pointers' in flags
     return DartLibInfo(dart_version, os_name, arch, has_compressed_ptrs, snapshot_hash)
 
-def build_and_run(input: BlutterInput):
-    if not os.path.isfile(input.blutter_file) or input.rebuild_blutter:
-        # before fetch and build, check the existence of compiled library first
-        #   so the src and build directories can be deleted
-        if os.name == 'nt':
-            dartlib_file = os.path.join(PKG_LIB_DIR, input.dart_info.lib_name+'.lib')
-        else:
-            dartlib_file = os.path.join(PKG_LIB_DIR, 'lib'+input.dart_info.lib_name+'.a')
-        if not os.path.isfile(dartlib_file):
+@contextmanager
+def backend_build_lock(blutter_name: str):
+    lock_dir = os.path.join(BUILD_DIR, '.locks')
+    os.makedirs(lock_dir, exist_ok=True)
+    lock_path = os.path.join(lock_dir, blutter_name + '.lock')
+    with open(lock_path, 'a+b') as lock_file:
+        if fcntl is not None:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            if fcntl is not None:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+
+def dartlib_file(info: DartLibInfo) -> str:
+    extension = '.lib' if os.name == 'nt' else '.a'
+    prefix = '' if os.name == 'nt' else 'lib'
+    return os.path.join(PKG_LIB_DIR, prefix + info.lib_name + extension)
+
+
+def cleanup_backend_build_cache(input: BlutterInput):
+    shutil.rmtree(os.path.join(SCRIPT_DIR, 'dartsdk', 'v' + input.dart_info.cache_name), ignore_errors=True)
+    shutil.rmtree(os.path.join(PKG_INC_DIR, input.dart_info.lib_name), ignore_errors=True)
+    shutil.rmtree(os.path.join(PKG_LIB_DIR, 'cmake', input.dart_info.lib_name), ignore_errors=True)
+    shutil.rmtree(os.path.join(BUILD_DIR, input.dart_info.lib_name), ignore_errors=True)
+    shutil.rmtree(os.path.join(BUILD_DIR, input.blutter_name), ignore_errors=True)
+    try:
+        os.remove(dartlib_file(input.dart_info))
+    except FileNotFoundError:
+        pass
+
+
+def ensure_blutter_backend(input: BlutterInput):
+    if os.path.isfile(input.blutter_file) and not input.rebuild_blutter:
+        return
+    with backend_build_lock(input.blutter_name):
+        if os.path.isfile(input.blutter_file) and not input.rebuild_blutter:
+            return
+        if not os.path.isfile(dartlib_file(input.dart_info)):
             from dartvm_fetch_build import fetch_and_build
             fetch_and_build(input.dart_info)
-        
-        input.rebuild_blutter = True
+        cmake_blutter(input)
+        assert os.path.isfile(input.blutter_file), "Build complete but cannot find Blutter binary: " + input.blutter_file
+        cleanup_backend_build_cache(input)
+
+
+def build_and_run(input: BlutterInput):
+    if not input.create_vs_sln:
+        ensure_blutter_backend(input)
+        subprocess.run([input.blutter_file, '-i', input.libapp_path, '-o', input.outdir], check=True)
+        return
+
+    if not os.path.isfile(dartlib_file(input.dart_info)):
+        with backend_build_lock(input.blutter_name):
+            if not os.path.isfile(dartlib_file(input.dart_info)):
+                from dartvm_fetch_build import fetch_and_build
+                fetch_and_build(input.dart_info)
 
     # creating Visual Studio solution overrides building
     if input.create_vs_sln:
-        macros = find_compat_macro(input.dart_info.version, input.no_analysis)
+        macros = find_compat_macro(input.dart_info.version, input.no_analysis, input.dart_info.lib_name)
         blutter_dir = os.path.join(SCRIPT_DIR, 'blutter')
         dbg_output_path = os.path.abspath(os.path.join(input.outdir, 'out'))
         dbg_cmd_args = f'-i {input.libapp_path} -o {dbg_output_path}'
@@ -238,14 +287,6 @@ def build_and_run(input: BlutterInput):
         os.makedirs(dbg_exe_dir, exist_ok=True)
         for filename in glob.glob(os.path.join(BIN_DIR, '*.dll')):
             shutil.copy(filename, dbg_exe_dir)
-    else:
-        if input.rebuild_blutter:
-            # do not use SDK path for checking source code because Blutter does not depended on it and SDK might be removed
-            cmake_blutter(input)
-            assert os.path.isfile(input.blutter_file), "Build complete but cannot find Blutter binary: " + input.blutter_file
-
-        # execute blutter    
-        subprocess.run([input.blutter_file, '-i', input.libapp_path, '-o', input.outdir], check=True)
 
 def main_no_flutter(libapp_path: str, dart_version: str, outdir: str, rebuild_blutter: bool, create_vs_sln: bool, no_analysis: bool):
     version, os_name, arch = dart_version.split('_')
