@@ -26,3 +26,4 @@ backend/.env.backup_*
 .runtime/
 .install_cache/
 offline_packages/
+.worktrees/
