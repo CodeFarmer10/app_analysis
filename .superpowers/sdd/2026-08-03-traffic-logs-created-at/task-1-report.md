@@ -64,3 +64,59 @@ The suite emitted three existing artifact-skip log messages, but no test failure
 ## Concerns
 
 - The brief's test snippet contains `\\(` in a raw regex, which raises an unterminated-subpattern error in Python. The committed test uses the executable equivalent `\(` so the intended RED/GREEN assertions run.
+
+## Fix Round
+
+### Findings addressed
+
+- Moved the complete `traffic_logs.created_at` compatibility block after the `is_real_controller` compatibility block while retaining `AFTER is_real_controller`.
+- Strengthened the migration test to validate the complete created-at block, including the `information_schema.columns` guard scoped to `traffic_logs.created_at`, the missing-column `ALTER` branch, the `SELECT 1` no-op branch, `PREPARE`/`EXECUTE`/`DEALLOCATE`, and the required block ordering.
+- Corrected the stale commit identifier in this report.
+
+### Files changed
+
+- `backend/migrations/v1_init.sql`
+- `backend/tests/test_traffic_logs_migration.py`
+- `.superpowers/sdd/2026-08-03-traffic-logs-created-at/task-1-report.md`
+
+### RED
+
+Command:
+
+```bash
+/Users/yxh/work/code/app_analysis/backend/.venv/bin/python -m unittest tests.test_traffic_logs_migration -v
+```
+
+Working directory: `/Users/yxh/work/code/app_analysis/.worktrees/traffic-logs-created-at/backend`
+
+Result before moving the SQL block: `Ran 2 tests`; one test passed and one failed as intended with `AssertionError` because the `is_real_controller` block appeared after the `created_at` block.
+
+### GREEN and regression
+
+Focused command:
+
+```bash
+/Users/yxh/work/code/app_analysis/backend/.venv/bin/python -m unittest tests.test_traffic_logs_migration -v
+```
+
+Result: `Ran 2 tests ... OK`.
+
+Full regression command:
+
+```bash
+/Users/yxh/work/code/app_analysis/backend/.venv/bin/python -m unittest discover -s tests -p 'test_*.py'
+```
+
+Result: `Ran 54 tests in 0.670s` and `OK`. Existing artifact-skip log messages were emitted; there were no failures or errors.
+
+Diff check:
+
+```bash
+git diff --check
+```
+
+Result: exit code 0 with no output.
+
+### Fix commit
+
+`25dc9d09d51161a1059e2c0cd0949b6f51b7e239` (`fix: order traffic log timestamp migration`)
