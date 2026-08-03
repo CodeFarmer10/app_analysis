@@ -26,12 +26,36 @@ class TrafficLogsMigrationTest(unittest.TestCase):
         )
 
     def test_existing_table_upgrade_is_idempotently_guarded(self) -> None:
-        self.assertIn("SET @traffic_logs_created_at_col := (", self.sql)
-        self.assertIn("column_name = 'created_at'", self.sql)
-        self.assertIn(
-            "ALTER TABLE traffic_logs ADD COLUMN created_at DATETIME NOT NULL "
-            "DEFAULT CURRENT_TIMESTAMP",
+        created_at_marker = "-- Backward-compatible traffic_logs creation timestamp."
+        real_controller_marker = (
+            "-- Backward-compatible traffic_logs real-controller tagging column."
+        )
+        block_match = re.search(
+            re.escape(created_at_marker) + r"\n(.*?)(?=\n-- Backward-compatible )",
             self.sql,
+            flags=re.DOTALL,
+        )
+        self.assertIsNotNone(block_match)
+        created_at_block = block_match.group(1)
+
+        for fragment in (
+            "SET @traffic_logs_created_at_col := (",
+            "FROM information_schema.columns",
+            "table_name = 'traffic_logs'",
+            "column_name = 'created_at'",
+            "SET @sql_traffic_logs_created_at_col := IF(",
+            "ALTER TABLE traffic_logs ADD COLUMN created_at DATETIME NOT NULL "
+            "DEFAULT CURRENT_TIMESTAMP AFTER is_real_controller",
+            "'SELECT 1'",
+            "PREPARE stmt_traffic_logs_created_at_col FROM @sql_traffic_logs_created_at_col",
+            "EXECUTE stmt_traffic_logs_created_at_col",
+            "DEALLOCATE PREPARE stmt_traffic_logs_created_at_col",
+        ):
+            self.assertIn(fragment, created_at_block)
+
+        self.assertLess(
+            self.sql.index(real_controller_marker),
+            self.sql.index(created_at_marker),
         )
 
 

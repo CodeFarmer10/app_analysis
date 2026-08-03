@@ -287,23 +287,6 @@ PREPARE stmt_fk_traffic_logs_dynamic_result FROM @sql_fk_traffic_logs_dynamic_re
 EXECUTE stmt_fk_traffic_logs_dynamic_result;
 DEALLOCATE PREPARE stmt_fk_traffic_logs_dynamic_result;
 
--- Backward-compatible traffic_logs creation timestamp.
-SET @traffic_logs_created_at_col := (
-  SELECT COUNT(*)
-  FROM information_schema.columns
-  WHERE table_schema = DATABASE()
-    AND table_name = 'traffic_logs'
-    AND column_name = 'created_at'
-);
-SET @sql_traffic_logs_created_at_col := IF(
-  @traffic_logs_created_at_col = 0,
-  'ALTER TABLE traffic_logs ADD COLUMN created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER is_real_controller',
-  'SELECT 1'
-);
-PREPARE stmt_traffic_logs_created_at_col FROM @sql_traffic_logs_created_at_col;
-EXECUTE stmt_traffic_logs_created_at_col;
-DEALLOCATE PREPARE stmt_traffic_logs_created_at_col;
-
 -- Backward-compatible traffic_logs IP country column.
 SET @traffic_logs_ip_country_col := (
   SELECT COUNT(*) FROM information_schema.columns
@@ -351,6 +334,23 @@ SET @sql_traffic_logs_real_controller_col := IF(
 PREPARE stmt_traffic_logs_real_controller_col FROM @sql_traffic_logs_real_controller_col;
 EXECUTE stmt_traffic_logs_real_controller_col;
 DEALLOCATE PREPARE stmt_traffic_logs_real_controller_col;
+
+-- Backward-compatible traffic_logs creation timestamp.
+SET @traffic_logs_created_at_col := (
+  SELECT COUNT(*)
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'traffic_logs'
+    AND column_name = 'created_at'
+);
+SET @sql_traffic_logs_created_at_col := IF(
+  @traffic_logs_created_at_col = 0,
+  'ALTER TABLE traffic_logs ADD COLUMN created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER is_real_controller',
+  'SELECT 1'
+);
+PREPARE stmt_traffic_logs_created_at_col FROM @sql_traffic_logs_created_at_col;
+EXECUTE stmt_traffic_logs_created_at_col;
+DEALLOCATE PREPARE stmt_traffic_logs_created_at_col;
 
 -- Backward-compatible users.role upgrade for existing tables.
 SET @users_role_col := (
