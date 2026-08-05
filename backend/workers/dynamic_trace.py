@@ -62,6 +62,8 @@ _DEVICE_ERROR_SIGNATURES = (
     "not enough space",
     "no space left on device",
     "install_failed_insufficient_storage",
+    "install_failed_user_restricted",
+    "install_failed_blocked_by_admin",
     "package manager check failed",
     "can't find service: package",
     "could not access the package manager",
@@ -1079,6 +1081,7 @@ def trace_task(task_id: str, device_id: str):
     result_dir: Path | None = None
     app_installed = False
     device_isolated = False
+    skip_device_cleanup = False
 
     try:
         package_name, apk_object_path, adb_device_id = _extract_trace_context(task_id, task, device_id)
@@ -1157,6 +1160,7 @@ def trace_task(task_id: str, device_id: str):
             exc,
         )
         device_isolated = True
+        skip_device_cleanup = True
         return {
             "task_id": task_id,
             "device_id": device_id,
@@ -1166,10 +1170,20 @@ def trace_task(task_id: str, device_id: str):
     except Exception as exc:  # pragma: no cover - runtime dependent
         logger.exception("dynamic trace failed task_id=%s device_id=%s", task_id, device_id)
         error_message = _format_dynamic_error(exc)
-        if isinstance(exc, DeviceUnavailableError) or is_device_error_message(str(exc)):
+        if isinstance(exc, DeviceUnavailableError):
             device_isolated = True
-            requeued = _quarantine_and_requeue_owned_task(task_id, device_id, error_message)
+            try:
+                requeued = _quarantine_and_requeue_owned_task(task_id, device_id, error_message)
+            except TaskOwnershipLostError:
+                skip_device_cleanup = True
+                return {
+                    "task_id": task_id,
+                    "device_id": device_id,
+                    "accepted": False,
+                    "reason": "device_ownership_mismatch",
+                }
             if not requeued:
+                skip_device_cleanup = True
                 return {
                     "task_id": task_id,
                     "device_id": device_id,
@@ -1182,7 +1196,15 @@ def trace_task(task_id: str, device_id: str):
                 "status": "waiting_device",
                 "error": str(exc),
             }
-        _mark_owned_task_failed(task_id, device_id, error_message)
+        marked_failed = _mark_owned_task_failed(task_id, device_id, error_message)
+        if not marked_failed:
+            skip_device_cleanup = True
+            return {
+                "task_id": task_id,
+                "device_id": device_id,
+                "accepted": False,
+                "reason": "device_ownership_mismatch",
+            }
         return {
             "task_id": task_id,
             "device_id": device_id,
@@ -1196,13 +1218,14 @@ def trace_task(task_id: str, device_id: str):
         if result_dir and result_dir.exists():
             shutil.rmtree(result_dir, ignore_errors=True)
 
-        cleanup_isolated = _cleanup_device_after_trace(
-            task_id=task_id,
-            device_id=device_id,
-            package_name=package_name,
-            adb_device_id=adb_device_id,
-            app_installed=app_installed,
-        )
-        device_isolated = device_isolated or cleanup_isolated
-        if not device_isolated:
-            _set_device_online(device_id, task_id)
+        if not skip_device_cleanup:
+            cleanup_isolated = _cleanup_device_after_trace(
+                task_id=task_id,
+                device_id=device_id,
+                package_name=package_name,
+                adb_device_id=adb_device_id,
+                app_installed=app_installed,
+            )
+            device_isolated = device_isolated or cleanup_isolated
+            if not device_isolated:
+                _set_device_online(device_id, task_id)

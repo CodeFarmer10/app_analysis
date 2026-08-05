@@ -18,6 +18,48 @@ class DynamicDeviceFailureTest(unittest.TestCase):
         connection.cursor.return_value.__exit__.return_value = False
         return connection, cursor
 
+    def _patch_trace_until_agent(
+        self,
+        stack: ExitStack,
+        result_dir: Path,
+    ) -> dict[str, MagicMock]:
+        mocks = {
+            "install": stack.enter_context(patch("workers.dynamic_trace.install_apk")),
+            "run": stack.enter_context(patch("workers.dynamic_trace._run_task_with_log")),
+            "health": stack.enter_context(patch("workers.dynamic_trace.check_device_health")),
+            "mark_failed": stack.enter_context(patch("workers.dynamic_trace._mark_owned_task_failed")),
+            "requeue": stack.enter_context(
+                patch("workers.dynamic_trace._quarantine_and_requeue_owned_task", return_value=True)
+            ),
+            "quarantine": stack.enter_context(
+                patch("workers.dynamic_trace._quarantine_owned_device", return_value=True)
+            ),
+            "release": stack.enter_context(patch("workers.dynamic_trace._set_device_online")),
+            "uninstall": stack.enter_context(
+                patch("workers.dynamic_trace.uninstall_apk", return_value=(True, "Success"))
+            ),
+            "accessibility": stack.enter_context(
+                patch("workers.dynamic_trace.clear_accessibility_services", return_value=(True, ["ok"]))
+            ),
+            "local_cleanup": stack.enter_context(patch("workers.dynamic_trace._cleanup_downloaded_apk")),
+        }
+        stack.enter_context(
+            patch("workers.dynamic_trace.get_task_by_id", return_value={"apk_path": "apps/test.apk"})
+        )
+        stack.enter_context(patch("workers.dynamic_trace._is_current_task_device_owner", return_value=True))
+        stack.enter_context(
+            patch(
+                "workers.dynamic_trace._extract_trace_context",
+                return_value=("com.example.app", "apps/test.apk", "serial-1"),
+            )
+        )
+        stack.enter_context(patch("workers.dynamic_trace._prepare_result_dir", return_value=result_dir))
+        stack.enter_context(
+            patch("workers.dynamic_trace.storage_service.download_to_temp", return_value="/tmp/test.apk")
+        )
+        stack.enter_context(patch("workers.dynamic_trace._maybe_unpack_packed_app", return_value=None))
+        return mocks
+
     def test_fork_failure_is_device_error(self) -> None:
         self.assertTrue(dynamic_trace.is_device_error_message("shell: fork failed: Resource temporarily unavailable"))
 
@@ -88,6 +130,88 @@ class DynamicDeviceFailureTest(unittest.TestCase):
         self.assertFalse(any("UPDATE tasks" in sql for sql in executed_sql))
         self.assertFalse(any("UPDATE devices" in sql for sql in executed_sql))
         connection.commit.assert_called_once()
+
+    @patch("workers.dynamic_trace.get_connection")
+    def test_partial_quarantine_transition_rolls_back(self, get_connection_mock) -> None:
+        connection, cursor = self._connection_mocks()
+        get_connection_mock.return_value.__enter__.return_value = connection
+        cursor.fetchone.side_effect = [
+            {"status": "dynamic_tracing", "device_id": "device-1"},
+            {"status": "busy", "current_task_id": "task-1"},
+        ]
+        cursor.execute.side_effect = [1, 1, 1, 0]
+
+        with self.assertRaises(dynamic_trace.TaskOwnershipLostError):
+            dynamic_trace._quarantine_and_requeue_owned_task(
+                "task-1", "device-1", "device offline"
+            )
+
+        connection.rollback.assert_called_once()
+        connection.commit.assert_not_called()
+
+    def test_non_adb_runtime_errors_with_device_phrases_remain_failed(self) -> None:
+        messages = (
+            "model request failed: connection reset by peer",
+            "MinIO upload failed: no space left on device",
+        )
+        for message in messages:
+            with (
+                self.subTest(message=message),
+                tempfile.TemporaryDirectory() as temp_dir,
+                ExitStack() as stack,
+            ):
+                result_dir = Path(temp_dir) / "result"
+                result_dir.mkdir()
+                mocks = self._patch_trace_until_agent(stack, result_dir)
+                mocks["install"].return_value = (True, "Success")
+                mocks["run"].side_effect = RuntimeError(message)
+
+                result = dynamic_trace.trace_task("task-1", "device-1")
+
+                self.assertEqual(result["status"], "dynamic_failed")
+                mocks["mark_failed"].assert_called_once()
+                mocks["requeue"].assert_not_called()
+                mocks["quarantine"].assert_not_called()
+
+    def test_ownership_loss_skips_all_device_cleanup(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir, ExitStack() as stack:
+            result_dir = Path(temp_dir) / "result"
+            result_dir.mkdir()
+            mocks = self._patch_trace_until_agent(stack, result_dir)
+            mocks["install"].return_value = (True, "Success")
+            mocks["run"].side_effect = dynamic_trace.TaskOwnershipLostError("ownership changed")
+
+            result = dynamic_trace.trace_task("task-1", "device-1")
+
+            self.assertEqual(result["reason"], "device_ownership_mismatch")
+            mocks["local_cleanup"].assert_called_once_with("/tmp/test.apk")
+            mocks["uninstall"].assert_not_called()
+            mocks["accessibility"].assert_not_called()
+            mocks["release"].assert_not_called()
+
+    def test_install_policy_errors_requeue_and_quarantine(self) -> None:
+        messages = (
+            "Failure [INSTALL_FAILED_USER_RESTRICTED: Install canceled by user]",
+            "Failure [INSTALL_FAILED_BLOCKED_BY_ADMIN: Installation blocked]",
+        )
+        for message in messages:
+            with (
+                self.subTest(message=message),
+                tempfile.TemporaryDirectory() as temp_dir,
+                ExitStack() as stack,
+            ):
+                result_dir = Path(temp_dir) / "result"
+                result_dir.mkdir()
+                mocks = self._patch_trace_until_agent(stack, result_dir)
+                mocks["install"].return_value = (False, message)
+
+                result = dynamic_trace.trace_task("task-1", "device-1")
+
+                self.assertEqual(result["status"], "waiting_device")
+                mocks["requeue"].assert_called_once()
+                mocks["health"].assert_not_called()
+                mocks["mark_failed"].assert_not_called()
+                mocks["release"].assert_not_called()
 
     @patch("workers.dynamic_trace._quarantine_owned_device", return_value=True)
     @patch("workers.dynamic_trace.clear_accessibility_services", return_value=(True, ["ok"]))
