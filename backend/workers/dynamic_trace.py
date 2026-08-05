@@ -92,12 +92,17 @@ _RUNTIME_ADB_ERROR_SIGNATURES = (
     "device unauthorized",
     "failed to run abb_exec",
     "failed to get feature set",
+    "no devices/emulators found",
+    "device not found",
+)
+
+_RUNTIME_ADB_CONTEXT_SIGNATURES = (
+    "transport is closing",
+    "protocol fault",
     "fork failed",
     "cannot fork",
     "unable to fork",
     "resource temporarily unavailable",
-    "no devices/emulators found",
-    "device not found",
 )
 
 
@@ -121,11 +126,26 @@ def is_runtime_adb_error_message(message: str) -> bool:
     normalized = str(message or "").strip().lower()
     if not normalized:
         return False
+    if normalized.startswith("plan model error:"):
+        return False
+
+    phone_agent_context = normalized.startswith("phone agent error:")
+    adb_context = "adb" in normalized or normalized.startswith("shell:")
     if any(signature in normalized for signature in _RUNTIME_ADB_ERROR_SIGNATURES):
         return True
     if "device '" in normalized and " not found" in normalized:
         return True
-    return "closed" in normalized and ("adb" in normalized or "abb_exec" in normalized)
+    if phone_agent_context and "no output from dumpsys window" in normalized:
+        return True
+    if (adb_context or phone_agent_context) and any(
+        signature in normalized for signature in _RUNTIME_ADB_CONTEXT_SIGNATURES
+    ):
+        return True
+    if "adb shell timeout" in normalized:
+        return True
+    return "closed" in normalized and (
+        adb_context or phone_agent_context or "abb_exec" in normalized
+    )
 
 
 def _format_dynamic_error(exc: Exception) -> str:
@@ -806,6 +826,8 @@ def _raise_if_operation_device_failure(operation_results: list[dict]) -> None:
         if not isinstance(item, dict) or bool(item.get("successed", True)):
             continue
         message = str(item.get("message") or "").strip()
+        if message.lower().startswith("plan model error:"):
+            continue
         if is_runtime_adb_error_message(message):
             raise DeviceUnavailableError(f"Phone Agent设备故障: {message}")
 

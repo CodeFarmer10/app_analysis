@@ -153,6 +153,7 @@ class DynamicDeviceFailureTest(unittest.TestCase):
         messages = (
             "model request failed: connection reset by peer",
             "MinIO upload failed: no space left on device",
+            "Plan Model error: resource temporarily unavailable",
         )
         for message in messages:
             with (
@@ -172,6 +173,40 @@ class DynamicDeviceFailureTest(unittest.TestCase):
                 mocks["mark_failed"].assert_called_once()
                 mocks["requeue"].assert_not_called()
                 mocks["quarantine"].assert_not_called()
+
+    def test_runtime_adb_classifier_requires_trusted_context(self) -> None:
+        positive_messages = (
+            "adb: transport is closing",
+            "adb: protocol fault (no status)",
+            "adb shell timeout after 30s",
+            "Phone Agent error: No output from dumpsys window",
+            "Phone Agent error: Resource temporarily unavailable",
+            "shell: fork failed: Resource temporarily unavailable",
+        )
+        negative_messages = (
+            "Plan Model error: resource temporarily unavailable",
+            "Plan Model error: No output from dumpsys window",
+            "MinIO error: resource temporarily unavailable",
+            "host worker: fork failed: resource temporarily unavailable",
+            "No output from dumpsys window",
+        )
+
+        for message in positive_messages:
+            with self.subTest(message=message):
+                self.assertTrue(dynamic_trace.is_runtime_adb_error_message(message))
+        for message in negative_messages:
+            with self.subTest(message=message):
+                self.assertFalse(dynamic_trace.is_runtime_adb_error_message(message))
+
+    def test_plan_model_failed_record_does_not_raise_device_error(self) -> None:
+        dynamic_trace._raise_if_operation_device_failure(
+            [
+                {
+                    "successed": False,
+                    "message": "Plan Model error: resource temporarily unavailable",
+                }
+            ]
+        )
 
     def test_ownership_loss_skips_all_device_cleanup(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir, ExitStack() as stack:
@@ -499,6 +534,36 @@ class DynamicDeviceFailureTest(unittest.TestCase):
             self.assertEqual(result["status"], "waiting_device")
             mocks["requeue"].assert_called_once()
             parse_mock.assert_not_called()
+            persist_mock.assert_not_called()
+
+    def test_failed_phone_agent_dumpsys_record_requeues(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir, ExitStack() as stack:
+            result_dir = Path(temp_dir) / "result"
+            result_dir.mkdir()
+            mocks = self._patch_trace_until_agent(stack, result_dir)
+            mocks["install"].return_value = (True, "Success")
+            mocks["run"].return_value = "done"
+            stack.enter_context(
+                patch(
+                    "workers.dynamic_trace._load_operation_results",
+                    return_value=[
+                        {
+                            "step_num": 1,
+                            "step": "打开应用",
+                            "successed": False,
+                            "message": "Phone Agent error: No output from dumpsys window",
+                        }
+                    ],
+                )
+            )
+            persist_mock = stack.enter_context(
+                patch("workers.dynamic_trace._persist_trace_results")
+            )
+
+            result = dynamic_trace.trace_task("task-1", "device-1")
+
+            self.assertEqual(result["status"], "waiting_device")
+            mocks["requeue"].assert_called_once()
             persist_mock.assert_not_called()
 
     def test_overlapping_attempts_use_distinct_local_and_object_paths(self) -> None:
