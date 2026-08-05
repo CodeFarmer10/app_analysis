@@ -50,8 +50,10 @@ The scheduler selects only devices where:
 - `current_task_id IS NULL`
 - `last_heartbeat_at` is no older than two heartbeat intervals
 
-The dynamic worker performs the same probe immediately before APK install, so
-a device that fails between heartbeat and allocation is still rejected.
+After allocation, the dynamic worker proceeds directly to APK installation and
+does not run another health probe before install. If the device fails between
+the last heartbeat and installation, the install error is classified by the
+normal device-error path; the device is quarantined and the task is requeued.
 
 ## Dynamic Failure Handling
 
