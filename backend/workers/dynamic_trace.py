@@ -20,8 +20,9 @@ from phone_agent import PlanAgentConfig
 from phone_agent.agent import AgentConfig
 from phone_agent.adb.device import clear_accessibility_services, install_apk, uninstall_apk
 from phone_agent.model import ModelConfig
-from repositories.task_repo import get_static_result, get_task_by_id, update_static_result_fields, update_task
+from repositories.task_repo import get_static_result, get_task_by_id, update_static_result_fields
 from repositories.sdk_repo import replace_sdk_results
+from services.device_service import check_device_health
 from services.ip_geo_service import is_uplink_flow, resolve_non_local_ip_country
 from services.storage_service import storage_service
 from protection import unpack_to_archive
@@ -31,6 +32,73 @@ from workers.report import generate_report
 
 
 logger = logging.getLogger(__name__)
+
+
+class DeviceUnavailableError(RuntimeError):
+    """The active device cannot safely continue dynamic analysis."""
+
+
+class TaskOwnershipLostError(RuntimeError):
+    """The worker no longer owns the task/device pair it started with."""
+
+
+_DEVICE_ERROR_SIGNATURES = (
+    "device offline",
+    "device unauthorized",
+    "failed to run abb_exec",
+    "abb_exec. error: closed",
+    "connect error for write: closed",
+    "error: closed",
+    "transport error",
+    "transport is closing",
+    "transport endpoint is not connected",
+    "no devices/emulators found",
+    "device not found",
+    "failed to get feature set",
+    "fork failed",
+    "cannot fork",
+    "unable to fork",
+    "resource temporarily unavailable",
+    "not enough space",
+    "no space left on device",
+    "install_failed_insufficient_storage",
+    "package manager check failed",
+    "can't find service: package",
+    "could not access the package manager",
+    "adb install timeout",
+    "adb uninstall timeout",
+    "adb shell timeout",
+    "connection reset by peer",
+    "protocol fault",
+)
+
+_APK_INSTALL_ERROR_SIGNATURES = (
+    "install_parse_failed",
+    "install_failed_invalid_apk",
+    "install_failed_version_downgrade",
+    "install_failed_update_incompatible",
+    "install_failed_no_certificates",
+    "install_failed_older_sdk",
+    "install_failed_test_only",
+    "install_failed_duplicate_package",
+    "failed to parse apk",
+    "apk file not found",
+)
+
+
+def is_device_error_message(message: str) -> bool:
+    """Conservatively identify failures caused by ADB or device health."""
+    normalized = str(message or "").strip().lower()
+    if not normalized:
+        return False
+    if "device '" in normalized and " not found" in normalized:
+        return True
+    return any(signature in normalized for signature in _DEVICE_ERROR_SIGNATURES)
+
+
+def _is_apk_specific_install_error(message: str) -> bool:
+    normalized = str(message or "").strip().lower()
+    return bool(normalized) and any(signature in normalized for signature in _APK_INSTALL_ERROR_SIGNATURES)
 
 
 def _format_dynamic_error(exc: Exception) -> str:
@@ -177,6 +245,7 @@ def _set_device_online(device_id: str, task_id: str) -> bool:
         SET status = 'online',
             current_task_id = NULL
         WHERE id = %s
+          AND status = 'busy'
           AND current_task_id = %s
         """,
         (device_id, task_id),
@@ -191,15 +260,131 @@ def _set_device_online(device_id: str, task_id: str) -> bool:
     return True
 
 
-def _mark_task_failed(task_id: str, message: str) -> None:
-    """将任务更新为 dynamic_failed 并记录错误。"""
-    update_task(
-        task_id,
-        {
-            "status": "dynamic_failed",
-            "error_message": message,
-        },
+def _quarantine_owned_device(task_id: str, device_id: str, reason: str) -> bool:
+    """Quarantine a busy device only while it is still owned by this task."""
+    affected_rows, _ = execute(
+        """
+        UPDATE devices
+        SET status = 'quarantined',
+            current_task_id = NULL,
+            quarantine_reason = %s,
+            quarantined_at = NOW()
+        WHERE id = %s
+          AND status = 'busy'
+          AND current_task_id = %s
+        """,
+        (_clip_text(reason, 2000), device_id, task_id),
     )
+    if affected_rows == 0:
+        logger.warning(
+            "device quarantine skipped because ownership changed task_id=%s device_id=%s",
+            task_id,
+            device_id,
+        )
+        return False
+    return True
+
+
+def _quarantine_and_requeue_owned_task(task_id: str, device_id: str, reason: str) -> bool:
+    """Atomically requeue an owned task and quarantine its current device."""
+    clipped_reason = _clip_text(reason, 2000)
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            try:
+                conn.begin()
+                cursor.execute(
+                    """
+                    SELECT status, device_id
+                    FROM tasks
+                    WHERE id = %s
+                    FOR UPDATE
+                    """,
+                    (task_id,),
+                )
+                task = cursor.fetchone()
+                if not task or str(task.get("status") or "") != "dynamic_tracing" or str(
+                    task.get("device_id") or ""
+                ) != device_id:
+                    conn.commit()
+                    return False
+
+                cursor.execute(
+                    """
+                    SELECT status, current_task_id
+                    FROM devices
+                    WHERE id = %s
+                    FOR UPDATE
+                    """,
+                    (device_id,),
+                )
+                device = cursor.fetchone()
+                if not device or str(device.get("status") or "") != "busy" or str(
+                    device.get("current_task_id") or ""
+                ) != task_id:
+                    conn.commit()
+                    return False
+
+                updated_tasks = cursor.execute(
+                    """
+                    UPDATE tasks
+                    SET status = 'waiting_device',
+                        device_id = NULL,
+                        error_message = %s
+                    WHERE id = %s
+                      AND status = 'dynamic_tracing'
+                      AND device_id = %s
+                    """,
+                    (clipped_reason, task_id, device_id),
+                )
+                updated_devices = cursor.execute(
+                    """
+                    UPDATE devices
+                    SET status = 'quarantined',
+                        current_task_id = NULL,
+                        quarantine_reason = %s,
+                        quarantined_at = NOW()
+                    WHERE id = %s
+                      AND status = 'busy'
+                      AND current_task_id = %s
+                    """,
+                    (clipped_reason, device_id, task_id),
+                )
+                if updated_tasks != 1 or updated_devices != 1:
+                    raise TaskOwnershipLostError(
+                        f"ownership changed while quarantining task={task_id} device={device_id}"
+                    )
+                conn.commit()
+                return True
+            except Exception:
+                conn.rollback()
+                raise
+
+
+def _mark_owned_task_failed(task_id: str, device_id: str, message: str) -> bool:
+    """Fail only the dynamic task that is still assigned to this worker's device."""
+    affected_rows, _ = execute(
+        """
+        UPDATE tasks t
+        JOIN devices d
+          ON d.id = t.device_id
+         AND d.status = 'busy'
+         AND d.current_task_id = t.id
+        SET t.status = 'dynamic_failed',
+            t.error_message = %s
+        WHERE t.id = %s
+          AND t.status = 'dynamic_tracing'
+          AND t.device_id = %s
+        """,
+        (_clip_text(message, 2000), task_id, device_id),
+    )
+    if affected_rows == 0:
+        logger.warning(
+            "task failure update skipped because ownership changed task_id=%s device_id=%s",
+            task_id,
+            device_id,
+        )
+        return False
+    return True
 
 
 def _resolve_result_root() -> Path:
@@ -276,6 +461,7 @@ def _build_result_file_path(result_dir: Path, raw_path: Any) -> Path | None:
 
 def _persist_trace_results(
     task_id: str,
+    device_id: str,
     pcap_path: str | None,
     run_log_path: str | None,
     dynamic_rows: list[dict],
@@ -338,6 +524,40 @@ def _persist_trace_results(
         with conn.cursor() as cursor:
             try:
                 conn.begin()
+                cursor.execute(
+                    """
+                    SELECT status, device_id
+                    FROM tasks
+                    WHERE id = %s
+                    FOR UPDATE
+                    """,
+                    (task_id,),
+                )
+                task = cursor.fetchone()
+                if not task or str(task.get("status") or "") != "dynamic_tracing" or str(
+                    task.get("device_id") or ""
+                ) != device_id:
+                    raise TaskOwnershipLostError(
+                        f"task ownership changed before persistence task={task_id} device={device_id}"
+                    )
+
+                cursor.execute(
+                    """
+                    SELECT status, current_task_id
+                    FROM devices
+                    WHERE id = %s
+                    FOR UPDATE
+                    """,
+                    (device_id,),
+                )
+                device = cursor.fetchone()
+                if not device or str(device.get("status") or "") != "busy" or str(
+                    device.get("current_task_id") or ""
+                ) != task_id:
+                    raise TaskOwnershipLostError(
+                        f"device ownership changed before persistence task={task_id} device={device_id}"
+                    )
+
                 cursor.execute("DELETE FROM dynamic_results WHERE task_id = %s", (task_id,))
                 cursor.execute("DELETE FROM traffic_logs WHERE task_id = %s", (task_id,))
                 cursor.execute("DELETE FROM frida_logs WHERE task_id = %s", (task_id,))
@@ -405,7 +625,7 @@ def _persist_trace_results(
                             for item in frida_rows
                         ],
                     )
-                cursor.execute(
+                updated_tasks = cursor.execute(
                     """
                     UPDATE tasks
                     SET status = 'completed',
@@ -413,9 +633,15 @@ def _persist_trace_results(
                         run_log_path = %s,
                         error_message = NULL
                     WHERE id = %s
+                      AND status = 'dynamic_tracing'
+                      AND device_id = %s
                     """,
-                    (pcap_path, run_log_path, task_id),
+                    (pcap_path, run_log_path, task_id, device_id),
                 )
+                if updated_tasks != 1:
+                    raise TaskOwnershipLostError(
+                        f"task ownership changed during persistence task={task_id} device={device_id}"
+                    )
                 conn.commit()
             except Exception:
                 conn.rollback()
@@ -763,6 +989,69 @@ def _extract_trace_context(task_id: str, task: dict, device_id: str) -> tuple[st
     return package_name, apk_object_path, adb_device_id
 
 
+def _cleanup_device_after_trace(
+    *,
+    task_id: str,
+    device_id: str,
+    package_name: str,
+    adb_device_id: str,
+    app_installed: bool,
+) -> bool:
+    """Clean device state and return whether it must remain isolated."""
+    isolated = False
+
+    if app_installed:
+        try:
+            uninstall_ok, uninstall_msg = uninstall_apk(
+                package_name=package_name,
+                device_id=adb_device_id,
+            )
+        except Exception as exc:  # pragma: no cover - defensive around ADB wrapper
+            uninstall_ok, uninstall_msg = False, str(exc)
+        if not uninstall_ok:
+            reason = f"卸载APK失败: {uninstall_msg}"
+            isolated = True
+            _quarantine_owned_device(task_id, device_id, reason)
+            logger.warning(
+                "uninstall apk failed and device quarantined task_id=%s package=%s err=%s",
+                task_id,
+                package_name,
+                uninstall_msg,
+            )
+
+    if adb_device_id:
+        try:
+            accessibility_ok, accessibility_messages = clear_accessibility_services(
+                device_id=adb_device_id
+            )
+        except Exception as exc:  # pragma: no cover - defensive around ADB wrapper
+            accessibility_ok, accessibility_messages = False, [str(exc)]
+        accessibility_detail = " | ".join(str(item) for item in accessibility_messages)
+        if accessibility_ok:
+            logger.info(
+                "clear accessibility services success task_id=%s device_id=%s detail=%s",
+                task_id,
+                adb_device_id,
+                accessibility_detail,
+            )
+        else:
+            logger.warning(
+                "clear accessibility services failed task_id=%s device_id=%s detail=%s",
+                task_id,
+                adb_device_id,
+                accessibility_detail,
+            )
+            if is_device_error_message(accessibility_detail):
+                isolated = True
+                _quarantine_owned_device(
+                    task_id,
+                    device_id,
+                    f"清理无障碍服务失败: {accessibility_detail}",
+                )
+
+    return isolated
+
+
 @celery_app.task(name="workers.dynamic_trace.trace_task")
 def trace_task(task_id: str, device_id: str):
     """动态溯源主任务：执行、解析、入库、触发报告。"""
@@ -789,6 +1078,7 @@ def trace_task(task_id: str, device_id: str):
     adb_device_id = ""
     result_dir: Path | None = None
     app_installed = False
+    device_isolated = False
 
     try:
         package_name, apk_object_path, adb_device_id = _extract_trace_context(task_id, task, device_id)
@@ -797,7 +1087,15 @@ def trace_task(task_id: str, device_id: str):
 
         install_ok, install_msg = install_apk(local_apk_path, device_id=adb_device_id, replace_existing=True)
         if not install_ok:
-            raise RuntimeError(f"安装APK失败: {install_msg}")
+            install_error = f"安装APK失败: {install_msg}"
+            if is_device_error_message(install_msg):
+                raise DeviceUnavailableError(install_error)
+            if not _is_apk_specific_install_error(install_msg):
+                health = check_device_health(adb_device_id)
+                if health.state != "healthy":
+                    health_reason = health.reason or health.state
+                    raise DeviceUnavailableError(f"{install_error}; 设备健康检查失败: {health_reason}")
+            raise RuntimeError(install_error)
         app_installed = True
 
         unpack_archive_path = _maybe_unpack_packed_app(
@@ -829,6 +1127,7 @@ def trace_task(task_id: str, device_id: str):
         pcap_path, run_log_path = _upload_trace_files(task_id, result_dir)
         _persist_trace_results(
             task_id=task_id,
+            device_id=device_id,
             pcap_path=pcap_path,
             run_log_path=run_log_path,
             dynamic_rows=dynamic_rows,
@@ -850,9 +1149,40 @@ def trace_task(task_id: str, device_id: str):
             "c2_domain_reasons": tagging_result.get("c2_domain_reasons") or [],
             "real_controller_match_count": matched_traffic_count,
         }
+    except TaskOwnershipLostError as exc:
+        logger.warning(
+            "dynamic trace stopped because ownership changed task_id=%s device_id=%s err=%s",
+            task_id,
+            device_id,
+            exc,
+        )
+        device_isolated = True
+        return {
+            "task_id": task_id,
+            "device_id": device_id,
+            "accepted": False,
+            "reason": "device_ownership_mismatch",
+        }
     except Exception as exc:  # pragma: no cover - runtime dependent
         logger.exception("dynamic trace failed task_id=%s device_id=%s", task_id, device_id)
-        _mark_task_failed(task_id, _format_dynamic_error(exc))
+        error_message = _format_dynamic_error(exc)
+        if isinstance(exc, DeviceUnavailableError) or is_device_error_message(str(exc)):
+            device_isolated = True
+            requeued = _quarantine_and_requeue_owned_task(task_id, device_id, error_message)
+            if not requeued:
+                return {
+                    "task_id": task_id,
+                    "device_id": device_id,
+                    "accepted": False,
+                    "reason": "device_ownership_mismatch",
+                }
+            return {
+                "task_id": task_id,
+                "device_id": device_id,
+                "status": "waiting_device",
+                "error": str(exc),
+            }
+        _mark_owned_task_failed(task_id, device_id, error_message)
         return {
             "task_id": task_id,
             "device_id": device_id,
@@ -866,31 +1196,13 @@ def trace_task(task_id: str, device_id: str):
         if result_dir and result_dir.exists():
             shutil.rmtree(result_dir, ignore_errors=True)
 
-        if app_installed:
-            uninstall_ok, uninstall_msg = uninstall_apk(package_name=package_name, device_id=adb_device_id)
-            if not uninstall_ok:
-                logger.warning(
-                    "uninstall apk failed task_id=%s package=%s err=%s",
-                    task_id,
-                    package_name,
-                    uninstall_msg,
-                )
-
-        if adb_device_id:
-            accessibility_ok, accessibility_messages = clear_accessibility_services(device_id=adb_device_id)
-            if accessibility_ok:
-                logger.info(
-                    "clear accessibility services success task_id=%s device_id=%s detail=%s",
-                    task_id,
-                    adb_device_id,
-                    " | ".join(accessibility_messages),
-                )
-            else:
-                logger.warning(
-                    "clear accessibility services failed task_id=%s device_id=%s detail=%s",
-                    task_id,
-                    adb_device_id,
-                    " | ".join(accessibility_messages),
-                )
-
-        _set_device_online(device_id, task_id)
+        cleanup_isolated = _cleanup_device_after_trace(
+            task_id=task_id,
+            device_id=device_id,
+            package_name=package_name,
+            adb_device_id=adb_device_id,
+            app_installed=app_installed,
+        )
+        device_isolated = device_isolated or cleanup_isolated
+        if not device_isolated:
+            _set_device_online(device_id, task_id)

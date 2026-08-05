@@ -33,6 +33,7 @@ class DynamicTaskOwnershipTest(unittest.TestCase):
     def test_current_owner_can_release_device(self, execute_mock) -> None:
         self.assertTrue(_set_device_online("device-1", "task-1"))
         self.assertEqual(execute_mock.call_args.args[1], ("device-1", "task-1"))
+        self.assertIn("status = 'busy'", execute_mock.call_args.args[0])
 
     @patch("workers.dynamic_trace.execute", return_value=(0, 0))
     def test_stale_task_cannot_release_device(self, _execute_mock) -> None:
