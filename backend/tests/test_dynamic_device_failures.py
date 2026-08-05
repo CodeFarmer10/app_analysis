@@ -177,10 +177,12 @@ class DynamicDeviceFailureTest(unittest.TestCase):
     def test_runtime_adb_classifier_requires_trusted_context(self) -> None:
         positive_messages = (
             "adb: transport is closing",
+            "adb: transport endpoint is not connected",
+            "adb: transport error",
+            "adb: connection reset by peer",
             "adb: protocol fault (no status)",
             "adb shell timeout after 30s",
             "Phone Agent error: No output from dumpsys window",
-            "Phone Agent error: Resource temporarily unavailable",
             "shell: fork failed: Resource temporarily unavailable",
         )
         negative_messages = (
@@ -188,6 +190,8 @@ class DynamicDeviceFailureTest(unittest.TestCase):
             "Plan Model error: No output from dumpsys window",
             "MinIO error: resource temporarily unavailable",
             "host worker: fork failed: resource temporarily unavailable",
+            "Phone Agent error: Resource temporarily unavailable",
+            "Phone Agent error: fork failed: resource temporarily unavailable",
             "No output from dumpsys window",
         )
 

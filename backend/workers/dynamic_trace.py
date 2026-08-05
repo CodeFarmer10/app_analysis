@@ -98,6 +98,9 @@ _RUNTIME_ADB_ERROR_SIGNATURES = (
 
 _RUNTIME_ADB_CONTEXT_SIGNATURES = (
     "transport is closing",
+    "transport endpoint is not connected",
+    "transport error",
+    "connection reset by peer",
     "protocol fault",
     "fork failed",
     "cannot fork",
@@ -130,22 +133,21 @@ def is_runtime_adb_error_message(message: str) -> bool:
         return False
 
     phone_agent_context = normalized.startswith("phone agent error:")
-    adb_context = "adb" in normalized or normalized.startswith("shell:")
+    adb_context = "adb" in normalized or "abb_exec" in normalized
+    shell_context = "shell:" in normalized
     if any(signature in normalized for signature in _RUNTIME_ADB_ERROR_SIGNATURES):
         return True
     if "device '" in normalized and " not found" in normalized:
         return True
     if phone_agent_context and "no output from dumpsys window" in normalized:
         return True
-    if (adb_context or phone_agent_context) and any(
+    if (adb_context or shell_context) and any(
         signature in normalized for signature in _RUNTIME_ADB_CONTEXT_SIGNATURES
     ):
         return True
     if "adb shell timeout" in normalized:
         return True
-    return "closed" in normalized and (
-        adb_context or phone_agent_context or "abb_exec" in normalized
-    )
+    return "closed" in normalized and adb_context
 
 
 def _format_dynamic_error(exc: Exception) -> str:
