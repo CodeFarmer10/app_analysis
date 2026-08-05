@@ -57,9 +57,11 @@ CREATE TABLE IF NOT EXISTS devices (
   android_version VARCHAR(32) NULL,
   model VARCHAR(128) NULL,
   resolution VARCHAR(32) NULL,
-  status ENUM('online', 'offline', 'busy') NOT NULL DEFAULT 'online',
+  status ENUM('online', 'offline', 'busy', 'quarantined') NOT NULL DEFAULT 'online',
   current_task_id VARCHAR(36) NULL,
   last_heartbeat_at DATETIME NULL,
+  quarantine_reason TEXT NULL,
+  quarantined_at DATETIME NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   UNIQUE KEY uk_devices_serial (serial),
   KEY idx_devices_status (status)
@@ -181,6 +183,53 @@ CREATE TABLE IF NOT EXISTS frida_logs (
     FOREIGN KEY (dynamic_result_id) REFERENCES dynamic_results(id)
     ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Backward-compatible device quarantine state for existing tables.
+SET @devices_status_needs_quarantined := (
+  SELECT COUNT(*) FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'devices'
+    AND column_name = 'status'
+    AND LOCATE('''quarantined''', column_type) = 0
+);
+SET @sql_devices_status_needs_quarantined := IF(
+  @devices_status_needs_quarantined > 0,
+  'ALTER TABLE devices MODIFY COLUMN status ENUM(''online'', ''offline'', ''busy'', ''quarantined'') NOT NULL DEFAULT ''online''',
+  'SELECT 1'
+);
+PREPARE stmt_devices_status_needs_quarantined FROM @sql_devices_status_needs_quarantined;
+EXECUTE stmt_devices_status_needs_quarantined;
+DEALLOCATE PREPARE stmt_devices_status_needs_quarantined;
+
+SET @devices_quarantine_reason_col := (
+  SELECT COUNT(*) FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'devices'
+    AND column_name = 'quarantine_reason'
+);
+SET @sql_devices_quarantine_reason_col := IF(
+  @devices_quarantine_reason_col = 0,
+  'ALTER TABLE devices ADD COLUMN quarantine_reason TEXT NULL AFTER last_heartbeat_at',
+  'SELECT 1'
+);
+PREPARE stmt_devices_quarantine_reason_col FROM @sql_devices_quarantine_reason_col;
+EXECUTE stmt_devices_quarantine_reason_col;
+DEALLOCATE PREPARE stmt_devices_quarantine_reason_col;
+
+SET @devices_quarantined_at_col := (
+  SELECT COUNT(*) FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'devices'
+    AND column_name = 'quarantined_at'
+);
+SET @sql_devices_quarantined_at_col := IF(
+  @devices_quarantined_at_col = 0,
+  'ALTER TABLE devices ADD COLUMN quarantined_at DATETIME NULL AFTER quarantine_reason',
+  'SELECT 1'
+);
+PREPARE stmt_devices_quarantined_at_col FROM @sql_devices_quarantined_at_col;
+EXECUTE stmt_devices_quarantined_at_col;
+DEALLOCATE PREPARE stmt_devices_quarantined_at_col;
 
 -- Add foreign keys that create a circular reference, in an idempotent way.
 SET @fk_tasks_device := (

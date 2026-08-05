@@ -47,6 +47,8 @@ def get_device_by_id(device_id: str) -> dict | None:
             d.status,
             d.current_task_id,
             d.last_heartbeat_at,
+            d.quarantine_reason,
+            d.quarantined_at,
             d.created_at,
             t.status AS current_task_status,
             COALESCE(tc.analyzed_app_count_1d, 0) AS analyzed_app_count_1d
@@ -80,6 +82,8 @@ def get_device_by_serial(serial: str) -> dict | None:
             d.status,
             d.current_task_id,
             d.last_heartbeat_at,
+            d.quarantine_reason,
+            d.quarantined_at,
             d.created_at,
             t.status AS current_task_status,
             COALESCE(tc.analyzed_app_count_1d, 0) AS analyzed_app_count_1d
@@ -113,6 +117,8 @@ def list_devices() -> list[dict]:
             d.status,
             d.current_task_id,
             d.last_heartbeat_at,
+            d.quarantine_reason,
+            d.quarantined_at,
             d.created_at,
             t.status AS current_task_status,
             COALESCE(tc.analyzed_app_count_1d, 0) AS analyzed_app_count_1d
@@ -171,6 +177,8 @@ def get_available_devices() -> list[dict]:
             status,
             current_task_id,
             last_heartbeat_at,
+            quarantine_reason,
+            quarantined_at,
             created_at
         FROM devices
         WHERE status = 'online'

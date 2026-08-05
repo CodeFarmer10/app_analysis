@@ -34,6 +34,7 @@ const statusMetaMap = {
   online: { status: 'success', text: '在线' },
   offline: { status: 'error', text: '离线' },
   busy: { status: 'processing', text: '分析中' },
+  quarantined: { status: 'error', text: '已隔离' },
 }
 
 const { start: startPolling, stop: stopPolling } = usePolling(async () => {
@@ -55,8 +56,15 @@ function getDeviceTitle(record) {
   return record?.name || record?.model || '未命名设备'
 }
 
-function isOffline(record) {
-  return record?.status === 'offline'
+function isUnavailable(record) {
+  return ['offline', 'quarantined'].includes(record?.status)
+}
+
+function getUnavailableTitle(record) {
+  if (record?.status === 'quarantined') {
+    return record.quarantine_reason || '设备健康检查失败'
+  }
+  return '离线'
 }
 
 async function handleValidateConnection() {
@@ -216,7 +224,7 @@ onBeforeUnmount(() => {
             v-for="record in deviceList"
             :key="record.id"
             class="device-card"
-            :class="[`status-${record.status || 'unknown'}`, { offline: isOffline(record) }]"
+            :class="[`status-${record.status || 'unknown'}`, { offline: isUnavailable(record) }]"
           >
             <div class="device-head">
               <div class="device-title-wrap">
@@ -273,7 +281,9 @@ onBeforeUnmount(() => {
                 <a-button size="small" danger :loading="deletingId === record.id">删除</a-button>
               </a-popconfirm>
             </div>
-            <div v-if="isOffline(record)" class="offline-mask">离线</div>
+            <div v-if="isUnavailable(record)" class="offline-mask" :title="getUnavailableTitle(record)">
+              {{ getStatusMeta(record.status).text }}
+            </div>
           </article>
         </div>
       </a-spin>
@@ -429,6 +439,10 @@ onBeforeUnmount(() => {
 }
 
 .status-offline .status-dot {
+  background: var(--accent-red);
+}
+
+.status-quarantined .status-dot {
   background: var(--accent-red);
 }
 

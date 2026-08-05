@@ -5,6 +5,7 @@ import logging
 import shutil
 import subprocess
 import time
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
@@ -24,7 +25,8 @@ from repositories.device_repo import (
 
 ADB_COMMAND_TIMEOUT_SECONDS = 10
 ADB_HEARTBEAT_TIMEOUT_SECONDS = 3
-HEARTBEAT_REFRESH_INTERVAL_SECONDS = 5 * 60
+HEARTBEAT_REFRESH_INTERVAL_SECONDS = 60
+MIN_DATA_AVAILABLE_KIB = 5 * 1024 * 1024
 ADB_PUSH_TIMEOUT_SECONDS = 120
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEVICE_BOOTSTRAP_DIR = PROJECT_ROOT / "tools" / "device_bootstrap"
@@ -36,6 +38,13 @@ FRIDA_SERVER_REMOTE_PATH = "/data/local/tmp/frida-server"
 FRIDA_SERVER_START_WAIT_SECONDS = 1.0
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class DeviceHealthResult:
+    state: str
+    reason: str | None = None
+    available_kib: int | None = None
 
 
 def _run_command(command: list[str], timeout: int = ADB_COMMAND_TIMEOUT_SECONDS) -> str:
@@ -131,6 +140,68 @@ def _detect_device_online(serial: str) -> bool | None:
     if normalized in {"offline", "unauthorized", "unknown"}:
         return False
     return False
+
+
+def _parse_data_available_kib(df_output: str | None) -> int | None:
+    if not df_output:
+        return None
+
+    for line in df_output.splitlines():
+        fields = line.split()
+        if len(fields) < 6 or fields[-1] != "/data":
+            continue
+        try:
+            return int(fields[3])
+        except ValueError:
+            return None
+    return None
+
+
+def check_device_health(serial: str) -> DeviceHealthResult:
+    """Run the heartbeat probe without raising runtime errors to callers."""
+    normalized_serial = serial.strip()
+    if not normalized_serial:
+        return DeviceHealthResult("offline", "adb serial is empty")
+
+    _try_connect_device_optional(normalized_serial)
+    state = _run_command_optional(
+        ["adb", "-s", normalized_serial, "get-state"],
+        timeout=ADB_HEARTBEAT_TIMEOUT_SECONDS,
+    )
+    normalized_state = str(state or "").strip().lower()
+    if normalized_state != "device":
+        detail = normalized_state or "unavailable"
+        return DeviceHealthResult("offline", f"adb get-state returned {detail}")
+
+    marker = _run_command_optional(
+        ["adb", "-s", normalized_serial, "shell", "echo", "__device_health_ok__"],
+        timeout=ADB_HEARTBEAT_TIMEOUT_SECONDS,
+    )
+    if marker != "__device_health_ok__":
+        return DeviceHealthResult("quarantined", "adb shell marker check failed")
+
+    package_path = _run_command_optional(
+        ["adb", "-s", normalized_serial, "shell", "cmd", "package", "path", "android"],
+        timeout=ADB_HEARTBEAT_TIMEOUT_SECONDS,
+    )
+    if not package_path or not package_path.startswith("package:"):
+        return DeviceHealthResult("quarantined", "package manager check failed")
+
+    data_free_kib = _parse_data_available_kib(
+        _run_command_optional(
+            ["adb", "-s", normalized_serial, "shell", "df", "-k", "/data"],
+            timeout=ADB_HEARTBEAT_TIMEOUT_SECONDS,
+        )
+    )
+    if data_free_kib is None:
+        return DeviceHealthResult("quarantined", "storage check failed")
+    if data_free_kib < MIN_DATA_AVAILABLE_KIB:
+        return DeviceHealthResult(
+            "quarantined",
+            f"storage below 5 GiB ({data_free_kib} KiB available)",
+            data_free_kib,
+        )
+    return DeviceHealthResult("healthy", available_kib=data_free_kib)
 
 
 def _parse_resolution(raw_value: str | None) -> str | None:
@@ -329,29 +400,50 @@ def _bootstrap_device_tools(serial: str) -> None:
 
 def _refresh_device_runtime(device: dict) -> dict:
     serial = str(device.get("serial") or "").strip()
-    online_state = _detect_device_online(serial)
     has_current_task = bool(device.get("current_task_id"))
     current_status = str(device.get("status") or "").strip() or "offline"
 
-    if online_state is True:
-        next_status = "busy" if has_current_task else "online"
-    elif online_state is False:
-        next_status = "offline"
-    else:
-        next_status = "busy" if (current_status == "online" and has_current_task) else current_status
+    # A quarantine is an explicit operational state and is never cleared by a probe.
+    if current_status == "quarantined":
+        return device
+
+    health = check_device_health(serial)
+    if health.state != "healthy":
+        if current_status == "busy" or has_current_task:
+            logger.warning(
+                "busy device health check failed serial=%s state=%s reason=%s",
+                serial or "unknown",
+                health.state,
+                health.reason,
+            )
+            return device
+
+        if health.state == "offline":
+            fields_to_update: dict[str, object] = {"status": "offline"}
+            device["status"] = "offline"
+        else:
+            quarantined_at = datetime.now()
+            fields_to_update = {
+                "status": "quarantined",
+                "quarantine_reason": health.reason,
+                "quarantined_at": quarantined_at,
+            }
+            device.update(fields_to_update)
+
+        if device.get("id"):
+            update_device(str(device["id"]), fields_to_update)
+        return device
+
+    next_status = "busy" if current_status == "busy" or has_current_task else "online"
 
     fields_to_update: dict[str, object] = {}
     if device.get("status") != next_status:
         fields_to_update["status"] = next_status
     device["status"] = next_status
 
-    should_refresh_heartbeat = online_state is True or (
-        online_state is None and next_status in {"online", "busy"}
-    )
-    if should_refresh_heartbeat:
-        heartbeat_at = datetime.now()
-        fields_to_update["last_heartbeat_at"] = heartbeat_at
-        device["last_heartbeat_at"] = heartbeat_at
+    heartbeat_at = datetime.now()
+    fields_to_update["last_heartbeat_at"] = heartbeat_at
+    device["last_heartbeat_at"] = heartbeat_at
 
     if fields_to_update and device.get("id"):
         update_device(str(device["id"]), fields_to_update)
