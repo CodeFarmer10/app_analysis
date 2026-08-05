@@ -10,6 +10,7 @@ from workers.dynamic_trace import trace_task
 logger = logging.getLogger(__name__)
 SCHEDULER_INTERVAL_SECONDS = 10
 STALE_DYNAMIC_TRACE_MINUTES = 30
+DEVICE_HEALTH_FRESHNESS_SECONDS = 120
 
 
 def _recover_stale_dynamic_tracing_tasks() -> int:
@@ -32,31 +33,88 @@ def _recover_stale_dynamic_tracing_tasks() -> int:
                 for row in rows:
                     task_id = str(row["id"])
                     device_id = str(row["device_id"] or "").strip()
+                    recovery_reason = (
+                        f"动态任务超时回收：超过{STALE_DYNAMIC_TRACE_MINUTES}分钟未完成，设备已隔离"
+                    )
+
+                    if not device_id:
+                        updated_tasks = cursor.execute(
+                            """
+                            UPDATE tasks
+                            SET status = 'waiting_device',
+                                device_id = NULL,
+                                error_message = %s
+                            WHERE id = %s
+                              AND status = 'dynamic_tracing'
+                              AND device_id IS NULL
+                            """,
+                            (recovery_reason, task_id),
+                        )
+                        recovered_count += int(updated_tasks > 0)
+                        continue
+
+                    # Lock the device only while it still belongs to this stale task.
                     cursor.execute(
                         """
+                        SELECT id
+                        FROM devices
+                        WHERE id = %s
+                          AND status = 'busy'
+                          AND current_task_id = %s
+                        FOR UPDATE
+                        """,
+                        (device_id, task_id),
+                    )
+                    device = cursor.fetchone()
+                    if not device:
+                        logger.warning(
+                            "skip stale task recovery because device ownership changed "
+                            "task_id=%s device_id=%s",
+                            task_id,
+                            device_id,
+                        )
+                        continue
+
+                    updated_tasks = cursor.execute(
+                        """
                         UPDATE tasks
-                        SET status = 'dynamic_failed',
+                        SET status = 'waiting_device',
+                            device_id = NULL,
                             error_message = %s
                         WHERE id = %s
                           AND status = 'dynamic_tracing'
+                          AND device_id = %s
                         """,
-                        (
-                            f"动态任务超时回收：超过{STALE_DYNAMIC_TRACE_MINUTES}分钟未完成，系统自动回收",
-                            task_id,
-                        ),
+                        (recovery_reason, task_id, device_id),
                     )
-                    recovered_count += 1
-                    if device_id:
-                        cursor.execute(
-                            """
-                            UPDATE devices
-                            SET status = 'online',
-                                current_task_id = NULL
-                            WHERE id = %s
-                              AND current_task_id = %s
-                            """,
-                            (device_id, task_id),
+                    if updated_tasks == 0:
+                        logger.warning(
+                            "skip stale device quarantine because task ownership changed "
+                            "task_id=%s device_id=%s",
+                            task_id,
+                            device_id,
                         )
+                        continue
+
+                    updated_devices = cursor.execute(
+                        """
+                        UPDATE devices
+                        SET status = 'quarantined',
+                            current_task_id = NULL,
+                            quarantine_reason = %s,
+                            quarantined_at = NOW()
+                        WHERE id = %s
+                          AND status = 'busy'
+                          AND current_task_id = %s
+                        """,
+                        (recovery_reason, device_id, task_id),
+                    )
+                    if updated_devices == 0:
+                        raise RuntimeError(
+                            "stale task recovery lost device ownership after locking "
+                            f"task_id={task_id} device_id={device_id}"
+                        )
+                    recovered_count += 1
 
                 conn.commit()
             except Exception:
@@ -71,11 +129,12 @@ def _allocate_one_task_device_pair() -> tuple[str, str] | None:
             try:
                 conn.begin()
                 cursor.execute(
-                    """
+                    f"""
                     SELECT id
                     FROM devices
                     WHERE status = 'online'
                       AND current_task_id IS NULL
+                      AND last_heartbeat_at >= DATE_SUB(NOW(), INTERVAL {DEVICE_HEALTH_FRESHNESS_SECONDS} SECOND)
                     ORDER BY created_at ASC
                     LIMIT 1
                     FOR UPDATE
