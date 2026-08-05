@@ -58,19 +58,26 @@ class SchedulerDeviceHealthTest(unittest.TestCase):
         connection.commit.assert_called_once()
 
     @patch("workers.scheduler.get_connection")
-    def test_stale_recovery_keeps_task_device_ownership_guard(self, get_connection_mock) -> None:
+    def test_stale_recovery_requeues_task_without_touching_reassigned_device(
+        self, get_connection_mock
+    ) -> None:
         connection, cursor = self._connection_mocks()
         get_connection_mock.return_value.__enter__.return_value = connection
         cursor.fetchall.return_value = [{"id": "task-1", "device_id": "device-1"}]
         cursor.fetchone.return_value = None
+        cursor.execute.return_value = 1
 
-        self.assertEqual(_recover_stale_dynamic_tracing_tasks(), 0)
+        self.assertEqual(_recover_stale_dynamic_tracing_tasks(), 1)
 
         executed_sql = "\n".join(call.args[0] for call in cursor.execute.call_args_list)
         self.assertIn("FROM devices", executed_sql)
         self.assertIn("current_task_id = %s", executed_sql)
         self.assertIn("FOR UPDATE", executed_sql)
-        self.assertNotIn("SET status = 'waiting_device'", executed_sql)
+        self.assertIn("SET status = 'waiting_device'", executed_sql)
+        self.assertIn("device_id = NULL", executed_sql)
+        self.assertNotIn("UPDATE devices", executed_sql)
+        task_update_call = cursor.execute.call_args_list[-1]
+        self.assertEqual(task_update_call.args[1][1:], ("task-1", "device-1"))
         connection.commit.assert_called_once()
 
 

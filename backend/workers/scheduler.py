@@ -34,8 +34,9 @@ def _recover_stale_dynamic_tracing_tasks() -> int:
                     task_id = str(row["id"])
                     device_id = str(row["device_id"] or "").strip()
                     recovery_reason = (
-                        f"动态任务超时回收：超过{STALE_DYNAMIC_TRACE_MINUTES}分钟未完成，设备已隔离"
+                        f"动态任务超时回收：超过{STALE_DYNAMIC_TRACE_MINUTES}分钟未完成，系统自动重新排队"
                     )
+                    quarantine_reason = f"{recovery_reason}，设备已隔离"
 
                     if not device_id:
                         updated_tasks = cursor.execute(
@@ -68,11 +69,24 @@ def _recover_stale_dynamic_tracing_tasks() -> int:
                     device = cursor.fetchone()
                     if not device:
                         logger.warning(
-                            "skip stale task recovery because device ownership changed "
+                            "requeue stale task because device ownership changed "
                             "task_id=%s device_id=%s",
                             task_id,
                             device_id,
                         )
+                        updated_tasks = cursor.execute(
+                            """
+                            UPDATE tasks
+                            SET status = 'waiting_device',
+                                device_id = NULL,
+                                error_message = %s
+                            WHERE id = %s
+                              AND status = 'dynamic_tracing'
+                              AND device_id = %s
+                            """,
+                            (recovery_reason, task_id, device_id),
+                        )
+                        recovered_count += int(updated_tasks > 0)
                         continue
 
                     updated_tasks = cursor.execute(
@@ -107,7 +121,7 @@ def _recover_stale_dynamic_tracing_tasks() -> int:
                           AND status = 'busy'
                           AND current_task_id = %s
                         """,
-                        (recovery_reason, device_id, task_id),
+                        (quarantine_reason, device_id, task_id),
                     )
                     if updated_devices == 0:
                         raise RuntimeError(
