@@ -449,6 +449,113 @@ class DynamicDeviceFailureTest(unittest.TestCase):
         requeue_mock.assert_called_once()
         release_mock.assert_not_called()
 
+    def test_runtime_agent_adb_exception_requeues_device(self) -> None:
+        messages = (
+            "Phone Agent error: error: device offline",
+            "Phone Agent error: shell: fork failed: Resource temporarily unavailable",
+            "Phone Agent error: adb: device not found",
+        )
+        for message in messages:
+            with (
+                self.subTest(message=message),
+                tempfile.TemporaryDirectory() as temp_dir,
+                ExitStack() as stack,
+            ):
+                result_dir = Path(temp_dir) / "result"
+                result_dir.mkdir()
+                mocks = self._patch_trace_until_agent(stack, result_dir)
+                mocks["install"].return_value = (True, "Success")
+                mocks["run"].side_effect = RuntimeError(message)
+
+                result = dynamic_trace.trace_task("task-1", "device-1")
+
+                self.assertEqual(result["status"], "waiting_device")
+                mocks["requeue"].assert_called_once()
+                mocks["mark_failed"].assert_not_called()
+
+    def test_failed_phone_agent_device_record_requeues_before_persistence(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir, ExitStack() as stack:
+            result_dir = Path(temp_dir) / "result"
+            result_dir.mkdir()
+            mocks = self._patch_trace_until_agent(stack, result_dir)
+            mocks["install"].return_value = (True, "Success")
+            mocks["run"].return_value = "done"
+            operation_results = [
+                {
+                    "step_num": 1,
+                    "step": "打开应用",
+                    "successed": False,
+                    "message": "Phone Agent error: adb: failed to run abb_exec. Error: closed",
+                }
+            ]
+            stack.enter_context(
+                patch("workers.dynamic_trace._load_operation_results", return_value=operation_results)
+            )
+            parse_mock = stack.enter_context(patch("workers.dynamic_trace._parse_operation_results"))
+            persist_mock = stack.enter_context(patch("workers.dynamic_trace._persist_trace_results"))
+
+            result = dynamic_trace.trace_task("task-1", "device-1")
+
+            self.assertEqual(result["status"], "waiting_device")
+            mocks["requeue"].assert_called_once()
+            parse_mock.assert_not_called()
+            persist_mock.assert_not_called()
+
+    def test_overlapping_attempts_use_distinct_local_and_object_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir, patch(
+            "workers.dynamic_trace._resolve_result_root",
+            return_value=Path(temp_dir),
+        ):
+            first_dir = dynamic_trace._prepare_result_dir("task-1", "attempt-1")
+            marker = first_dir / "run.log"
+            marker.write_text("first", encoding="utf-8")
+            second_dir = dynamic_trace._prepare_result_dir("task-1", "attempt-2")
+
+            self.assertNotEqual(first_dir, second_dir)
+            self.assertTrue(marker.exists())
+            self.assertEqual(first_dir, Path(temp_dir) / "task-1" / "attempt-1")
+            self.assertEqual(second_dir, Path(temp_dir) / "task-1" / "attempt-2")
+
+            first_namespace = dynamic_trace._attempt_object_namespace("task-1", "attempt-1")
+            second_namespace = dynamic_trace._attempt_object_namespace("task-1", "attempt-2")
+            with patch(
+                "workers.dynamic_trace.storage_service.upload_task_file",
+                side_effect=["url-1", "url-2"],
+            ) as upload_mock:
+                dynamic_trace._upload_result_file(first_namespace, "log", marker)
+                second_log = second_dir / "run.log"
+                second_log.write_text("second", encoding="utf-8")
+                dynamic_trace._upload_result_file(second_namespace, "log", second_log)
+
+            uploaded_namespaces = [call.args[0] for call in upload_mock.call_args_list]
+            self.assertEqual(
+                uploaded_namespaces,
+                ["task-1/attempts/attempt-1", "task-1/attempts/attempt-2"],
+            )
+
+    @patch("workers.dynamic_trace.update_static_result_fields")
+    @patch(
+        "workers.dynamic_trace.unpack_to_archive",
+        side_effect=RuntimeError("adb: error: device offline"),
+    )
+    @patch("workers.dynamic_trace.get_static_result", return_value={"is_packed": True})
+    def test_unpack_adb_failure_is_promoted_to_device_error(
+        self,
+        _static_mock,
+        _unpack_mock,
+        update_static_mock,
+    ) -> None:
+        with self.assertRaises(dynamic_trace.DeviceUnavailableError):
+            dynamic_trace._maybe_unpack_packed_app(
+                task_id="task-1",
+                object_namespace="task-1/attempts/attempt-1",
+                package_name="com.example.app",
+                adb_device_id="serial-1",
+                result_dir=Path("/tmp/attempt-1"),
+            )
+
+        update_static_mock.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

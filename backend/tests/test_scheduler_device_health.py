@@ -7,6 +7,7 @@ from workers.scheduler import (
     STALE_DYNAMIC_TRACE_MINUTES,
     _allocate_one_task_device_pair,
     _recover_stale_dynamic_tracing_tasks,
+    _release_pair,
 )
 
 
@@ -79,6 +80,74 @@ class SchedulerDeviceHealthTest(unittest.TestCase):
         task_update_call = cursor.execute.call_args_list[-1]
         self.assertEqual(task_update_call.args[1][1:], ("task-1", "device-1"))
         connection.commit.assert_called_once()
+
+    @patch("workers.scheduler.get_connection")
+    def test_dispatch_release_restores_only_busy_owned_device(self, get_connection_mock) -> None:
+        connection, cursor = self._connection_mocks()
+        get_connection_mock.return_value.__enter__.return_value = connection
+        cursor.fetchone.side_effect = [
+            {"status": "dynamic_tracing", "device_id": "device-1"},
+            {"status": "busy", "current_task_id": "task-1"},
+        ]
+        cursor.execute.side_effect = [1, 1, 1, 1]
+
+        self.assertTrue(_release_pair("task-1", "device-1", "dispatch failed"))
+
+        sql = "\n".join(call.args[0] for call in cursor.execute.call_args_list)
+        self.assertIn("FOR UPDATE", sql)
+        self.assertIn("status = 'busy'", sql)
+        self.assertIn("SET status = 'online'", sql)
+        connection.commit.assert_called_once()
+
+    @patch("workers.scheduler.get_connection")
+    def test_dispatch_release_keeps_quarantined_device_quarantined(self, get_connection_mock) -> None:
+        connection, cursor = self._connection_mocks()
+        get_connection_mock.return_value.__enter__.return_value = connection
+        cursor.fetchone.side_effect = [
+            {"status": "dynamic_tracing", "device_id": "device-1"},
+            {"status": "quarantined", "current_task_id": "task-1"},
+        ]
+        cursor.execute.side_effect = [1, 1, 1, 1]
+
+        self.assertTrue(_release_pair("task-1", "device-1", "dispatch failed"))
+
+        device_update = cursor.execute.call_args_list[-1].args[0]
+        self.assertIn("status = 'quarantined'", device_update)
+        self.assertIn("SET current_task_id = NULL", device_update)
+        self.assertNotIn("SET status = 'online'", device_update)
+        connection.commit.assert_called_once()
+
+    @patch("workers.scheduler.get_connection")
+    def test_dispatch_release_rowcount_mismatch_rolls_back(self, get_connection_mock) -> None:
+        connection, cursor = self._connection_mocks()
+        get_connection_mock.return_value.__enter__.return_value = connection
+        cursor.fetchone.side_effect = [
+            {"status": "dynamic_tracing", "device_id": "device-1"},
+            {"status": "busy", "current_task_id": "task-1"},
+        ]
+        cursor.execute.side_effect = [1, 1, 1, 0]
+
+        with self.assertRaises(RuntimeError):
+            _release_pair("task-1", "device-1", "dispatch failed")
+
+        connection.rollback.assert_called_once()
+        connection.commit.assert_not_called()
+
+    @patch("workers.scheduler.get_connection")
+    def test_dispatch_release_does_not_touch_reassigned_task(self, get_connection_mock) -> None:
+        connection, cursor = self._connection_mocks()
+        get_connection_mock.return_value.__enter__.return_value = connection
+        cursor.fetchone.return_value = {
+            "status": "dynamic_tracing",
+            "device_id": "device-2",
+        }
+
+        self.assertFalse(_release_pair("task-1", "device-1", "dispatch failed"))
+
+        executed_sql = [call.args[0] for call in cursor.execute.call_args_list]
+        self.assertFalse(any("UPDATE tasks" in sql for sql in executed_sql))
+        self.assertFalse(any("UPDATE devices" in sql for sql in executed_sql))
+        connection.rollback.assert_called_once()
 
 
 if __name__ == "__main__":

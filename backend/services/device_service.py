@@ -21,6 +21,7 @@ from repositories.device_repo import (
     get_device_by_serial,
     list_devices,
     update_device,
+    update_idle_device_snapshot,
 )
 
 ADB_COMMAND_TIMEOUT_SECONDS = 10
@@ -420,7 +421,6 @@ def _refresh_device_runtime(device: dict) -> dict:
 
         if health.state == "offline":
             fields_to_update: dict[str, object] = {"status": "offline"}
-            device["status"] = "offline"
         else:
             quarantined_at = datetime.now()
             fields_to_update = {
@@ -428,25 +428,32 @@ def _refresh_device_runtime(device: dict) -> dict:
                 "quarantine_reason": health.reason,
                 "quarantined_at": quarantined_at,
             }
+        if device.get("id") and update_idle_device_snapshot(
+            str(device["id"]),
+            current_status,
+            fields_to_update,
+        ):
             device.update(fields_to_update)
-
-        if device.get("id"):
-            update_device(str(device["id"]), fields_to_update)
         return device
 
-    next_status = "busy" if current_status == "busy" or has_current_task else "online"
-
-    fields_to_update: dict[str, object] = {}
-    if device.get("status") != next_status:
-        fields_to_update["status"] = next_status
-    device["status"] = next_status
+    if current_status != "busy" and not has_current_task:
+        heartbeat_at = datetime.now()
+        fields_to_update = {
+            "status": "online",
+            "last_heartbeat_at": heartbeat_at,
+        }
+        if device.get("id") and update_idle_device_snapshot(
+            str(device["id"]),
+            current_status,
+            fields_to_update,
+        ):
+            device.update(fields_to_update)
+        return device
 
     heartbeat_at = datetime.now()
-    fields_to_update["last_heartbeat_at"] = heartbeat_at
     device["last_heartbeat_at"] = heartbeat_at
-
-    if fields_to_update and device.get("id"):
-        update_device(str(device["id"]), fields_to_update)
+    if device.get("id"):
+        update_device(str(device["id"]), {"last_heartbeat_at": heartbeat_at})
 
     return device
 
@@ -496,8 +503,22 @@ def create_new_device(serial: str, name: str | None = None) -> dict:
     _ensure_device_reachable(normalized_serial)
     _bootstrap_device_tools(normalized_serial)
     device_info = _collect_device_info(normalized_serial)
+    health = check_device_health(normalized_serial)
     normalized_name = (name or "").strip() or device_info.get("model") or normalized_serial
     device_id = str(uuid4())
+
+    heartbeat_at: datetime | None = None
+    quarantine_reason: str | None = None
+    quarantined_at: datetime | None = None
+    if health.state == "healthy":
+        device_status = "online"
+        heartbeat_at = datetime.now()
+    elif health.state == "offline":
+        device_status = "offline"
+    else:
+        device_status = "quarantined"
+        quarantine_reason = health.reason
+        quarantined_at = datetime.now()
 
     create_device_record(
         {
@@ -507,8 +528,10 @@ def create_new_device(serial: str, name: str | None = None) -> dict:
             "android_version": device_info.get("android_version"),
             "model": device_info.get("model"),
             "resolution": device_info.get("resolution"),
-            "status": "online",
-            "last_heartbeat_at": datetime.now(),
+            "status": device_status,
+            "last_heartbeat_at": heartbeat_at,
+            "quarantine_reason": quarantine_reason,
+            "quarantined_at": quarantined_at,
         }
     )
     return get_device_detail(device_id)

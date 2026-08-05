@@ -15,9 +15,11 @@ def create_device(data: dict[str, Any]) -> str:
             model,
             resolution,
             status,
-            last_heartbeat_at
+            last_heartbeat_at,
+            quarantine_reason,
+            quarantined_at
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     """
     execute(
         sql,
@@ -30,6 +32,8 @@ def create_device(data: dict[str, Any]) -> str:
             data.get("resolution"),
             data.get("status", "online"),
             data.get("last_heartbeat_at"),
+            data.get("quarantine_reason"),
+            data.get("quarantined_at"),
         ),
     )
     return data["id"]
@@ -155,6 +159,33 @@ def update_device(device_id: str, fields: dict[str, Any]) -> int:
         WHERE id = %s
     """
     values.append(device_id)
+    rows, _ = execute(sql, tuple(values))
+    return rows
+
+
+def update_idle_device_snapshot(
+    device_id: str,
+    expected_status: str,
+    fields: dict[str, Any],
+) -> int:
+    """Update an idle device only if its status/ownership still match the probe snapshot."""
+    if not fields:
+        return 0
+
+    set_fragments: list[str] = []
+    values: list[Any] = []
+    for key, value in fields.items():
+        set_fragments.append(f"{key} = %s")
+        values.append(value)
+
+    sql = f"""
+        UPDATE devices
+        SET {", ".join(set_fragments)}
+        WHERE id = %s
+          AND status = %s
+          AND current_task_id IS NULL
+    """
+    values.extend((device_id, expected_status))
     rows, _ = execute(sql, tuple(values))
     return rows
 

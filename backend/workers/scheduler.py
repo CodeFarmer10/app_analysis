@@ -200,12 +200,47 @@ def _allocate_one_task_device_pair() -> tuple[str, str] | None:
                 raise
 
 
-def _release_pair(task_id: str, device_id: str, reason: str) -> None:
+def _release_pair(task_id: str, device_id: str, reason: str) -> bool:
     with get_connection() as conn:
         with conn.cursor() as cursor:
             try:
                 conn.begin()
                 cursor.execute(
+                    """
+                    SELECT status, device_id
+                    FROM tasks
+                    WHERE id = %s
+                    FOR UPDATE
+                    """,
+                    (task_id,),
+                )
+                task = cursor.fetchone()
+                if not task or str(task.get("status") or "") != "dynamic_tracing" or str(
+                    task.get("device_id") or ""
+                ) != device_id:
+                    conn.rollback()
+                    return False
+
+                cursor.execute(
+                    """
+                    SELECT status, current_task_id
+                    FROM devices
+                    WHERE id = %s
+                    FOR UPDATE
+                    """,
+                    (device_id,),
+                )
+                device = cursor.fetchone()
+                device_status = str((device or {}).get("status") or "")
+                if (
+                    not device
+                    or device_status not in {"busy", "quarantined"}
+                    or str(device.get("current_task_id") or "") != task_id
+                ):
+                    conn.rollback()
+                    return False
+
+                updated_tasks = cursor.execute(
                     """
                     UPDATE tasks
                     SET status = 'waiting_device',
@@ -217,17 +252,35 @@ def _release_pair(task_id: str, device_id: str, reason: str) -> None:
                     """,
                     (reason, task_id, device_id),
                 )
-                cursor.execute(
-                    """
-                    UPDATE devices
-                    SET status = 'online',
-                        current_task_id = NULL
-                    WHERE id = %s
-                      AND current_task_id = %s
-                    """,
-                    (device_id, task_id),
-                )
+                if device_status == "busy":
+                    updated_devices = cursor.execute(
+                        """
+                        UPDATE devices
+                        SET status = 'online',
+                            current_task_id = NULL
+                        WHERE id = %s
+                          AND status = 'busy'
+                          AND current_task_id = %s
+                        """,
+                        (device_id, task_id),
+                    )
+                else:
+                    updated_devices = cursor.execute(
+                        """
+                        UPDATE devices
+                        SET current_task_id = NULL
+                        WHERE id = %s
+                          AND status = 'quarantined'
+                          AND current_task_id = %s
+                        """,
+                        (device_id, task_id),
+                    )
+                if updated_tasks != 1 or updated_devices != 1:
+                    raise RuntimeError(
+                        f"dispatch release ownership changed task_id={task_id} device_id={device_id}"
+                    )
                 conn.commit()
+                return True
             except Exception:
                 conn.rollback()
                 raise

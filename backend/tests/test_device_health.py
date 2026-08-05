@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import unittest
+from contextlib import ExitStack
 from unittest.mock import patch
 
+from repositories import device_repo
 from services.device_service import (
     DeviceHealthResult,
     _refresh_device_runtime,
     check_device_health,
+    create_new_device,
 )
 
 
@@ -64,7 +67,7 @@ class DeviceHealthProbeTest(unittest.TestCase):
 
 
 class DeviceHeartbeatTest(unittest.TestCase):
-    @patch("services.device_service.update_device")
+    @patch("services.device_service.update_idle_device_snapshot", return_value=1, create=True)
     @patch("services.device_service.check_device_health")
     def test_idle_unhealthy_device_is_quarantined(self, health_mock, update_mock) -> None:
         health_mock.return_value = DeviceHealthResult("quarantined", "shell marker missing", None)
@@ -75,11 +78,12 @@ class DeviceHeartbeatTest(unittest.TestCase):
         self.assertEqual(refreshed["status"], "quarantined")
         self.assertEqual(refreshed["quarantine_reason"], "shell marker missing")
         self.assertIsNotNone(refreshed["quarantined_at"])
-        fields = update_mock.call_args.args[1]
+        self.assertEqual(update_mock.call_args.args[:2], ("device-1", "online"))
+        fields = update_mock.call_args.args[2]
         self.assertEqual(fields["status"], "quarantined")
         self.assertEqual(fields["quarantine_reason"], "shell marker missing")
 
-    @patch("services.device_service.update_device")
+    @patch("services.device_service.update_idle_device_snapshot", return_value=1, create=True)
     @patch("services.device_service.check_device_health")
     def test_transport_offline_device_is_offline(self, health_mock, update_mock) -> None:
         health_mock.return_value = DeviceHealthResult("offline", "adb get-state returned offline", None)
@@ -88,7 +92,7 @@ class DeviceHeartbeatTest(unittest.TestCase):
         refreshed = _refresh_device_runtime(device)
 
         self.assertEqual(refreshed["status"], "offline")
-        fields = update_mock.call_args.args[1]
+        fields = update_mock.call_args.args[2]
         self.assertEqual(fields, {"status": "offline"})
 
     @patch("services.device_service.update_device")
@@ -124,6 +128,141 @@ class DeviceHeartbeatTest(unittest.TestCase):
         self.assertEqual(refreshed["status"], "busy")
         self.assertEqual(refreshed["current_task_id"], "task-1")
         update_mock.assert_not_called()
+
+    @patch("services.device_service.update_idle_device_snapshot", return_value=0, create=True)
+    @patch("services.device_service.check_device_health")
+    def test_idle_probe_does_not_overwrite_concurrent_allocation(
+        self,
+        health_mock,
+        update_mock,
+    ) -> None:
+        health_mock.return_value = DeviceHealthResult("quarantined", "shell failed", None)
+        snapshot = {
+            "id": "device-1",
+            "serial": "serial-1",
+            "status": "online",
+            "current_task_id": None,
+        }
+
+        refreshed = _refresh_device_runtime(snapshot)
+
+        self.assertEqual(refreshed["status"], "online")
+        self.assertIsNone(refreshed["current_task_id"])
+        self.assertEqual(update_mock.call_args.args[:2], ("device-1", "online"))
+
+    @patch("services.device_service.update_idle_device_snapshot", return_value=0)
+    @patch("services.device_service.check_device_health")
+    def test_idle_healthy_probe_does_not_overwrite_concurrent_allocation(
+        self,
+        health_mock,
+        update_mock,
+    ) -> None:
+        health_mock.return_value = DeviceHealthResult("healthy", None, 6 * 1024 * 1024)
+        snapshot = {
+            "id": "device-1",
+            "serial": "serial-1",
+            "status": "online",
+            "current_task_id": None,
+            "last_heartbeat_at": None,
+        }
+
+        refreshed = _refresh_device_runtime(snapshot)
+
+        self.assertEqual(refreshed["status"], "online")
+        self.assertIsNone(refreshed["last_heartbeat_at"])
+        self.assertEqual(update_mock.call_args.args[:2], ("device-1", "online"))
+
+
+class DeviceCreationHealthTest(unittest.TestCase):
+    @patch("services.device_service.get_device_detail", return_value={"id": "device-1"})
+    @patch("services.device_service.create_device_record")
+    @patch(
+        "services.device_service._collect_device_info",
+        return_value={"model": "Phone", "android_version": "15", "resolution": "1080x2400"},
+    )
+    @patch("services.device_service.check_device_health")
+    @patch("services.device_service._bootstrap_device_tools")
+    @patch("services.device_service._ensure_device_reachable")
+    @patch("services.device_service.get_device_by_serial", return_value=None)
+    def test_low_storage_device_is_created_quarantined(
+        self,
+        _existing_mock,
+        _reachable_mock,
+        _bootstrap_mock,
+        health_mock,
+        _info_mock,
+        create_mock,
+        _detail_mock,
+    ) -> None:
+        health_mock.return_value = DeviceHealthResult(
+            "quarantined",
+            "storage below 5 GiB",
+            1024,
+        )
+
+        create_new_device("serial-1", "test phone")
+
+        payload = create_mock.call_args.args[0]
+        self.assertEqual(payload["status"], "quarantined")
+        self.assertEqual(payload["quarantine_reason"], "storage below 5 GiB")
+        self.assertIsNotNone(payload["quarantined_at"])
+        self.assertIsNone(payload["last_heartbeat_at"])
+
+    def test_creation_maps_healthy_and_offline_states(self) -> None:
+        cases = (
+            (DeviceHealthResult("healthy", None, 6 * 1024 * 1024), "online", True),
+            (DeviceHealthResult("offline", "adb get-state returned offline"), "offline", False),
+        )
+        for health, expected_status, expects_heartbeat in cases:
+            with self.subTest(state=health.state), ExitStack() as stack:
+                stack.enter_context(
+                    patch("services.device_service.get_device_by_serial", return_value=None)
+                )
+                stack.enter_context(patch("services.device_service._ensure_device_reachable"))
+                stack.enter_context(patch("services.device_service._bootstrap_device_tools"))
+                stack.enter_context(
+                    patch(
+                        "services.device_service._collect_device_info",
+                        return_value={
+                            "model": "Phone",
+                            "android_version": "15",
+                            "resolution": "1080x2400",
+                        },
+                    )
+                )
+                stack.enter_context(
+                    patch("services.device_service.check_device_health", return_value=health)
+                )
+                create_mock = stack.enter_context(
+                    patch("services.device_service.create_device_record")
+                )
+                stack.enter_context(
+                    patch("services.device_service.get_device_detail", return_value={"id": "device-1"})
+                )
+
+                create_new_device("serial-1")
+
+                payload = create_mock.call_args.args[0]
+                self.assertEqual(payload["status"], expected_status)
+                self.assertEqual(payload["last_heartbeat_at"] is not None, expects_heartbeat)
+                self.assertIsNone(payload["quarantine_reason"])
+                self.assertIsNone(payload["quarantined_at"])
+
+
+class DeviceRepositoryHeartbeatTest(unittest.TestCase):
+    @patch("repositories.device_repo.execute", return_value=(0, 0))
+    def test_idle_update_is_guarded_by_snapshot_status_and_empty_owner(self, execute_mock) -> None:
+        rows = device_repo.update_idle_device_snapshot(
+            "device-1",
+            "online",
+            {"status": "quarantined"},
+        )
+
+        self.assertEqual(rows, 0)
+        sql = execute_mock.call_args.args[0]
+        self.assertIn("status = %s", sql)
+        self.assertIn("current_task_id IS NULL", sql)
+        self.assertEqual(execute_mock.call_args.args[1][-2:], ("device-1", "online"))
 
 
 if __name__ == "__main__":

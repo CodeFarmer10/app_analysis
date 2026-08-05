@@ -87,6 +87,19 @@ _APK_INSTALL_ERROR_SIGNATURES = (
     "apk file not found",
 )
 
+_RUNTIME_ADB_ERROR_SIGNATURES = (
+    "device offline",
+    "device unauthorized",
+    "failed to run abb_exec",
+    "failed to get feature set",
+    "fork failed",
+    "cannot fork",
+    "unable to fork",
+    "resource temporarily unavailable",
+    "no devices/emulators found",
+    "device not found",
+)
+
 
 def is_device_error_message(message: str) -> bool:
     """Conservatively identify failures caused by ADB or device health."""
@@ -101,6 +114,18 @@ def is_device_error_message(message: str) -> bool:
 def _is_apk_specific_install_error(message: str) -> bool:
     normalized = str(message or "").strip().lower()
     return bool(normalized) and any(signature in normalized for signature in _APK_INSTALL_ERROR_SIGNATURES)
+
+
+def is_runtime_adb_error_message(message: str) -> bool:
+    """Classify only strong device/ADB failures emitted during Phone Agent execution."""
+    normalized = str(message or "").strip().lower()
+    if not normalized:
+        return False
+    if any(signature in normalized for signature in _RUNTIME_ADB_ERROR_SIGNATURES):
+        return True
+    if "device '" in normalized and " not found" in normalized:
+        return True
+    return "closed" in normalized and ("adb" in normalized or "abb_exec" in normalized)
 
 
 def _format_dynamic_error(exc: Exception) -> str:
@@ -398,9 +423,13 @@ def _resolve_result_root() -> Path:
     return root
 
 
-def _prepare_result_dir(task_id: str) -> Path:
-    """创建任务专属结果目录（已存在则重建）。"""
-    result_dir = _resolve_result_root() / task_id
+def _attempt_object_namespace(task_id: str, attempt_id: str) -> str:
+    return f"{task_id}/attempts/{attempt_id}"
+
+
+def _prepare_result_dir(task_id: str, attempt_id: str) -> Path:
+    """Create an attempt-specific result directory without touching concurrent attempts."""
+    result_dir = _resolve_result_root() / task_id / attempt_id
     if result_dir.exists():
         shutil.rmtree(result_dir, ignore_errors=True)
     result_dir.mkdir(parents=True, exist_ok=True)
@@ -431,7 +460,7 @@ def _load_operation_results(result_dir: Path) -> list[dict]:
 
 
 def _upload_result_file(
-    task_id: str,
+    object_namespace: str,
     file_type: str,
     file_path: Path | str | None,
 ) -> str | None:
@@ -445,7 +474,7 @@ def _upload_result_file(
     target = Path(raw_text).resolve()
     if not target.exists() or not target.is_file():
         return None
-    return storage_service.upload_task_file(task_id, file_type, str(target))
+    return storage_service.upload_task_file(object_namespace, file_type, str(target))
 
 
 def _build_result_file_path(result_dir: Path, raw_path: Any) -> Path | None:
@@ -654,6 +683,7 @@ def _parse_operation_results(
     task_id: str,
     operation_results: list[dict],
     result_dir: Path,
+    object_namespace: str,
 ) -> tuple[list[dict], list[dict], list[dict]]:
     """解析 operation_results 为 dynamic_rows、traffic_rows、frida_rows。"""
     dynamic_rows: list[dict] = []
@@ -671,8 +701,8 @@ def _parse_operation_results(
 
         before_path = _build_result_file_path(result_dir, item.get("before_screenshot_path"))
         after_path = _build_result_file_path(result_dir, item.get("after_screenshot_path"))
-        screenshot_before = _upload_result_file(task_id, "screenshot", before_path)
-        screenshot_after = _upload_result_file(task_id, "screenshot", after_path)
+        screenshot_before = _upload_result_file(object_namespace, "screenshot", before_path)
+        screenshot_after = _upload_result_file(object_namespace, "screenshot", after_path)
 
         dynamic_rows.append(
             {
@@ -771,13 +801,22 @@ def _raise_if_launch_crash(dynamic_rows: list[dict]) -> None:
         raise RuntimeError("打开应用闪退")
 
 
-def _upload_trace_files(task_id: str, result_dir: Path) -> tuple[str | None, str | None]:
+def _raise_if_operation_device_failure(operation_results: list[dict]) -> None:
+    for item in operation_results:
+        if not isinstance(item, dict) or bool(item.get("successed", True)):
+            continue
+        message = str(item.get("message") or "").strip()
+        if is_runtime_adb_error_message(message):
+            raise DeviceUnavailableError(f"Phone Agent设备故障: {message}")
+
+
+def _upload_trace_files(object_namespace: str, result_dir: Path) -> tuple[str | None, str | None]:
     """上传动态流程产物文件并返回关键对象路径。"""
-    _upload_result_file(task_id, "dynamic", result_dir / "operation_results.json")
-    _upload_result_file(task_id, "dynamic", result_dir / "frida_events.json")
-    _upload_result_file(task_id, "dynamic", result_dir / "real_controller_tagging.json")
-    pcap_path = _upload_result_file(task_id, "pcap", result_dir / "capture.pcap")
-    run_log_path = _upload_result_file(task_id, "log", result_dir / "run.log")
+    _upload_result_file(object_namespace, "dynamic", result_dir / "operation_results.json")
+    _upload_result_file(object_namespace, "dynamic", result_dir / "frida_events.json")
+    _upload_result_file(object_namespace, "dynamic", result_dir / "real_controller_tagging.json")
+    pcap_path = _upload_result_file(object_namespace, "pcap", result_dir / "capture.pcap")
+    run_log_path = _upload_result_file(object_namespace, "log", result_dir / "run.log")
     return pcap_path, run_log_path
 
 
@@ -929,6 +968,7 @@ def _reanalyze_artifacts_from_unpacked(task_id: str, clean_dir: str | None) -> N
 
 def _maybe_unpack_packed_app(
     task_id: str,
+    object_namespace: str,
     package_name: str,
     adb_device_id: str,
     result_dir: Path,
@@ -946,7 +986,11 @@ def _maybe_unpack_packed_app(
         )
         if not unpack_result.archive_file:
             raise RuntimeError("脱壳未生成归档文件")
-        archive_path = storage_service.upload_task_file(task_id, "unpack", unpack_result.archive_file)
+        archive_path = storage_service.upload_task_file(
+            object_namespace,
+            "unpack",
+            unpack_result.archive_file,
+        )
         update_static_result_fields(
             task_id,
             {
@@ -964,6 +1008,8 @@ def _maybe_unpack_packed_app(
         _reanalyze_artifacts_from_unpacked(task_id, unpack_result.clean_dir)
         return archive_path
     except Exception as exc:  # pragma: no cover - runtime/device dependent
+        if is_runtime_adb_error_message(str(exc)):
+            raise DeviceUnavailableError(f"脱壳设备故障: {exc}") from exc
         error_text = str(exc).strip() or "未知脱壳错误"
         update_static_result_fields(
             task_id,
@@ -1057,6 +1103,8 @@ def _cleanup_device_after_trace(
 @celery_app.task(name="workers.dynamic_trace.trace_task")
 def trace_task(task_id: str, device_id: str):
     """动态溯源主任务：执行、解析、入库、触发报告。"""
+    attempt_id = str(uuid4())
+    object_namespace = _attempt_object_namespace(task_id, attempt_id)
     task = get_task_by_id(task_id)
     if not task:
         logger.warning("dynamic trace ignored: task_id=%s not found", task_id)
@@ -1085,7 +1133,7 @@ def trace_task(task_id: str, device_id: str):
 
     try:
         package_name, apk_object_path, adb_device_id = _extract_trace_context(task_id, task, device_id)
-        result_dir = _prepare_result_dir(task_id)
+        result_dir = _prepare_result_dir(task_id, attempt_id)
         local_apk_path = storage_service.download_to_temp(apk_object_path)
 
         install_ok, install_msg = install_apk(local_apk_path, device_id=adb_device_id, replace_existing=True)
@@ -1103,20 +1151,32 @@ def trace_task(task_id: str, device_id: str):
 
         unpack_archive_path = _maybe_unpack_packed_app(
             task_id=task_id,
+            object_namespace=object_namespace,
             package_name=package_name,
             adb_device_id=adb_device_id,
             result_dir=result_dir,
         )
 
-        trace_result = _run_task_with_log(
-            task_text=settings.DYNAMIC_TRACE_TASK_TEXT,
-            package_name=package_name,
-            adb_device_id=adb_device_id,
-            result_dir=result_dir,
-        )
+        try:
+            trace_result = _run_task_with_log(
+                task_text=settings.DYNAMIC_TRACE_TASK_TEXT,
+                package_name=package_name,
+                adb_device_id=adb_device_id,
+                result_dir=result_dir,
+            )
+        except Exception as exc:
+            if is_runtime_adb_error_message(str(exc)):
+                raise DeviceUnavailableError(f"Phone Agent设备故障: {exc}") from exc
+            raise
 
         operation_results = _load_operation_results(result_dir)
-        dynamic_rows, traffic_rows, frida_rows = _parse_operation_results(task_id, operation_results, result_dir)
+        _raise_if_operation_device_failure(operation_results)
+        dynamic_rows, traffic_rows, frida_rows = _parse_operation_results(
+            task_id,
+            operation_results,
+            result_dir,
+            object_namespace,
+        )
         _raise_if_launch_crash(dynamic_rows)
         tagging_result, matched_traffic_count = run_real_controller_tagging(
             operation_results=operation_results,
@@ -1127,7 +1187,7 @@ def trace_task(task_id: str, device_id: str):
             model_api_key=settings.REAL_CONTROLLER_TAGGING_API_KEY,
             model_name=settings.REAL_CONTROLLER_TAGGING_MODEL,
         )
-        pcap_path, run_log_path = _upload_trace_files(task_id, result_dir)
+        pcap_path, run_log_path = _upload_trace_files(object_namespace, result_dir)
         _persist_trace_results(
             task_id=task_id,
             device_id=device_id,
@@ -1145,6 +1205,7 @@ def trace_task(task_id: str, device_id: str):
         return {
             "task_id": task_id,
             "device_id": device_id,
+            "attempt_id": attempt_id,
             "status": "completed",
             "result": trace_result,
             "unpack_archive_path": unpack_archive_path,
