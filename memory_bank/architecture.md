@@ -36,6 +36,11 @@
 - 报告任务名在代码内固定为 `workers.report.generate_report`，避免环境配置漂移导致触发失败。
 - 阶段十已完成设备管理与看板模块：设备侧形成“可达性校验（ADB）-> 信息采集 -> 入库”的闭环，并提供完整 CRUD 与删除保护。
 - 设备删除采用双重保护：检查 `devices.current_task_id` 与任务表中 `dynamic_tracing` 记录，避免运行中设备被误删。
+- 设备健康保护采用 60 秒心跳探测：依次校验 `adb get-state`、shell 标记命令、包管理器可用性和 `/data` 至少 5 GiB 可用空间；失败会按类型更新离线或隔离状态。
+- `devices.status='quarantined'`、隔离原因和时间持久化保存；心跳不会自动恢复隔离设备，调度器也不会选择隔离设备。
+- 动态调度只选择状态为 `online`、空闲且最近 120 秒内有健康心跳的设备。动态任务分配后到首次 APK 安装前不再重复健康检查；模糊安装失败仅在安装失败后探测，用于故障分类。
+- 动态设备级错误通过任务与设备归属保护下的原子事务重新排队任务并隔离设备；卸载 APK 失败时始终隔离设备并禁止释放。旧 Worker 在归属变化后不能写入结果、修改任务或释放新任务设备。
+- 本轮不增加自动重启或自动恢复 Worker，隔离设备需人工处理后再恢复服务。
 - 看板趋势统计在 Repository 层按天补齐空缺日期（submitted/completed 置 0），降低前端图表对齐复杂度。
 - 看板趋势接口在 API 层限制 `days` 仅支持 `7` 或 `30`，统一前后端口径并减少无效查询。
 - 阶段十一已完成前端工程初始化：`main.js`、`router`、`stores`、`api`、`utils` 形成可运行骨架，后续阶段按业务模块增量填充 UI 与交互。
@@ -107,7 +112,7 @@
 - `backend/services/task_service.py`
   - 任务业务编排：APK 上传校验与入库、URL 提交入库并异步触发 `download_apk`、列表过滤、详情组装、状态读取、静态结果查询与图标预签名 URL 生成；提供动态结果分页聚合（含截图预签名 URL）与截图跳转 URL；并提供 APK/报告/PCAP 下载 URL 统一生成能力；包含 500MB 限制、MD5 去重与 MIME 检测回退。
 - `backend/services/device_service.py`
-  - 设备业务逻辑层：ADB 可达性验证、设备信息采集（型号/系统版本/分辨率）、设备新增/改名/删除编排与删除前任务保护校验。
+  - 设备业务逻辑层：ADB 可达性验证、60 秒健康心跳探测（连接状态、shell、包管理器、存储空间）、持久隔离状态维护、设备信息采集（型号/系统版本/分辨率）、设备新增/改名/删除编排与删除前任务保护校验。
 - `backend/services/report_service.py`
   - 报告生成业务层：聚合任务静动态数据、读取截图对象并转 base64、Jinja2 渲染 HTML、WeasyPrint 生成 PDF、上传 MinIO 并返回 `report_path`。
 - `backend/workers/celery_app.py`
@@ -117,11 +122,11 @@
 - `backend/workers/static_analysis.py`
   - 静态分析任务实现：从 MinIO 下载 APK、调用 `apk_parser` 提取特征、上传图标、写入 `static_results`、更新任务状态到 `waiting_device`，异常回写 `static_failed`；图标类型识别支持后缀与文件魔数回退。
 - `backend/workers/dynamic_trace.py`
-  - 动态溯源异步任务实现：任务/设备上下文读取、APK 安装执行、操作结果与流量解析、截图/PCAP/日志上传、动态结果与流量日志事务写库、异常回滚与设备恢复；完成后将报告任务投递至 `queue_report`。
+  - 动态溯源异步任务实现：任务/设备上下文读取、APK 安装执行、操作结果与流量解析、截图/PCAP/日志上传、动态结果与流量日志事务写库、设备错误分类、原子重排队与隔离、归属保护和卸载失败隔离；完成后将报告任务投递至 `queue_report`。
 - `backend/workers/report.py`
   - 报告生成异步任务：执行 `generate_pdf` 并回写 `tasks.report_path`，失败时记录错误信息。
 - `backend/workers/scheduler.py`
-  - 设备调度进程实现：轮询待分配任务与空闲设备，事务配对并触发动态溯源任务。
+  - 设备调度进程实现：轮询待分配任务与空闲设备，仅配对 120 秒内健康心跳的在线设备；对超时任务执行归属保护下的重排队与隔离。
 - `backend/analyzers/apk_parser.py`
   - APK 静态解析组件：提取基础信息、证书摘要、权限与危险权限标记、组件列表、SO 文件列表、图标二进制。
 - `backend/analyzers/adb_controller.py`
