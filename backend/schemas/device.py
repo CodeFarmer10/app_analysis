@@ -28,6 +28,7 @@ class DeviceItem(BaseModel):
     quarantine_task_id: str | None = None
     quarantine_package_name: str | None = None
     recovery_started_at: datetime | None = None
+    recovery_attempt_id: str | None = None
     last_recovery_at: datetime | None = None
     recovery_error: str | None = None
     analyzed_app_count_1d: int = 0

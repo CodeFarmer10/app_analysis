@@ -65,6 +65,7 @@ CREATE TABLE IF NOT EXISTS devices (
   quarantine_task_id VARCHAR(36) NULL,
   quarantine_package_name VARCHAR(256) NULL,
   recovery_started_at DATETIME NULL,
+  recovery_attempt_id VARCHAR(36) NULL,
   last_recovery_at DATETIME NULL,
   recovery_error TEXT NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -284,6 +285,21 @@ SET @sql_devices_recovery_started_at_col := IF(
 PREPARE stmt_devices_recovery_started_at_col FROM @sql_devices_recovery_started_at_col;
 EXECUTE stmt_devices_recovery_started_at_col;
 DEALLOCATE PREPARE stmt_devices_recovery_started_at_col;
+
+SET @devices_recovery_attempt_id_col := (
+  SELECT COUNT(*) FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'devices'
+    AND column_name = 'recovery_attempt_id'
+);
+SET @sql_devices_recovery_attempt_id_col := IF(
+  @devices_recovery_attempt_id_col = 0,
+  'ALTER TABLE devices ADD COLUMN recovery_attempt_id VARCHAR(36) NULL AFTER recovery_started_at',
+  'SELECT 1'
+);
+PREPARE stmt_devices_recovery_attempt_id_col FROM @sql_devices_recovery_attempt_id_col;
+EXECUTE stmt_devices_recovery_attempt_id_col;
+DEALLOCATE PREPARE stmt_devices_recovery_attempt_id_col;
 
 SET @devices_last_recovery_at_col := (
   SELECT COUNT(*) FROM information_schema.columns
