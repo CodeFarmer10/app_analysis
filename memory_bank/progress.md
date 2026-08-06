@@ -1,5 +1,24 @@
 # Progress Log
 
+## 2026-08-06（隔离设备自动恢复）
+
+已完成隔离设备自动恢复闭环：
+
+- 新增独立 `workers.device_recovery` 常驻进程，不通过 Celery 或 Beat；每 60 秒直接扫描一次，仅认领空闲 `quarantined` 设备，最多并发恢复两台设备。
+- 恢复重启等待上限为 180 秒；残留应用清理只处理隔离记录中的 `quarantine_package_name`，不枚举或批量卸载其他第三方包。
+- `ps -A` 只校验命令成功、输出非空且无资源错误，不设置进程数量阈值；随后实际安装和卸载 `DeviceHealthCheck.apk`（`com.fraudanalysis.devicehealth`）并核验包状态。
+- 每次认领使用独立 `recovery_attempt_id`，成功/失败写回均校验 attempt，旧 Worker 不能覆盖新恢复结果；超过 600 秒的遗留恢复会转为 `error`。
+- 任一恢复步骤失败后设备进入 `error`，不再自动重试，只允许人工确认后重试。心跳把 `quarantined`、`recovering`、`error` 视为显式运维状态，不探测也不改写 `recovering`/`error` 为在线、离线或隔离。
+- 设备页新增“恢复中”和“异常”不可用状态，异常悬浮提示优先展示 `recovery_error`，并将列表轮询调整为 60 秒。
+
+本轮验证：
+
+- 心跳聚焦测试 15 项通过，其中新增 `recovering`、`error` 不探测且不改写的回归测试。
+- 后端全量 unittest discovery 159 项通过。
+- 前端 `npm run build` 通过，仅保留既有大 chunk warning；桌面与移动视口检查无文本碰撞或横向溢出。
+- `bash -n start.sh`、`bash -n stop.sh`、`git diff --check` 均通过。
+- 模拟空仓库执行一次恢复扫描，结果为 `claimed_devices=0 adb_calls=0`，未触发真实设备操作。
+
 ## 2026-08-05（设备健康熔断与动态任务保护）
 
 已完成设备健康保护方案并通过后端与前端集成验证：

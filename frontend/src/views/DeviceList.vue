@@ -35,11 +35,13 @@ const statusMetaMap = {
   offline: { status: 'error', text: '离线' },
   busy: { status: 'processing', text: '分析中' },
   quarantined: { status: 'error', text: '已隔离' },
+  recovering: { status: 'processing', text: '恢复中' },
+  error: { status: 'error', text: '异常' },
 }
 
 const { start: startPolling, stop: stopPolling } = usePolling(async () => {
   await fetchDevices()
-}, 5 * 60 * 1000)
+}, 60 * 1000)
 
 function getStatusMeta(status) {
   return statusMetaMap[status] || { status: 'default', text: status || '未知' }
@@ -57,12 +59,18 @@ function getDeviceTitle(record) {
 }
 
 function isUnavailable(record) {
-  return ['offline', 'quarantined'].includes(record?.status)
+  return ['offline', 'quarantined', 'recovering', 'error'].includes(record?.status)
 }
 
 function getUnavailableTitle(record) {
+  if (record?.status === 'error') {
+    return record.recovery_error || '设备恢复失败，请手动重试'
+  }
   if (record?.status === 'quarantined') {
     return record.quarantine_reason || '设备健康检查失败'
+  }
+  if (record?.status === 'recovering') {
+    return '设备正在自动恢复'
   }
   return '离线'
 }
@@ -367,6 +375,7 @@ onBeforeUnmount(() => {
 
 .device-card {
   position: relative;
+  min-width: 0;
   border: 1px solid var(--border-subtle);
   border-radius: 10px;
   padding: 14px;
@@ -443,6 +452,16 @@ onBeforeUnmount(() => {
 }
 
 .status-quarantined .status-dot {
+  background: var(--accent-red);
+}
+
+.status-recovering .status-dot {
+  background: var(--accent-blue);
+  box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.42);
+  animation: recovery-pulse 1.4s ease-in-out infinite;
+}
+
+.status-error .status-dot {
   background: var(--accent-red);
 }
 
@@ -541,6 +560,16 @@ onBeforeUnmount(() => {
   }
   50% {
     box-shadow: 0 0 0 6px rgba(16, 185, 129, 0);
+  }
+}
+
+@keyframes recovery-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.42);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(59, 130, 246, 0);
   }
 }
 

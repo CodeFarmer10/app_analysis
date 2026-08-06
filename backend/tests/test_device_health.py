@@ -122,6 +122,56 @@ class DeviceHeartbeatTest(unittest.TestCase):
         update_mock.assert_not_called()
 
     @patch("services.device_service.update_device")
+    @patch("services.device_service.update_idle_device_snapshot")
+    @patch("services.device_service.check_device_health")
+    def test_recovering_device_is_not_probed_or_changed(
+        self,
+        health_mock,
+        update_idle_mock,
+        update_mock,
+    ) -> None:
+        device = {
+            "id": "device-1",
+            "serial": "serial-1",
+            "status": "recovering",
+            "current_task_id": None,
+            "recovery_started_at": "2026-08-06 10:00:00",
+        }
+
+        refreshed = _refresh_device_runtime(device)
+
+        self.assertIs(refreshed, device)
+        self.assertEqual(refreshed["status"], "recovering")
+        health_mock.assert_not_called()
+        update_idle_mock.assert_not_called()
+        update_mock.assert_not_called()
+
+    @patch("services.device_service.update_device")
+    @patch("services.device_service.update_idle_device_snapshot")
+    @patch("services.device_service.check_device_health")
+    def test_error_device_is_not_probed_or_changed(
+        self,
+        health_mock,
+        update_idle_mock,
+        update_mock,
+    ) -> None:
+        device = {
+            "id": "device-1",
+            "serial": "serial-1",
+            "status": "error",
+            "current_task_id": None,
+            "recovery_error": "reboot: timed out",
+        }
+
+        refreshed = _refresh_device_runtime(device)
+
+        self.assertIs(refreshed, device)
+        self.assertEqual(refreshed["status"], "error")
+        health_mock.assert_not_called()
+        update_idle_mock.assert_not_called()
+        update_mock.assert_not_called()
+
+    @patch("services.device_service.update_device")
     @patch("services.device_service.check_device_health")
     def test_busy_unhealthy_device_is_not_reassigned_by_heartbeat(self, health_mock, update_mock) -> None:
         health_mock.return_value = DeviceHealthResult("quarantined", "package manager unavailable", None)

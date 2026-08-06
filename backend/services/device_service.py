@@ -404,8 +404,8 @@ def _refresh_device_runtime(device: dict) -> dict:
     has_current_task = bool(device.get("current_task_id"))
     current_status = str(device.get("status") or "").strip() or "offline"
 
-    # A quarantine is an explicit operational state and is never cleared by a probe.
-    if current_status == "quarantined":
+    # Recovery lifecycle states are owned by the recovery worker, not heartbeat probes.
+    if current_status in {"quarantined", "recovering", "error"}:
         return device
 
     health = check_device_health(serial)
