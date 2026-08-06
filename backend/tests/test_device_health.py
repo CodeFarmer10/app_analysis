@@ -71,7 +71,14 @@ class DeviceHeartbeatTest(unittest.TestCase):
     @patch("services.device_service.check_device_health")
     def test_idle_unhealthy_device_is_quarantined(self, health_mock, update_mock) -> None:
         health_mock.return_value = DeviceHealthResult("quarantined", "shell marker missing", None)
-        device = {"id": "device-1", "serial": "serial-1", "status": "online", "current_task_id": None}
+        device = {
+            "id": "device-1",
+            "serial": "serial-1",
+            "status": "online",
+            "current_task_id": None,
+            "quarantine_task_id": "stale-task",
+            "quarantine_package_name": "com.example.stale",
+        }
 
         refreshed = _refresh_device_runtime(device)
 
@@ -82,6 +89,8 @@ class DeviceHeartbeatTest(unittest.TestCase):
         fields = update_mock.call_args.args[2]
         self.assertEqual(fields["status"], "quarantined")
         self.assertEqual(fields["quarantine_reason"], "shell marker missing")
+        self.assertIsNone(fields["quarantine_task_id"])
+        self.assertIsNone(fields["quarantine_package_name"])
 
     @patch("services.device_service.update_idle_device_snapshot", return_value=1, create=True)
     @patch("services.device_service.check_device_health")

@@ -309,20 +309,28 @@ def _set_device_online(device_id: str, task_id: str) -> bool:
     return True
 
 
-def _quarantine_owned_device(task_id: str, device_id: str, reason: str) -> bool:
+def _quarantine_owned_device(
+    task_id: str,
+    device_id: str,
+    reason: str,
+    package_name: str | None = None,
+) -> bool:
     """Quarantine a busy device only while it is still owned by this task."""
+    normalized_package_name = _clip_text(str(package_name or "").strip() or None, 256)
     affected_rows, _ = execute(
         """
         UPDATE devices
         SET status = 'quarantined',
             current_task_id = NULL,
             quarantine_reason = %s,
+            quarantine_task_id = %s,
+            quarantine_package_name = %s,
             quarantined_at = NOW()
         WHERE id = %s
           AND status = 'busy'
           AND current_task_id = %s
         """,
-        (_clip_text(reason, 2000), device_id, task_id),
+        (_clip_text(reason, 2000), task_id, normalized_package_name, device_id, task_id),
     )
     if affected_rows == 0:
         logger.warning(
@@ -334,9 +342,15 @@ def _quarantine_owned_device(task_id: str, device_id: str, reason: str) -> bool:
     return True
 
 
-def _quarantine_and_requeue_owned_task(task_id: str, device_id: str, reason: str) -> bool:
+def _quarantine_and_requeue_owned_task(
+    task_id: str,
+    device_id: str,
+    reason: str,
+    package_name: str | None = None,
+) -> bool:
     """Atomically requeue an owned task and quarantine its current device."""
     clipped_reason = _clip_text(reason, 2000)
+    normalized_package_name = _clip_text(str(package_name or "").strip() or None, 256)
     with get_connection() as conn:
         with conn.cursor() as cursor:
             try:
@@ -391,12 +405,14 @@ def _quarantine_and_requeue_owned_task(task_id: str, device_id: str, reason: str
                     SET status = 'quarantined',
                         current_task_id = NULL,
                         quarantine_reason = %s,
+                        quarantine_task_id = %s,
+                        quarantine_package_name = %s,
                         quarantined_at = NOW()
                     WHERE id = %s
                       AND status = 'busy'
                       AND current_task_id = %s
                     """,
-                    (clipped_reason, device_id, task_id),
+                    (clipped_reason, task_id, normalized_package_name, device_id, task_id),
                 )
                 if updated_tasks != 1 or updated_devices != 1:
                     raise TaskOwnershipLostError(
@@ -1083,7 +1099,7 @@ def _cleanup_device_after_trace(
         if not uninstall_ok:
             reason = f"卸载APK失败: {uninstall_msg}"
             isolated = True
-            _quarantine_owned_device(task_id, device_id, reason)
+            _quarantine_owned_device(task_id, device_id, reason, package_name)
             logger.warning(
                 "uninstall apk failed and device quarantined task_id=%s package=%s err=%s",
                 task_id,
@@ -1119,6 +1135,7 @@ def _cleanup_device_after_trace(
                     task_id,
                     device_id,
                     f"清理无障碍服务失败: {accessibility_detail}",
+                    package_name,
                 )
 
     return isolated
@@ -1258,7 +1275,12 @@ def trace_task(task_id: str, device_id: str):
         if isinstance(exc, DeviceUnavailableError):
             device_isolated = True
             try:
-                requeued = _quarantine_and_requeue_owned_task(task_id, device_id, error_message)
+                requeued = _quarantine_and_requeue_owned_task(
+                    task_id,
+                    device_id,
+                    error_message,
+                    package_name,
+                )
             except TaskOwnershipLostError:
                 skip_device_cleanup = True
                 return {

@@ -427,6 +427,8 @@ def _refresh_device_runtime(device: dict) -> dict:
                 "status": "quarantined",
                 "quarantine_reason": health.reason,
                 "quarantined_at": quarantined_at,
+                "quarantine_task_id": None,
+                "quarantine_package_name": None,
             }
         if device.get("id") and update_idle_device_snapshot(
             str(device["id"]),

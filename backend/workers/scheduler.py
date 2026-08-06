@@ -21,10 +21,11 @@ def _recover_stale_dynamic_tracing_tasks() -> int:
                 conn.begin()
                 cursor.execute(
                     """
-                    SELECT id, device_id
-                    FROM tasks
-                    WHERE status = 'dynamic_tracing'
-                      AND updated_at < DATE_SUB(NOW(), INTERVAL %s MINUTE)
+                    SELECT t.id, t.device_id, sr.package_name
+                    FROM tasks t
+                    LEFT JOIN static_results sr ON sr.task_id = t.id
+                    WHERE t.status = 'dynamic_tracing'
+                      AND t.updated_at < DATE_SUB(NOW(), INTERVAL %s MINUTE)
                     FOR UPDATE
                     """,
                     (STALE_DYNAMIC_TRACE_MINUTES,),
@@ -33,6 +34,7 @@ def _recover_stale_dynamic_tracing_tasks() -> int:
                 for row in rows:
                     task_id = str(row["id"])
                     device_id = str(row["device_id"] or "").strip()
+                    package_name = str(row.get("package_name") or "").strip()[:256] or None
                     recovery_reason = (
                         f"动态任务超时回收：超过{STALE_DYNAMIC_TRACE_MINUTES}分钟未完成，系统自动重新排队"
                     )
@@ -116,12 +118,14 @@ def _recover_stale_dynamic_tracing_tasks() -> int:
                         SET status = 'quarantined',
                             current_task_id = NULL,
                             quarantine_reason = %s,
+                            quarantine_task_id = %s,
+                            quarantine_package_name = %s,
                             quarantined_at = NOW()
                         WHERE id = %s
                           AND status = 'busy'
                           AND current_task_id = %s
                         """,
-                        (quarantine_reason, device_id, task_id),
+                        (quarantine_reason, task_id, package_name, device_id, task_id),
                     )
                     if updated_devices == 0:
                         raise RuntimeError(

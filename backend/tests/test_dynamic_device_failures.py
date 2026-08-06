@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from contextlib import ExitStack
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 from services.device_service import DeviceHealthResult
 from workers import dynamic_trace
@@ -98,7 +98,7 @@ class DynamicDeviceFailureTest(unittest.TestCase):
 
         self.assertTrue(
             dynamic_trace._quarantine_and_requeue_owned_task(
-                "task-1", "device-1", "device offline"
+                "task-1", "device-1", "device offline", "  com.example.badapp  "
             )
         )
 
@@ -109,7 +109,35 @@ class DynamicDeviceFailureTest(unittest.TestCase):
         self.assertIn("SET status = 'quarantined'", sql)
         self.assertIn("current_task_id = NULL", sql)
         self.assertIn("quarantined_at = NOW()", sql)
+        device_update = next(
+            call for call in cursor.execute.call_args_list if "UPDATE devices" in call.args[0]
+        )
+        self.assertIn("quarantine_task_id = %s", device_update.args[0])
+        self.assertIn("quarantine_package_name = %s", device_update.args[0])
+        self.assertEqual(
+            device_update.args[1],
+            ("device offline", "task-1", "com.example.badapp", "device-1", "task-1"),
+        )
         connection.commit.assert_called_once()
+
+    @patch("workers.dynamic_trace.execute", return_value=(1, 0))
+    def test_owned_device_quarantine_records_task_and_normalized_package(
+        self,
+        execute_mock,
+    ) -> None:
+        self.assertTrue(
+            dynamic_trace._quarantine_owned_device(
+                "task-1", "device-1", "device offline", "  com.example.badapp  "
+            )
+        )
+
+        sql, params = execute_mock.call_args.args
+        self.assertIn("quarantine_task_id = %s", sql)
+        self.assertIn("quarantine_package_name = %s", sql)
+        self.assertEqual(
+            params,
+            ("device offline", "task-1", "com.example.badapp", "device-1", "task-1"),
+        )
 
     @patch("workers.dynamic_trace.get_connection")
     def test_stale_worker_cannot_requeue_new_owner(self, get_connection_mock) -> None:
@@ -247,7 +275,9 @@ class DynamicDeviceFailureTest(unittest.TestCase):
                 result = dynamic_trace.trace_task("task-1", "device-1")
 
                 self.assertEqual(result["status"], "waiting_device")
-                mocks["requeue"].assert_called_once()
+                mocks["requeue"].assert_called_once_with(
+                    "task-1", "device-1", ANY, "com.example.app"
+                )
                 mocks["health"].assert_not_called()
                 mocks["mark_failed"].assert_not_called()
                 mocks["release"].assert_not_called()
@@ -270,7 +300,9 @@ class DynamicDeviceFailureTest(unittest.TestCase):
         )
 
         self.assertTrue(isolated)
-        quarantine_mock.assert_called_once()
+        quarantine_mock.assert_called_once_with(
+            "task-1", "device-1", ANY, "com.example.app"
+        )
         self.assertIn("卸载APK失败", quarantine_mock.call_args.args[2])
 
     def test_completed_trace_does_not_release_device_after_uninstall_failure(self) -> None:
@@ -347,7 +379,9 @@ class DynamicDeviceFailureTest(unittest.TestCase):
         )
 
         self.assertTrue(isolated)
-        quarantine_mock.assert_called_once()
+        quarantine_mock.assert_called_once_with(
+            "task-1", "device-1", ANY, "com.example.app"
+        )
 
     @patch("workers.dynamic_trace._quarantine_owned_device")
     @patch(
@@ -509,7 +543,9 @@ class DynamicDeviceFailureTest(unittest.TestCase):
                 result = dynamic_trace.trace_task("task-1", "device-1")
 
                 self.assertEqual(result["status"], "waiting_device")
-                mocks["requeue"].assert_called_once()
+                mocks["requeue"].assert_called_once_with(
+                    "task-1", "device-1", ANY, "com.example.app"
+                )
                 mocks["mark_failed"].assert_not_called()
 
     def test_failed_phone_agent_device_record_requeues_before_persistence(self) -> None:

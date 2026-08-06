@@ -39,7 +39,13 @@ class SchedulerDeviceHealthTest(unittest.TestCase):
     def test_stale_task_is_requeued_and_device_is_quarantined(self, get_connection_mock) -> None:
         connection, cursor = self._connection_mocks()
         get_connection_mock.return_value.__enter__.return_value = connection
-        cursor.fetchall.return_value = [{"id": "task-1", "device_id": "device-1"}]
+        cursor.fetchall.return_value = [
+            {
+                "id": "task-1",
+                "device_id": "device-1",
+                "package_name": "  com.example.badapp  ",
+            }
+        ]
         cursor.fetchone.return_value = {
             "id": "device-1",
             "current_task_id": "task-1",
@@ -50,11 +56,22 @@ class SchedulerDeviceHealthTest(unittest.TestCase):
         self.assertEqual(_recover_stale_dynamic_tracing_tasks(), 1)
 
         executed_sql = "\n".join(call.args[0] for call in cursor.execute.call_args_list)
+        stale_select_sql = cursor.execute.call_args_list[0].args[0]
+        self.assertIn("LEFT JOIN static_results", stale_select_sql)
         self.assertIn("SET status = 'waiting_device'", executed_sql)
         self.assertIn("device_id = NULL", executed_sql)
         self.assertIn("SET status = 'quarantined'", executed_sql)
         self.assertIn("quarantine_reason = %s", executed_sql)
         self.assertIn("quarantined_at = NOW()", executed_sql)
+        device_update = next(
+            call for call in cursor.execute.call_args_list if "UPDATE devices" in call.args[0]
+        )
+        self.assertIn("quarantine_task_id = %s", device_update.args[0])
+        self.assertIn("quarantine_package_name = %s", device_update.args[0])
+        self.assertEqual(
+            device_update.args[1][1:3],
+            ("task-1", "com.example.badapp"),
+        )
         self.assertNotIn("SET status = 'dynamic_failed'", executed_sql)
         connection.commit.assert_called_once()
 
