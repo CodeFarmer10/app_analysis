@@ -44,6 +44,14 @@ class Settings(BaseSettings):
 
     DYNAMIC_TRACE_TASK_TEXT: str = "模拟操作探索APP功能"
     DYNAMIC_TRACE_RESULT_DIR: str = str(BASE_DIR / "data" / "dynamic_trace")
+    DEVICE_RECOVERY_SCAN_INTERVAL_SECONDS: int = 60
+    DEVICE_RECOVERY_REBOOT_TIMEOUT_SECONDS: int = 180
+    DEVICE_RECOVERY_STALE_SECONDS: int = 600
+    DEVICE_RECOVERY_MAX_WORKERS: int = 2
+    DEVICE_RECOVERY_APK_PATH: str = str(
+        BASE_DIR / "tools" / "device_health" / "DeviceHealthCheck.apk"
+    )
+    DEVICE_RECOVERY_APK_PACKAGE: str = "com.fraudanalysis.devicehealth"
     FLUTTER_BLUTTER_ROOT: str = ""
     FLUTTER_BLUTTER_ENABLED: bool = True
     FLUTTER_BLUTTER_TOOL_ROOT: str = str(BASE_DIR / "tools" / "blutter")
