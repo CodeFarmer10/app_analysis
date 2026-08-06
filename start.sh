@@ -87,6 +87,8 @@ main() {
   start_process celery_download "${BACKEND_DIR}" \
     "${PYTHON_BIN}" -m celery -A workers.celery_app worker --loglevel=info \
     -Q queue_download -n "download@%h" -c "${CELERY_DOWNLOAD_CONCURRENCY}" --prefetch-multiplier=1
+  start_process device_recovery "${BACKEND_DIR}" \
+    "${PYTHON_BIN}" -m workers.device_recovery
   start_process scheduler "${BACKEND_DIR}" \
     "${PYTHON_BIN}" -m workers.scheduler
   start_process frontend "${FRONTEND_DIR}" \
