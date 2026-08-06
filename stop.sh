@@ -3,6 +3,9 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RUN_DIR="${ROOT_DIR}/run_logs"
+DEFAULT_STOP_ATTEMPTS=20
+DEVICE_RECOVERY_STOP_ATTEMPTS=1200
+STOP_POLL_INTERVAL_SECONDS=0.5
 SERVICES=(
   frontend
   device_recovery
@@ -41,15 +44,20 @@ stop_service() {
     return
   fi
 
+  local stop_attempts="${DEFAULT_STOP_ATTEMPTS}"
+  if [[ "${name}" == "device_recovery" ]]; then
+    stop_attempts="${DEVICE_RECOVERY_STOP_ATTEMPTS}"
+  fi
+
   log "stopping ${name} pid=${pid}"
   kill "${pid}" >/dev/null 2>&1 || true
-  for _ in $(seq 1 20); do
+  for ((attempt = 0; attempt < stop_attempts; attempt++)); do
     if ! kill -0 "${pid}" >/dev/null 2>&1; then
       rm -f "${pid_file}"
       log "${name} stopped"
       return
     fi
-    sleep 0.5
+    sleep "${STOP_POLL_INTERVAL_SECONDS}"
   done
 
   log "${name} still running, force kill pid=${pid}"

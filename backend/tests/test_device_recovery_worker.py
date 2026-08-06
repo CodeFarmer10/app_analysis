@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import signal
+import subprocess
+import tempfile
 import unittest
 from concurrent.futures import Future
 from pathlib import Path
 from threading import Event
 from unittest.mock import ANY, MagicMock, call, patch
 
+from core.config import settings
 from services.device_recovery_service import RecoveryStepError
 from workers.device_recovery import (
     recover_claimed_device,
@@ -68,6 +71,30 @@ class DeviceRecoveryScanTest(unittest.TestCase):
         unfinished_future = Future()
 
         run_recovery_scan(MagicMock(), {unfinished_future})
+
+        list_mock.assert_called_once_with(limit=1)
+
+    @patch("workers.device_recovery.list_quarantined_devices", return_value=[])
+    @patch("workers.device_recovery.expire_stale_recoveries", return_value=0)
+    def test_scan_caps_high_configured_worker_count(
+        self,
+        _expire_mock,
+        list_mock,
+    ) -> None:
+        with patch.object(settings, "DEVICE_RECOVERY_MAX_WORKERS", 5):
+            run_recovery_scan(MagicMock(), {Future()})
+
+        list_mock.assert_called_once_with(limit=1)
+
+    @patch("workers.device_recovery.list_quarantined_devices", return_value=[])
+    @patch("workers.device_recovery.expire_stale_recoveries", return_value=0)
+    def test_scan_raises_invalid_low_worker_count_to_one(
+        self,
+        _expire_mock,
+        list_mock,
+    ) -> None:
+        with patch.object(settings, "DEVICE_RECOVERY_MAX_WORKERS", 0):
+            run_recovery_scan(MagicMock(), set())
 
         list_mock.assert_called_once_with(limit=1)
 
@@ -226,6 +253,53 @@ class ClaimedDeviceRecoveryTest(unittest.TestCase):
 
 
 class DeviceRecoveryLoopTest(unittest.TestCase):
+    @patch("workers.device_recovery.complete_device_recovery", return_value=True)
+    @patch("workers.device_recovery.perform_device_recovery")
+    def test_sigterm_stops_new_scans_and_waits_for_in_flight_finalize(
+        self,
+        perform_mock,
+        complete_mock,
+    ) -> None:
+        shutdown_event = Event()
+        recovery_started = Event()
+        release_recovery = Event()
+        signal_handlers = {}
+        claimed_device = {
+            "id": "device-1",
+            "serial": "serial-1",
+            "status": "recovering",
+            "recovery_attempt_id": "attempt-1",
+        }
+
+        def register_signal(signum, handler) -> None:
+            signal_handlers[signum] = handler
+
+        def perform_recovery(_device) -> None:
+            recovery_started.set()
+            self.assertTrue(release_recovery.wait(timeout=1))
+
+        def submit_then_stop(executor, _in_flight) -> set[Future]:
+            future = executor.submit(recover_claimed_device, claimed_device)
+            self.assertTrue(recovery_started.wait(timeout=1))
+            signal_handlers[signal.SIGTERM](signal.SIGTERM, None)
+            release_recovery.set()
+            return {future}
+
+        perform_mock.side_effect = perform_recovery
+        with (
+            patch("workers.device_recovery._shutdown_event", shutdown_event),
+            patch("workers.device_recovery.signal.signal", side_effect=register_signal),
+            patch(
+                "workers.device_recovery.run_recovery_scan",
+                side_effect=submit_then_stop,
+            ) as scan_mock,
+        ):
+            run_recovery_forever()
+
+        scan_mock.assert_called_once()
+        perform_mock.assert_called_once_with(claimed_device)
+        complete_mock.assert_called_once_with("device-1", "attempt-1")
+
     def test_signal_during_handler_registration_is_not_cleared(self) -> None:
         shutdown_event = Event()
 
@@ -250,6 +324,53 @@ class DeviceRecoveryLoopTest(unittest.TestCase):
             run_recovery_forever()
 
         scan_mock.assert_not_called()
+
+    @patch("workers.device_recovery.signal.signal")
+    @patch("workers.device_recovery.time.monotonic", side_effect=[100.0, 100.0])
+    @patch("workers.device_recovery.run_recovery_scan", return_value=set())
+    @patch("workers.device_recovery.ThreadPoolExecutor")
+    @patch("workers.device_recovery._shutdown_event")
+    def test_forever_loop_caps_high_configured_executor_count(
+        self,
+        shutdown_event,
+        executor_factory,
+        _scan_mock,
+        _monotonic_mock,
+        _signal_mock,
+    ) -> None:
+        shutdown_event.is_set.side_effect = [False, True]
+
+        with patch.object(settings, "DEVICE_RECOVERY_MAX_WORKERS", 5):
+            run_recovery_forever()
+
+        executor_factory.assert_called_once_with(max_workers=2)
+
+    @patch("workers.device_recovery.perform_device_recovery")
+    @patch("workers.device_recovery.list_quarantined_devices", return_value=[])
+    @patch("workers.device_recovery.expire_stale_recoveries", return_value=0)
+    @patch("workers.device_recovery.signal.signal")
+    @patch("workers.device_recovery.time.monotonic", side_effect=[100.0, 100.0])
+    @patch("workers.device_recovery.ThreadPoolExecutor")
+    @patch("workers.device_recovery._shutdown_event")
+    def test_one_cycle_empty_candidate_scan_never_submits_or_calls_adb(
+        self,
+        shutdown_event,
+        executor_factory,
+        _monotonic_mock,
+        _signal_mock,
+        expire_mock,
+        list_mock,
+        perform_mock,
+    ) -> None:
+        shutdown_event.is_set.side_effect = [False, True]
+        executor = executor_factory.return_value.__enter__.return_value
+
+        run_recovery_forever()
+
+        expire_mock.assert_called_once_with(600)
+        list_mock.assert_called_once_with(limit=2)
+        executor.submit.assert_not_called()
+        perform_mock.assert_not_called()
 
     @patch("workers.device_recovery.signal.signal")
     @patch("workers.device_recovery.time.monotonic", side_effect=[100.0, 105.0])
@@ -306,6 +427,58 @@ class DeviceRecoveryLoopTest(unittest.TestCase):
 
 
 class DeviceRecoveryProcessScriptTest(unittest.TestCase):
+    def _run_stop_service(self, service: str) -> list[str]:
+        stop_script = (ROOT_DIR / "stop.sh").read_text(encoding="utf-8")
+        entrypoint = 'main "$@"'
+        self.assertTrue(stop_script.rstrip().endswith(entrypoint))
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            source_path = tmp_path / "stop-functions.sh"
+            source_path.write_text(
+                stop_script.rsplit(entrypoint, maxsplit=1)[0],
+                encoding="utf-8",
+            )
+            run_dir = tmp_path / "run_logs"
+            run_dir.mkdir()
+            (run_dir / f"{service}.pid").write_text("4242", encoding="utf-8")
+            trace_path = tmp_path / "trace.log"
+            shell = r'''
+source "$1"
+RUN_DIR="$2"
+TRACE_PATH="$3"
+
+kill() {
+  case "${1:-}" in
+    -0) return 0 ;;
+    -9) printf 'force\n' >>"${TRACE_PATH}"; return 0 ;;
+    *) return 0 ;;
+  esac
+}
+
+sleep() {
+  printf 'sleep:%s\n' "$1" >>"${TRACE_PATH}"
+}
+
+stop_service "$4"
+'''
+            subprocess.run(
+                [
+                    "bash",
+                    "-c",
+                    shell,
+                    "stop-test",
+                    str(source_path),
+                    str(run_dir),
+                    str(trace_path),
+                    service,
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            return trace_path.read_text(encoding="utf-8").splitlines()
+
     def test_start_script_launches_standalone_recovery_worker(self) -> None:
         start_script = (ROOT_DIR / "start.sh").read_text(encoding="utf-8")
 
@@ -320,6 +493,18 @@ class DeviceRecoveryProcessScriptTest(unittest.TestCase):
             stop_script.index("device_recovery"),
             stop_script.index("scheduler"),
         )
+
+    def test_stop_script_gives_recovery_stale_bound_grace(self) -> None:
+        trace = self._run_stop_service("device_recovery")
+
+        self.assertEqual(trace.count("sleep:0.5"), 1200)
+        self.assertEqual(trace.count("force"), 1)
+
+    def test_stop_script_keeps_existing_grace_for_other_services(self) -> None:
+        trace = self._run_stop_service("scheduler")
+
+        self.assertEqual(trace.count("sleep:0.5"), 20)
+        self.assertEqual(trace.count("force"), 1)
 
 
 if __name__ == "__main__":

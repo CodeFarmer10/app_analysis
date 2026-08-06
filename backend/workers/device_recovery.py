@@ -19,6 +19,15 @@ from services.device_recovery_service import RecoveryStepError, perform_device_r
 
 logger = logging.getLogger(__name__)
 _shutdown_event = Event()
+MAX_DEVICE_RECOVERY_WORKERS = 2
+
+
+def _effective_recovery_max_workers() -> int:
+    try:
+        configured = int(settings.DEVICE_RECOVERY_MAX_WORKERS)
+    except (TypeError, ValueError):
+        configured = 1
+    return max(1, min(configured, MAX_DEVICE_RECOVERY_WORKERS))
 
 
 def _log_stale_ownership(
@@ -101,7 +110,7 @@ def run_recovery_scan(
     if expired:
         logger.warning("expired stale device recoveries count=%s", expired)
 
-    free_slots = settings.DEVICE_RECOVERY_MAX_WORKERS - len(in_flight)
+    free_slots = _effective_recovery_max_workers() - len(in_flight)
     if free_slots <= 0:
         return in_flight
 
@@ -131,14 +140,15 @@ def run_recovery_forever() -> None:
     signal.signal(signal.SIGTERM, _request_shutdown)
     signal.signal(signal.SIGINT, _request_shutdown)
 
+    max_workers = _effective_recovery_max_workers()
     in_flight: set[Future] = set()
     logger.info(
         "device recovery worker started scan_interval=%ss stale_after=%ss max_workers=%s",
         settings.DEVICE_RECOVERY_SCAN_INTERVAL_SECONDS,
         settings.DEVICE_RECOVERY_STALE_SECONDS,
-        settings.DEVICE_RECOVERY_MAX_WORKERS,
+        max_workers,
     )
-    with ThreadPoolExecutor(max_workers=settings.DEVICE_RECOVERY_MAX_WORKERS) as executor:
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
         while not _shutdown_event.is_set():
             scan_started_at = time.monotonic()
             try:
