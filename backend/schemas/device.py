@@ -25,5 +25,10 @@ class DeviceItem(BaseModel):
     last_heartbeat_at: datetime | None = None
     quarantine_reason: str | None = None
     quarantined_at: datetime | None = None
+    quarantine_task_id: str | None = None
+    quarantine_package_name: str | None = None
+    recovery_started_at: datetime | None = None
+    last_recovery_at: datetime | None = None
+    recovery_error: str | None = None
     analyzed_app_count_1d: int = 0
     created_at: datetime | None = None

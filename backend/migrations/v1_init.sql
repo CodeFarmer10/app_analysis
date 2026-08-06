@@ -57,11 +57,16 @@ CREATE TABLE IF NOT EXISTS devices (
   android_version VARCHAR(32) NULL,
   model VARCHAR(128) NULL,
   resolution VARCHAR(32) NULL,
-  status ENUM('online', 'offline', 'busy', 'quarantined') NOT NULL DEFAULT 'online',
+  status ENUM('online', 'offline', 'busy', 'quarantined', 'recovering', 'error') NOT NULL DEFAULT 'online',
   current_task_id VARCHAR(36) NULL,
   last_heartbeat_at DATETIME NULL,
   quarantine_reason TEXT NULL,
   quarantined_at DATETIME NULL,
+  quarantine_task_id VARCHAR(36) NULL,
+  quarantine_package_name VARCHAR(256) NULL,
+  recovery_started_at DATETIME NULL,
+  last_recovery_at DATETIME NULL,
+  recovery_error TEXT NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   UNIQUE KEY uk_devices_serial (serial),
   KEY idx_devices_status (status)
@@ -184,22 +189,26 @@ CREATE TABLE IF NOT EXISTS frida_logs (
     ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- Backward-compatible device quarantine state for existing tables.
-SET @devices_status_needs_quarantined := (
+-- Backward-compatible device quarantine and recovery states for existing tables.
+SET @devices_status_needs_recovery_states := (
   SELECT COUNT(*) FROM information_schema.columns
   WHERE table_schema = DATABASE()
     AND table_name = 'devices'
     AND column_name = 'status'
-    AND LOCATE('''quarantined''', column_type) = 0
+    AND (
+      LOCATE('''quarantined''', column_type) = 0
+      OR LOCATE('''recovering''', column_type) = 0
+      OR LOCATE('''error''', column_type) = 0
+    )
 );
-SET @sql_devices_status_needs_quarantined := IF(
-  @devices_status_needs_quarantined > 0,
-  'ALTER TABLE devices MODIFY COLUMN status ENUM(''online'', ''offline'', ''busy'', ''quarantined'') NOT NULL DEFAULT ''online''',
+SET @sql_devices_status_needs_recovery_states := IF(
+  @devices_status_needs_recovery_states > 0,
+  'ALTER TABLE devices MODIFY COLUMN status ENUM(''online'', ''offline'', ''busy'', ''quarantined'', ''recovering'', ''error'') NOT NULL DEFAULT ''online''',
   'SELECT 1'
 );
-PREPARE stmt_devices_status_needs_quarantined FROM @sql_devices_status_needs_quarantined;
-EXECUTE stmt_devices_status_needs_quarantined;
-DEALLOCATE PREPARE stmt_devices_status_needs_quarantined;
+PREPARE stmt_devices_status_needs_recovery_states FROM @sql_devices_status_needs_recovery_states;
+EXECUTE stmt_devices_status_needs_recovery_states;
+DEALLOCATE PREPARE stmt_devices_status_needs_recovery_states;
 
 SET @devices_quarantine_reason_col := (
   SELECT COUNT(*) FROM information_schema.columns
@@ -230,6 +239,81 @@ SET @sql_devices_quarantined_at_col := IF(
 PREPARE stmt_devices_quarantined_at_col FROM @sql_devices_quarantined_at_col;
 EXECUTE stmt_devices_quarantined_at_col;
 DEALLOCATE PREPARE stmt_devices_quarantined_at_col;
+
+SET @devices_quarantine_task_id_col := (
+  SELECT COUNT(*) FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'devices'
+    AND column_name = 'quarantine_task_id'
+);
+SET @sql_devices_quarantine_task_id_col := IF(
+  @devices_quarantine_task_id_col = 0,
+  'ALTER TABLE devices ADD COLUMN quarantine_task_id VARCHAR(36) NULL AFTER quarantined_at',
+  'SELECT 1'
+);
+PREPARE stmt_devices_quarantine_task_id_col FROM @sql_devices_quarantine_task_id_col;
+EXECUTE stmt_devices_quarantine_task_id_col;
+DEALLOCATE PREPARE stmt_devices_quarantine_task_id_col;
+
+SET @devices_quarantine_package_name_col := (
+  SELECT COUNT(*) FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'devices'
+    AND column_name = 'quarantine_package_name'
+);
+SET @sql_devices_quarantine_package_name_col := IF(
+  @devices_quarantine_package_name_col = 0,
+  'ALTER TABLE devices ADD COLUMN quarantine_package_name VARCHAR(256) NULL AFTER quarantine_task_id',
+  'SELECT 1'
+);
+PREPARE stmt_devices_quarantine_package_name_col FROM @sql_devices_quarantine_package_name_col;
+EXECUTE stmt_devices_quarantine_package_name_col;
+DEALLOCATE PREPARE stmt_devices_quarantine_package_name_col;
+
+SET @devices_recovery_started_at_col := (
+  SELECT COUNT(*) FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'devices'
+    AND column_name = 'recovery_started_at'
+);
+SET @sql_devices_recovery_started_at_col := IF(
+  @devices_recovery_started_at_col = 0,
+  'ALTER TABLE devices ADD COLUMN recovery_started_at DATETIME NULL AFTER quarantine_package_name',
+  'SELECT 1'
+);
+PREPARE stmt_devices_recovery_started_at_col FROM @sql_devices_recovery_started_at_col;
+EXECUTE stmt_devices_recovery_started_at_col;
+DEALLOCATE PREPARE stmt_devices_recovery_started_at_col;
+
+SET @devices_last_recovery_at_col := (
+  SELECT COUNT(*) FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'devices'
+    AND column_name = 'last_recovery_at'
+);
+SET @sql_devices_last_recovery_at_col := IF(
+  @devices_last_recovery_at_col = 0,
+  'ALTER TABLE devices ADD COLUMN last_recovery_at DATETIME NULL AFTER recovery_started_at',
+  'SELECT 1'
+);
+PREPARE stmt_devices_last_recovery_at_col FROM @sql_devices_last_recovery_at_col;
+EXECUTE stmt_devices_last_recovery_at_col;
+DEALLOCATE PREPARE stmt_devices_last_recovery_at_col;
+
+SET @devices_recovery_error_col := (
+  SELECT COUNT(*) FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'devices'
+    AND column_name = 'recovery_error'
+);
+SET @sql_devices_recovery_error_col := IF(
+  @devices_recovery_error_col = 0,
+  'ALTER TABLE devices ADD COLUMN recovery_error TEXT NULL AFTER last_recovery_at',
+  'SELECT 1'
+);
+PREPARE stmt_devices_recovery_error_col FROM @sql_devices_recovery_error_col;
+EXECUTE stmt_devices_recovery_error_col;
+DEALLOCATE PREPARE stmt_devices_recovery_error_col;
 
 -- Add foreign keys that create a circular reference, in an idempotent way.
 SET @fk_tasks_device := (

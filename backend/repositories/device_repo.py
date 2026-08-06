@@ -17,9 +17,14 @@ def create_device(data: dict[str, Any]) -> str:
             status,
             last_heartbeat_at,
             quarantine_reason,
-            quarantined_at
+            quarantined_at,
+            quarantine_task_id,
+            quarantine_package_name,
+            recovery_started_at,
+            last_recovery_at,
+            recovery_error
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     """
     execute(
         sql,
@@ -34,6 +39,11 @@ def create_device(data: dict[str, Any]) -> str:
             data.get("last_heartbeat_at"),
             data.get("quarantine_reason"),
             data.get("quarantined_at"),
+            data.get("quarantine_task_id"),
+            data.get("quarantine_package_name"),
+            data.get("recovery_started_at"),
+            data.get("last_recovery_at"),
+            data.get("recovery_error"),
         ),
     )
     return data["id"]
@@ -53,6 +63,11 @@ def get_device_by_id(device_id: str) -> dict | None:
             d.last_heartbeat_at,
             d.quarantine_reason,
             d.quarantined_at,
+            d.quarantine_task_id,
+            d.quarantine_package_name,
+            d.recovery_started_at,
+            d.last_recovery_at,
+            d.recovery_error,
             d.created_at,
             t.status AS current_task_status,
             COALESCE(tc.analyzed_app_count_1d, 0) AS analyzed_app_count_1d
@@ -88,6 +103,11 @@ def get_device_by_serial(serial: str) -> dict | None:
             d.last_heartbeat_at,
             d.quarantine_reason,
             d.quarantined_at,
+            d.quarantine_task_id,
+            d.quarantine_package_name,
+            d.recovery_started_at,
+            d.last_recovery_at,
+            d.recovery_error,
             d.created_at,
             t.status AS current_task_status,
             COALESCE(tc.analyzed_app_count_1d, 0) AS analyzed_app_count_1d
@@ -123,6 +143,11 @@ def list_devices() -> list[dict]:
             d.last_heartbeat_at,
             d.quarantine_reason,
             d.quarantined_at,
+            d.quarantine_task_id,
+            d.quarantine_package_name,
+            d.recovery_started_at,
+            d.last_recovery_at,
+            d.recovery_error,
             d.created_at,
             t.status AS current_task_status,
             COALESCE(tc.analyzed_app_count_1d, 0) AS analyzed_app_count_1d
@@ -210,6 +235,11 @@ def get_available_devices() -> list[dict]:
             last_heartbeat_at,
             quarantine_reason,
             quarantined_at,
+            quarantine_task_id,
+            quarantine_package_name,
+            recovery_started_at,
+            last_recovery_at,
+            recovery_error,
             created_at
         FROM devices
         WHERE status = 'online'
