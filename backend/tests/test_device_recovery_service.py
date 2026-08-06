@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, call, patch
@@ -143,6 +144,21 @@ class RecoveryValidationTest(unittest.TestCase):
     def test_validate_health_apk_accepts_checked_in_artifact(self) -> None:
         validate_health_apk(HEALTH_APK, HEALTH_PACKAGE)
 
+    def test_validate_health_apk_rejects_one_byte_mutation_before_parsing(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            mutated_apk = Path(temp_dir) / HEALTH_APK.name
+            mutated_bytes = bytearray(HEALTH_APK.read_bytes())
+            mutated_bytes[-1] ^= 0x01
+            mutated_apk.write_bytes(mutated_bytes)
+
+            with patch("services.device_recovery_service.APK") as apk_class_mock:
+                with self.assertRaises(RecoveryStepError) as raised:
+                    validate_health_apk(mutated_apk, HEALTH_PACKAGE)
+
+        self.assertEqual(raised.exception.step, "verify_install")
+        self.assertIn("SHA-256", raised.exception.detail)
+        apk_class_mock.assert_not_called()
+
     def test_validate_health_apk_rejects_wrong_package_as_install_verification(self) -> None:
         with self.assertRaises(RecoveryStepError) as raised:
             validate_health_apk(HEALTH_APK, "com.example.wrong")
@@ -162,7 +178,7 @@ class RecoveryValidationTest(unittest.TestCase):
         apk.get_files.return_value = []
 
         with self.assertRaises(RecoveryStepError) as raised:
-            validate_health_apk(Path("DeviceHealthCheck.apk"), HEALTH_PACKAGE)
+            validate_health_apk(HEALTH_APK, HEALTH_PACKAGE)
 
         self.assertEqual(raised.exception.step, "verify_install")
         self.assertIn("v2", raised.exception.detail)

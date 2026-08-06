@@ -20,3 +20,10 @@ The script creates a temporary, non-production signing key, signs with APK
 Signature Schemes v1 and v2 (v1 is required by the API 23 minimum), verifies the
 signature, and deletes the temporary build directory. Signing keys and Android
 build tools must never be committed.
+
+After rebuilding, independently run `apksigner verify --verbose
+DeviceHealthCheck.apk`, then calculate `shasum -a 256 DeviceHealthCheck.apk`.
+Only after signature verification succeeds, update `HEALTH_APK_SHA256` in
+`backend/services/device_recovery_service.py` and the matching literal in
+`backend/tests/test_device_health_apk.py`. The pinned digest is the runtime trust
+anchor; do not replace it with a mutable sidecar file.

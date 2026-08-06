@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
 import subprocess
 import time
 from pathlib import Path
@@ -11,6 +13,7 @@ from phone_agent.adb.device import install_apk, uninstall_apk
 from services.device_service import ADB_COMMAND_TIMEOUT_SECONDS, check_device_health
 
 BOOT_MARKER = "__device_recovery_ok__"
+HEALTH_APK_SHA256 = "e7de8cb3adc219b2c95ed931bcd075203a4fde46f3050446cf8cc18e8db1e985"
 RESOURCE_ERROR_MARKERS = (
     "resource temporarily unavailable",
     "fork failed",
@@ -63,7 +66,19 @@ def run_adb(
 
 def validate_health_apk(path: Path, expected_package: str) -> None:
     try:
-        apk = APK(str(path))
+        apk_bytes = path.read_bytes()
+    except OSError as exc:
+        raise RecoveryStepError("verify_install", f"unable to read health APK: {exc}") from exc
+
+    actual_digest = hashlib.sha256(apk_bytes).hexdigest()
+    if not hmac.compare_digest(actual_digest, HEALTH_APK_SHA256):
+        raise RecoveryStepError(
+            "verify_install",
+            f"health APK SHA-256 mismatch: expected {HEALTH_APK_SHA256}, got {actual_digest}",
+        )
+
+    try:
+        apk = APK(apk_bytes, raw=True)
     except Exception as exc:
         raise RecoveryStepError("verify_install", f"invalid health APK: {exc}") from exc
 

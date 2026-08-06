@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import unittest
 from pathlib import Path
 
@@ -18,6 +19,10 @@ class DeviceHealthApkTest(unittest.TestCase):
     def test_health_apk_is_minimal_and_has_expected_package(self) -> None:
         apk = APK(str(HEALTH_APK))
 
+        self.assertEqual(
+            hashlib.sha256(HEALTH_APK.read_bytes()).hexdigest(),
+            "e7de8cb3adc219b2c95ed931bcd075203a4fde46f3050446cf8cc18e8db1e985",
+        )
         self.assertEqual(apk.get_package(), "com.fraudanalysis.devicehealth")
         self.assertTrue(apk.is_signed_v2())
         self.assertEqual(apk.get_permissions(), [])
