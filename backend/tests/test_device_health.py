@@ -105,8 +105,14 @@ class DeviceHeartbeatTest(unittest.TestCase):
         self.assertEqual(fields, {"status": "offline"})
 
     @patch("services.device_service.update_device")
+    @patch("services.device_service.update_idle_device_snapshot")
     @patch("services.device_service.check_device_health")
-    def test_quarantined_device_is_not_automatically_recovered(self, health_mock, update_mock) -> None:
+    def test_quarantined_device_is_not_probed_or_changed(
+        self,
+        health_mock,
+        update_idle_mock,
+        update_mock,
+    ) -> None:
         device = {
             "id": "device-1",
             "serial": "serial-1",
@@ -114,11 +120,14 @@ class DeviceHeartbeatTest(unittest.TestCase):
             "current_task_id": None,
             "quarantine_reason": "previous failure",
         }
+        original = device.copy()
 
         refreshed = _refresh_device_runtime(device)
 
-        self.assertEqual(refreshed["status"], "quarantined")
+        self.assertIs(refreshed, device)
+        self.assertEqual(refreshed, original)
         health_mock.assert_not_called()
+        update_idle_mock.assert_not_called()
         update_mock.assert_not_called()
 
     @patch("services.device_service.update_device")

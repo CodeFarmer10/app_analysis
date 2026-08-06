@@ -72,7 +72,11 @@ function getUnavailableTitle(record) {
   if (record?.status === 'recovering') {
     return '设备正在自动恢复'
   }
-  return '离线'
+  return '设备当前离线'
+}
+
+function getUnavailableLabel(record) {
+  return `${getStatusMeta(record?.status).text}：${getUnavailableTitle(record)}`
 }
 
 async function handleValidateConnection() {
@@ -279,18 +283,35 @@ onBeforeUnmount(() => {
             </div>
 
             <div class="device-actions">
-              <a-button size="small" @click="openEditModal(record)">重命名</a-button>
+              <a-button size="small" :disabled="isUnavailable(record)" @click="openEditModal(record)">
+                重命名
+              </a-button>
               <a-popconfirm
                 title="确认删除该设备吗？"
                 ok-text="删除"
                 cancel-text="取消"
                 @confirm="handleDeleteDevice(record.id)"
               >
-                <a-button size="small" danger :loading="deletingId === record.id">删除</a-button>
+                <a-button
+                  size="small"
+                  danger
+                  :disabled="isUnavailable(record)"
+                  :loading="deletingId === record.id"
+                >
+                  删除
+                </a-button>
               </a-popconfirm>
             </div>
-            <div v-if="isUnavailable(record)" class="offline-mask" :title="getUnavailableTitle(record)">
-              {{ getStatusMeta(record.status).text }}
+            <div
+              v-if="isUnavailable(record)"
+              class="offline-mask"
+              role="status"
+              aria-live="polite"
+              aria-atomic="true"
+              :aria-label="getUnavailableLabel(record)"
+            >
+              <span class="offline-status">{{ getStatusMeta(record.status).text }}</span>
+              <span class="offline-reason">{{ getUnavailableTitle(record) }}</span>
             </div>
           </article>
         </div>
@@ -518,21 +539,44 @@ onBeforeUnmount(() => {
   gap: 8px;
 }
 
-.offline {
+.offline > :not(.offline-mask) {
   opacity: 0.72;
 }
 
 .offline-mask {
   position: absolute;
   inset: 0;
-  display: grid;
-  place-items: center;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   border-radius: 10px;
-  background: rgba(2, 6, 23, 0.44);
+  padding: 16px;
+  background: rgba(2, 6, 23, 0.82);
+  text-align: center;
+  pointer-events: auto;
+}
+
+.offline-status {
   color: #cbd5e1;
   font-size: 14px;
   font-weight: 600;
-  pointer-events: none;
+}
+
+.offline-reason {
+  display: -webkit-box;
+  max-width: min(100%, 280px);
+  overflow: hidden;
+  color: #9fb3c8;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .validate-row {

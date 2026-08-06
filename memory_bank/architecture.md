@@ -44,8 +44,9 @@
 - 每次动态执行生成独立 `attempt_id`，本地结果目录与本次上传的截图、日志、PCAP、动态结果文件和脱壳归档均使用 attempt 专属命名空间，重试 Worker 与旧 Worker 不会删除或覆盖彼此产物。
 - 隔离设备自动恢复由独立的 `python -m workers.device_recovery` 进程负责，不接入 Celery 或 Beat；进程每 60 秒直接扫描一次空闲 `quarantined` 设备，使用最多两个线程并发恢复，且仅条件认领成功的设备会进入恢复流程。
 - 恢复流程的重启和 `sys.boot_completed=1` 等待上限为 180 秒；清理范围严格限定为隔离时记录的 `quarantine_package_name`，不枚举或批量卸载第三方包。`ps -A` 只要求命令成功且输出非空，不设置进程数量阈值。
-- 恢复验证会实际安装并卸载 `backend/tools/device_health/DeviceHealthCheck.apk`（包名 `com.fraudanalysis.devicehealth`），并在安装后和卸载后检查包状态；全部检查通过后才能回到 `online`。
+- 恢复验证在接触设备前先将 `backend/tools/device_health/DeviceHealthCheck.apk` 与代码内固定的 SHA-256 摘要比对，再校验包名 `com.fraudanalysis.devicehealth`、APK Signature Scheme v2 签名以及最小化结构（无权限、无 Activity/Service/Receiver/Provider、无 DEX）；随后实际安装和卸载该 APK，并在安装后和卸载后检查包状态，全部通过后才能回到 `online`。
 - 每次恢复认领生成独立 `recovery_attempt_id`，完成与失败写回都校验该 attempt，过期 Worker 无法覆盖较新的恢复结果。失败设备进入 `error` 后不再自动扫描或由心跳改写，只能人工确认后重试；超过 600 秒的遗留 `recovering` attempt 会收敛为 `error`。
+- 进程停止时，`stop.sh` 对 `device_recovery` 发送 SIGTERM 后提供最长 600 秒的退出宽限期，使线程池中的恢复操作有时间完成；宽限期耗尽后才强制终止，下一次扫描会把超过 600 秒的遗留 `recovering` attempt 收敛为 `error`。
 - 看板趋势统计在 Repository 层按天补齐空缺日期（submitted/completed 置 0），降低前端图表对齐复杂度。
 - 看板趋势接口在 API 层限制 `days` 仅支持 `7` 或 `30`，统一前后端口径并减少无效查询。
 - 阶段十一已完成前端工程初始化：`main.js`、`router`、`stores`、`api`、`utils` 形成可运行骨架，后续阶段按业务模块增量填充 UI 与交互。
