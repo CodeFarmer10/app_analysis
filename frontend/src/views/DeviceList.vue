@@ -4,6 +4,7 @@ import { message } from 'ant-design-vue'
 
 import { createDevice, deleteDevice, getDeviceList, updateDevice } from '../api/devices'
 import { useDeviceStore } from '../stores/device'
+import { getUnavailableDetail, getUnavailableSummary } from '../utils/deviceStatus'
 import { formatDateTime } from '../utils/format'
 import { usePolling } from '../utils/polling'
 
@@ -62,21 +63,8 @@ function isUnavailable(record) {
   return ['offline', 'quarantined', 'recovering', 'error'].includes(record?.status)
 }
 
-function getUnavailableTitle(record) {
-  if (record?.status === 'error') {
-    return record.recovery_error || '设备恢复失败，请手动重试'
-  }
-  if (record?.status === 'quarantined') {
-    return record.quarantine_reason || '设备健康检查失败'
-  }
-  if (record?.status === 'recovering') {
-    return '设备正在自动恢复'
-  }
-  return '设备当前离线'
-}
-
 function getUnavailableLabel(record) {
-  return `${getStatusMeta(record?.status).text}：${getUnavailableTitle(record)}`
+  return `${getStatusMeta(record?.status).text}：${getUnavailableDetail(record)}`
 }
 
 async function handleValidateConnection() {
@@ -302,17 +290,23 @@ onBeforeUnmount(() => {
                 </a-button>
               </a-popconfirm>
             </div>
-            <div
+            <a-tooltip
               v-if="isUnavailable(record)"
-              class="offline-mask"
-              role="status"
-              aria-live="polite"
-              aria-atomic="true"
-              :aria-label="getUnavailableLabel(record)"
+              :title="getUnavailableDetail(record)"
+              :trigger="['hover', 'focus']"
             >
-              <span class="offline-status">{{ getStatusMeta(record.status).text }}</span>
-              <span class="offline-reason">{{ getUnavailableTitle(record) }}</span>
-            </div>
+              <div
+                class="offline-mask"
+                role="status"
+                tabindex="0"
+                aria-live="polite"
+                aria-atomic="true"
+                :aria-label="getUnavailableLabel(record)"
+              >
+                <span class="offline-status">{{ getStatusMeta(record.status).text }}</span>
+                <span class="offline-reason">{{ getUnavailableSummary(record) }}</span>
+              </div>
+            </a-tooltip>
           </article>
         </div>
       </a-spin>

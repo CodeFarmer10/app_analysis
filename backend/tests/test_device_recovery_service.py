@@ -12,6 +12,7 @@ from services.device_recovery_service import (
     RecoveryStepError,
     package_exists,
     perform_device_recovery,
+    recovery_timeout_budget_seconds,
     remove_residual_package,
     require_device_health,
     require_process_command,
@@ -35,10 +36,29 @@ class RecoveryConfigurationTest(unittest.TestCase):
     def test_recovery_defaults_match_worker_contract(self) -> None:
         self.assertEqual(settings.DEVICE_RECOVERY_SCAN_INTERVAL_SECONDS, 60)
         self.assertEqual(settings.DEVICE_RECOVERY_REBOOT_TIMEOUT_SECONDS, 180)
+        self.assertEqual(settings.DEVICE_RECOVERY_INSTALL_TIMEOUT_SECONDS, 120)
+        self.assertEqual(settings.DEVICE_RECOVERY_UNINSTALL_TIMEOUT_SECONDS, 60)
         self.assertEqual(settings.DEVICE_RECOVERY_STALE_SECONDS, 600)
         self.assertEqual(settings.DEVICE_RECOVERY_MAX_WORKERS, 2)
         self.assertEqual(settings.DEVICE_RECOVERY_APK_PATH, str(HEALTH_APK))
         self.assertEqual(settings.DEVICE_RECOVERY_APK_PACKAGE, HEALTH_PACKAGE)
+
+    def test_worst_case_recovery_command_budget_fits_lifecycle_limits(self) -> None:
+        expected_budget = (
+            10  # reboot
+            + 180  # boot wait, including network connect retries
+            + (4 * 10)  # residual and health APK package checks
+            + (2 * 5 * 3)  # two network-device health probes
+            + 10  # process check
+            + 60  # optional residual package uninstall
+            + 120  # health APK install
+            + 60  # health APK uninstall
+        )
+        budget = recovery_timeout_budget_seconds()
+
+        self.assertEqual(budget, expected_budget)
+        self.assertLess(budget, settings.DEVICE_RECOVERY_STALE_SECONDS)
+        self.assertLess(budget, 600)
 
 
 class RecoveryCommandTest(unittest.TestCase):
@@ -64,9 +84,31 @@ class RecoveryCommandTest(unittest.TestCase):
         self.assertEqual(raised.exception.step, "reboot")
         self.assertIn("timeout", raised.exception.detail.lower())
 
+    @patch("services.device_recovery_service.subprocess.run")
+    def test_run_adb_supports_host_level_connect_with_shared_mapping(
+        self, command_mock
+    ) -> None:
+        command_mock.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="connected", stderr=""
+        )
+
+        output = run_adb(
+            None,
+            ["connect", "10.0.0.8:5555"],
+            step="wait_boot",
+            timeout_seconds=7,
+        )
+
+        self.assertEqual(output, "connected")
+        self.assertEqual(
+            command_mock.call_args.args[0],
+            ["adb", "connect", "10.0.0.8:5555"],
+        )
+        self.assertEqual(command_mock.call_args.kwargs["timeout"], 7)
+
     @patch("services.device_recovery_service.run_adb")
     @patch("services.device_recovery_service.time.monotonic", return_value=0.0)
-    def test_wait_for_boot_requires_state_property_and_shell_marker(
+    def test_wait_for_boot_skips_connect_for_usb_and_requires_ready_checks(
         self, _monotonic_mock, command_mock
     ) -> None:
         command_mock.side_effect = ["device", "1", "__device_recovery_ok__"]
@@ -96,6 +138,111 @@ class RecoveryCommandTest(unittest.TestCase):
                 ),
             ],
         )
+
+    @patch("services.device_recovery_service.time.sleep")
+    @patch("services.device_recovery_service.run_adb")
+    @patch("services.device_recovery_service.time.monotonic", return_value=0.0)
+    def test_wait_for_boot_connects_network_serial_before_ready_checks(
+        self,
+        _monotonic_mock,
+        command_mock,
+        sleep_mock,
+    ) -> None:
+        command_mock.side_effect = [
+            "connected",
+            "device",
+            "1",
+            "__device_recovery_ok__",
+        ]
+
+        wait_for_device_boot("10.0.0.8:5555", timeout_seconds=180)
+
+        self.assertEqual(
+            command_mock.call_args_list,
+            [
+                call(
+                    None,
+                    ["connect", "10.0.0.8:5555"],
+                    step="wait_boot",
+                    timeout_seconds=180.0,
+                ),
+                call(
+                    "10.0.0.8:5555",
+                    ["get-state"],
+                    step="wait_boot",
+                    timeout_seconds=180.0,
+                ),
+                call(
+                    "10.0.0.8:5555",
+                    ["shell", "getprop", "sys.boot_completed"],
+                    step="wait_boot",
+                    timeout_seconds=180.0,
+                ),
+                call(
+                    "10.0.0.8:5555",
+                    ["shell", "echo", "__device_recovery_ok__"],
+                    step="wait_boot",
+                    timeout_seconds=180.0,
+                ),
+            ],
+        )
+        sleep_mock.assert_not_called()
+
+    @patch("services.device_recovery_service.time.sleep")
+    @patch("services.device_recovery_service.run_adb")
+    @patch("services.device_recovery_service.time.monotonic", return_value=0.0)
+    def test_wait_for_boot_retries_failed_network_connect_until_eventual_success(
+        self,
+        _monotonic_mock,
+        command_mock,
+        sleep_mock,
+    ) -> None:
+        command_mock.side_effect = [
+            RecoveryStepError("wait_boot", "connection refused"),
+            "connected",
+            "device",
+            "1",
+            "__device_recovery_ok__",
+        ]
+
+        wait_for_device_boot("10.0.0.8:5555", timeout_seconds=180)
+
+        self.assertEqual(
+            command_mock.call_args_list,
+            [
+                call(
+                    None,
+                    ["connect", "10.0.0.8:5555"],
+                    step="wait_boot",
+                    timeout_seconds=180.0,
+                ),
+                call(
+                    None,
+                    ["connect", "10.0.0.8:5555"],
+                    step="wait_boot",
+                    timeout_seconds=180.0,
+                ),
+                call(
+                    "10.0.0.8:5555",
+                    ["get-state"],
+                    step="wait_boot",
+                    timeout_seconds=180.0,
+                ),
+                call(
+                    "10.0.0.8:5555",
+                    ["shell", "getprop", "sys.boot_completed"],
+                    step="wait_boot",
+                    timeout_seconds=180.0,
+                ),
+                call(
+                    "10.0.0.8:5555",
+                    ["shell", "echo", "__device_recovery_ok__"],
+                    step="wait_boot",
+                    timeout_seconds=180.0,
+                ),
+            ],
+        )
+        sleep_mock.assert_called_once_with(1)
 
     @patch("services.device_recovery_service.time.sleep")
     @patch("services.device_recovery_service.time.monotonic", side_effect=[0.0, 0.0, 180.0])
@@ -200,7 +347,7 @@ class RecoveryValidationTest(unittest.TestCase):
             ],
         )
         uninstall_mock.assert_called_once_with(
-            "com.example.residual", device_id="serial-1"
+            "com.example.residual", device_id="serial-1", timeout=60
         )
 
     @patch("services.device_recovery_service.uninstall_apk")
@@ -298,9 +445,16 @@ class RecoveryApkRoundTripTest(unittest.TestCase):
         verify_apk_round_trip("serial-1", HEALTH_APK, HEALTH_PACKAGE)
 
         install_mock.assert_called_once_with(
-            str(HEALTH_APK), device_id="serial-1", replace_existing=True
+            str(HEALTH_APK),
+            device_id="serial-1",
+            replace_existing=True,
+            timeout=120,
         )
-        uninstall_mock.assert_called_once_with(HEALTH_PACKAGE, device_id="serial-1")
+        uninstall_mock.assert_called_once_with(
+            HEALTH_PACKAGE,
+            device_id="serial-1",
+            timeout=60,
+        )
         self.assertEqual(
             command_mock.call_args_list,
             [

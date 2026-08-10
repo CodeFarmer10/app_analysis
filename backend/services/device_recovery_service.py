@@ -10,7 +10,11 @@ from androguard.core.apk import APK
 
 from core.config import settings
 from phone_agent.adb.device import install_apk, uninstall_apk
-from services.device_service import ADB_COMMAND_TIMEOUT_SECONDS, check_device_health
+from services.device_service import (
+    ADB_COMMAND_TIMEOUT_SECONDS,
+    ADB_HEARTBEAT_TIMEOUT_SECONDS,
+    check_device_health,
+)
 
 BOOT_MARKER = "__device_recovery_ok__"
 HEALTH_APK_SHA256 = "e7de8cb3adc219b2c95ed931bcd075203a4fde46f3050446cf8cc18e8db1e985"
@@ -22,6 +26,25 @@ RESOURCE_ERROR_MARKERS = (
 )
 
 
+def recovery_timeout_budget_seconds() -> int:
+    """Return the legal worst-case command budget for one recovery attempt.
+
+    This includes reboot, the shared boot/connect deadline, four package checks,
+    two five-command network health probes, the process check, the optional
+    residual uninstall, and the health APK install/uninstall round trip.
+    """
+    return (
+        ADB_COMMAND_TIMEOUT_SECONDS
+        + settings.DEVICE_RECOVERY_REBOOT_TIMEOUT_SECONDS
+        + (4 * ADB_COMMAND_TIMEOUT_SECONDS)
+        + (2 * 5 * ADB_HEARTBEAT_TIMEOUT_SECONDS)
+        + ADB_COMMAND_TIMEOUT_SECONDS
+        + settings.DEVICE_RECOVERY_UNINSTALL_TIMEOUT_SECONDS
+        + settings.DEVICE_RECOVERY_INSTALL_TIMEOUT_SECONDS
+        + settings.DEVICE_RECOVERY_UNINSTALL_TIMEOUT_SECONDS
+    )
+
+
 class RecoveryStepError(RuntimeError):
     def __init__(self, step: str, detail: str) -> None:
         self.step = step
@@ -30,13 +53,13 @@ class RecoveryStepError(RuntimeError):
 
 
 def run_adb(
-    serial: str,
+    serial: str | None,
     args: list[str],
     *,
     step: str = "reboot",
     timeout_seconds: int = ADB_COMMAND_TIMEOUT_SECONDS,
 ) -> str:
-    command = ["adb", "-s", serial, *args]
+    command = ["adb", *args] if serial is None else ["adb", "-s", serial, *args]
     try:
         result = subprocess.run(
             command,
@@ -121,8 +144,22 @@ def wait_for_device_boot(serial: str, timeout_seconds: int) -> None:
             timeout_seconds=remaining_seconds,
         )
 
+    def connect_network_device() -> None:
+        if ":" not in serial:
+            return
+        remaining_seconds = deadline - time.monotonic()
+        if remaining_seconds <= 0:
+            raise TimeoutError
+        run_adb(
+            None,
+            ["connect", serial],
+            step="wait_boot",
+            timeout_seconds=remaining_seconds,
+        )
+
     while True:
         try:
+            connect_network_device()
             state = run_boot_command(["get-state"])
             if state.strip().lower() != "device":
                 last_detail = f"adb get-state returned {state or 'unavailable'}"
@@ -179,7 +216,11 @@ def remove_residual_package(serial: str, package_name: str | None) -> None:
         return
 
     try:
-        removed, detail = uninstall_apk(normalized_package, device_id=serial)
+        removed, detail = uninstall_apk(
+            normalized_package,
+            device_id=serial,
+            timeout=settings.DEVICE_RECOVERY_UNINSTALL_TIMEOUT_SECONDS,
+        )
     except Exception as exc:
         raise RecoveryStepError("cleanup_app", str(exc)) from exc
     if not removed:
@@ -218,7 +259,10 @@ def verify_apk_round_trip(
 ) -> None:
     try:
         installed, install_detail = install_apk(
-            str(apk_path), device_id=serial, replace_existing=True
+            str(apk_path),
+            device_id=serial,
+            replace_existing=True,
+            timeout=settings.DEVICE_RECOVERY_INSTALL_TIMEOUT_SECONDS,
         )
     except Exception as exc:
         raise RecoveryStepError("verify_install", str(exc)) from exc
@@ -232,7 +276,11 @@ def verify_apk_round_trip(
         )
 
     try:
-        removed, uninstall_detail = uninstall_apk(expected_package, device_id=serial)
+        removed, uninstall_detail = uninstall_apk(
+            expected_package,
+            device_id=serial,
+            timeout=settings.DEVICE_RECOVERY_UNINSTALL_TIMEOUT_SECONDS,
+        )
     except Exception as exc:
         raise RecoveryStepError("verify_uninstall", str(exc)) from exc
     if not removed:

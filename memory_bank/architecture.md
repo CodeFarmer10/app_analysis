@@ -43,10 +43,11 @@
 - 动态设备级错误通过任务与设备归属保护下的原子事务重新排队任务并隔离设备；安装后的 Phone Agent 异常和失败操作记录仅对强 ADB 签名进行设备分类，模型、MinIO 和本地文件异常保持任务失败。卸载 APK 失败时始终隔离设备并禁止释放。旧 Worker 在归属变化后不能写入结果、修改任务或释放新任务设备。
 - 每次动态执行生成独立 `attempt_id`，本地结果目录与本次上传的截图、日志、PCAP、动态结果文件和脱壳归档均使用 attempt 专属命名空间，重试 Worker 与旧 Worker 不会删除或覆盖彼此产物。
 - 隔离设备自动恢复由独立的 `python -m workers.device_recovery` 进程负责，不接入 Celery 或 Beat；进程每 60 秒直接扫描一次空闲 `quarantined` 设备，使用最多两个线程并发恢复，且仅条件认领成功的设备会进入恢复流程。
-- 恢复流程的重启和 `sys.boot_completed=1` 等待上限为 180 秒；清理范围严格限定为隔离时记录的 `quarantine_package_name`，不枚举或批量卸载第三方包。`ps -A` 只要求命令成功且输出非空，不设置进程数量阈值。
+- 恢复流程的重启和 `sys.boot_completed=1` 等待上限为 180 秒，健康 APK 安装上限为 120 秒，每次卸载上限为 60 秒；按代码内各步骤上限计算的单次恢复最坏命令预算为 510 秒，严格小于 600 秒的遗留恢复收敛边界。清理范围严格限定为隔离时记录的 `quarantine_package_name`，不枚举或批量卸载第三方包。`ps -A` 只要求命令成功且输出非空，不设置进程数量阈值。
 - 恢复验证在接触设备前先将 `backend/tools/device_health/DeviceHealthCheck.apk` 与代码内固定的 SHA-256 摘要比对，再校验包名 `com.fraudanalysis.devicehealth`、APK Signature Scheme v2 签名以及最小化结构（无权限、无 Activity/Service/Receiver/Provider、无 DEX）；随后实际安装和卸载该 APK，并在安装后和卸载后检查包状态，全部通过后才能回到 `online`。
 - 每次恢复认领生成独立 `recovery_attempt_id`，完成与失败写回都校验该 attempt，过期 Worker 无法覆盖较新的恢复结果。失败设备进入 `error` 后不再自动扫描或由心跳改写，只能人工确认后重试；超过 600 秒的遗留 `recovering` attempt 会收敛为 `error`。
 - 进程停止时，`stop.sh` 对 `device_recovery` 发送 SIGTERM 后提供最长 600 秒的退出宽限期，使线程池中的恢复操作有时间完成；宽限期耗尽后才强制终止，下一次扫描会把超过 600 秒的遗留 `recovering` attempt 收敛为 `error`。
+- 设备页将不可用状态摘要与完整详情拆分为纯函数：`error` 卡片的固定两行摘要优先显示 `recovery_error`，可聚焦遮罩的工具提示与无障碍名称保留未截断的恢复失败，并在其后附带原始 `quarantine_reason`，便于鼠标和键盘用户检查完整故障链路且不改变卡片尺寸。
 - 看板趋势统计在 Repository 层按天补齐空缺日期（submitted/completed 置 0），降低前端图表对齐复杂度。
 - 看板趋势接口在 API 层限制 `days` 仅支持 `7` 或 `30`，统一前后端口径并减少无效查询。
 - 阶段十一已完成前端工程初始化：`main.js`、`router`、`stores`、`api`、`utils` 形成可运行骨架，后续阶段按业务模块增量填充 UI 与交互。
