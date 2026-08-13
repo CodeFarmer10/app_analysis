@@ -65,6 +65,22 @@ class DeviceHealthProbeTest(unittest.TestCase):
 
         self.assertEqual(result, DeviceHealthResult("healthy", None, data_free_kib))
 
+    def test_health_probe_accepts_oplus_data_df_alias_mount(self) -> None:
+        df_output = (
+            "Filesystem       1K-blocks    Used Available Use% Mounted on\n"
+            "/dev/block/dm-62 228388480 7026632 221230776   4% "
+            "/storage/emulated/0/Android/obb\n"
+        )
+        with self._command_outputs(
+            "device",
+            "__device_health_ok__",
+            "package:/system/framework/framework-res.apk",
+            df_output,
+        ):
+            result = check_device_health("serial-1")
+
+        self.assertEqual(result, DeviceHealthResult("healthy", None, 221230776))
+
 
 class DeviceHeartbeatTest(unittest.TestCase):
     @patch("services.device_service.update_idle_device_snapshot", return_value=1, create=True)

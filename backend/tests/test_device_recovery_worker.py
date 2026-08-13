@@ -59,7 +59,7 @@ class DeviceRecoveryScanTest(unittest.TestCase):
 
         run_recovery_scan(MagicMock(), set())
 
-        self.assertEqual(calls, [("expire", 600), ("list", 2)])
+        self.assertEqual(calls, [("expire", 1200), ("list", 2)])
 
     @patch("workers.device_recovery.list_quarantined_devices", return_value=[])
     @patch("workers.device_recovery.expire_stale_recoveries", return_value=0)
@@ -149,7 +149,7 @@ class DeviceRecoveryScanTest(unittest.TestCase):
 
         self.assertEqual(run_recovery_scan(MagicMock(), in_flight), in_flight)
 
-        expire_mock.assert_called_once_with(600)
+        expire_mock.assert_called_once_with(1200)
         list_mock.assert_not_called()
 
     @patch("workers.device_recovery.list_quarantined_devices", return_value=[])
@@ -367,7 +367,7 @@ class DeviceRecoveryLoopTest(unittest.TestCase):
 
         run_recovery_forever()
 
-        expire_mock.assert_called_once_with(600)
+        expire_mock.assert_called_once_with(1200)
         list_mock.assert_called_once_with(limit=2)
         executor.submit.assert_not_called()
         perform_mock.assert_not_called()
@@ -497,7 +497,7 @@ stop_service "$4"
     def test_stop_script_gives_recovery_stale_bound_grace(self) -> None:
         trace = self._run_stop_service("device_recovery")
 
-        self.assertEqual(trace.count("sleep:0.5"), 1200)
+        self.assertEqual(trace.count("sleep:0.5"), 1800)
         self.assertEqual(trace.count("force"), 1)
 
     def test_stop_script_keeps_existing_grace_for_other_services(self) -> None:

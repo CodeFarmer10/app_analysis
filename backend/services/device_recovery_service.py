@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import re
 import subprocess
 import time
 from pathlib import Path
@@ -24,22 +25,26 @@ RESOURCE_ERROR_MARKERS = (
     "cannot fork",
     "can't fork",
 )
+PACKAGE_NAME_PATTERN = re.compile(r"[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)+")
 
 
 def recovery_timeout_budget_seconds() -> int:
     """Return the legal worst-case command budget for one recovery attempt.
 
     This includes reboot, the shared boot/connect deadline, four package checks,
-    two five-command network health probes, the process check, the optional
-    residual uninstall, and the health APK install/uninstall round trip.
+    project-owned temporary file cleanup, two stable health windows, the process
+    check, the optional residual uninstall, and the health APK install/uninstall
+    round trip.
     """
     return (
         ADB_COMMAND_TIMEOUT_SECONDS
         + settings.DEVICE_RECOVERY_REBOOT_TIMEOUT_SECONDS
         + (4 * ADB_COMMAND_TIMEOUT_SECONDS)
-        + (2 * 5 * ADB_HEARTBEAT_TIMEOUT_SECONDS)
+        + ADB_COMMAND_TIMEOUT_SECONDS
+        + (2 * settings.DEVICE_RECOVERY_STABLE_HEALTH_TIMEOUT_SECONDS)
         + ADB_COMMAND_TIMEOUT_SECONDS
         + settings.DEVICE_RECOVERY_UNINSTALL_TIMEOUT_SECONDS
+        + settings.DEVICE_RECOVERY_DATA_CLEANUP_TIMEOUT_SECONDS
         + settings.DEVICE_RECOVERY_INSTALL_TIMEOUT_SECONDS
         + settings.DEVICE_RECOVERY_UNINSTALL_TIMEOUT_SECONDS
     )
@@ -198,11 +203,16 @@ def _contains_resource_error(output: str) -> bool:
 
 
 def package_exists(serial: str, package_name: str, *, step: str) -> bool:
-    output = run_adb(
-        serial,
-        ["shell", "cmd", "package", "path", package_name],
-        step=step,
-    )
+    try:
+        output = run_adb(
+            serial,
+            ["shell", "cmd", "package", "path", package_name],
+            step=step,
+        )
+    except RecoveryStepError as exc:
+        if exc.detail == "adb exited with status 1":
+            return False
+        raise
     if _contains_resource_error(output):
         raise RecoveryStepError(step, output)
     return any(line.strip().startswith("package:") for line in output.splitlines())
@@ -233,6 +243,46 @@ def remove_residual_package(serial: str, package_name: str | None) -> None:
         )
 
 
+def remove_residual_package_data(serial: str, package_name: str | None) -> None:
+    normalized_package = str(package_name or "").strip()
+    if not normalized_package:
+        return
+    if len(normalized_package) > 255 or not PACKAGE_NAME_PATTERN.fullmatch(
+        normalized_package
+    ):
+        raise RecoveryStepError(
+            "cleanup_app_data", f"invalid package name: {normalized_package}"
+        )
+
+    data_path = f"/data/media/0/Android/data/{normalized_package}"
+    command = (
+        f"path={data_path}; "
+        'if [ -e "$path" ]; then rm -rf -- "$path"; fi; '
+        'test ! -e "$path"'
+    )
+    run_adb(
+        serial,
+        ["shell", "su", "-c", command],
+        step="cleanup_app_data",
+        timeout_seconds=settings.DEVICE_RECOVERY_DATA_CLEANUP_TIMEOUT_SECONDS,
+    )
+
+
+def cleanup_project_temp_files(serial: str) -> None:
+    run_adb(
+        serial,
+        [
+            "shell",
+            "rm",
+            "-f",
+            "/sdcard/tmp.png",
+            "/sdcard/capture.pcap",
+            "/sdcard/capture-*.pcap",
+        ],
+        step="cleanup_temp",
+    )
+
+
 def require_device_health(serial: str) -> None:
     try:
         health = check_device_health(serial)
@@ -242,6 +292,39 @@ def require_device_health(serial: str) -> None:
         raise RecoveryStepError(
             "storage", health.reason or f"device health state is {health.state}"
         )
+
+
+def require_device_health_stable(
+    serial: str,
+    *,
+    timeout_seconds: int | None = None,
+    interval_seconds: int | None = None,
+) -> None:
+    timeout = (
+        settings.DEVICE_RECOVERY_STABLE_HEALTH_TIMEOUT_SECONDS
+        if timeout_seconds is None
+        else timeout_seconds
+    )
+    interval = (
+        settings.DEVICE_RECOVERY_STABLE_HEALTH_INTERVAL_SECONDS
+        if interval_seconds is None
+        else interval_seconds
+    )
+    deadline = time.monotonic() + max(0, timeout)
+    last_error: RecoveryStepError | None = None
+
+    while True:
+        try:
+            require_device_health(serial)
+            return
+        except RecoveryStepError as exc:
+            last_error = exc
+
+        remaining_seconds = deadline - time.monotonic()
+        if remaining_seconds <= 0:
+            detail = last_error.detail if last_error else "device health check failed"
+            raise RecoveryStepError("storage", detail)
+        time.sleep(min(max(1, interval), remaining_seconds))
 
 
 def require_process_command(serial: str) -> None:
@@ -308,7 +391,9 @@ def perform_device_recovery(device: dict) -> None:
         timeout_seconds=settings.DEVICE_RECOVERY_REBOOT_TIMEOUT_SECONDS,
     )
     remove_residual_package(serial, device.get("quarantine_package_name"))
-    require_device_health(serial)
+    remove_residual_package_data(serial, device.get("quarantine_package_name"))
+    cleanup_project_temp_files(serial)
+    require_device_health_stable(serial)
     require_process_command(serial)
     verify_apk_round_trip(serial, apk_path, expected_package)
-    require_device_health(serial)
+    require_device_health_stable(serial)

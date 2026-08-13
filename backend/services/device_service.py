@@ -149,12 +149,12 @@ def _parse_data_available_kib(df_output: str | None) -> int | None:
 
     for line in df_output.splitlines():
         fields = line.split()
-        if len(fields) < 6 or fields[-1] != "/data":
+        if len(fields) < 6 or fields[0].lower() == "filesystem":
             continue
         try:
             return int(fields[3])
         except ValueError:
-            return None
+            continue
     return None
 
 

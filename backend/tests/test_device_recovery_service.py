@@ -10,11 +10,14 @@ from core.config import settings
 from services.device_service import DeviceHealthResult
 from services.device_recovery_service import (
     RecoveryStepError,
+    cleanup_project_temp_files,
     package_exists,
     perform_device_recovery,
     recovery_timeout_budget_seconds,
+    remove_residual_package_data,
     remove_residual_package,
     require_device_health,
+    require_device_health_stable,
     require_process_command,
     run_adb,
     validate_health_apk,
@@ -38,7 +41,10 @@ class RecoveryConfigurationTest(unittest.TestCase):
         self.assertEqual(settings.DEVICE_RECOVERY_REBOOT_TIMEOUT_SECONDS, 180)
         self.assertEqual(settings.DEVICE_RECOVERY_INSTALL_TIMEOUT_SECONDS, 120)
         self.assertEqual(settings.DEVICE_RECOVERY_UNINSTALL_TIMEOUT_SECONDS, 60)
-        self.assertEqual(settings.DEVICE_RECOVERY_STALE_SECONDS, 600)
+        self.assertEqual(settings.DEVICE_RECOVERY_DATA_CLEANUP_TIMEOUT_SECONDS, 300)
+        self.assertEqual(settings.DEVICE_RECOVERY_STABLE_HEALTH_TIMEOUT_SECONDS, 120)
+        self.assertEqual(settings.DEVICE_RECOVERY_STABLE_HEALTH_INTERVAL_SECONDS, 10)
+        self.assertEqual(settings.DEVICE_RECOVERY_STALE_SECONDS, 1200)
         self.assertEqual(settings.DEVICE_RECOVERY_MAX_WORKERS, 2)
         self.assertEqual(settings.DEVICE_RECOVERY_APK_PATH, str(HEALTH_APK))
         self.assertEqual(settings.DEVICE_RECOVERY_APK_PACKAGE, HEALTH_PACKAGE)
@@ -48,9 +54,11 @@ class RecoveryConfigurationTest(unittest.TestCase):
             10  # reboot
             + 180  # boot wait, including network connect retries
             + (4 * 10)  # residual and health APK package checks
-            + (2 * 5 * 3)  # two network-device health probes
+            + 10  # project-owned temporary file cleanup
+            + (2 * 120)  # two stable health windows
             + 10  # process check
             + 60  # optional residual package uninstall
+            + 300  # residual package data cleanup
             + 120  # health APK install
             + 60  # health APK uninstall
         )
@@ -58,7 +66,7 @@ class RecoveryConfigurationTest(unittest.TestCase):
 
         self.assertEqual(budget, expected_budget)
         self.assertLess(budget, settings.DEVICE_RECOVERY_STALE_SECONDS)
-        self.assertLess(budget, 600)
+        self.assertLess(budget, 1200)
 
 
 class RecoveryCommandTest(unittest.TestCase):
@@ -386,6 +394,94 @@ class RecoveryValidationTest(unittest.TestCase):
         self.assertEqual(raised.exception.step, "cleanup_app")
         self.assertIn("remains", raised.exception.detail)
 
+    @patch("services.device_recovery_service.run_adb")
+    def test_cleanup_removes_only_exact_residual_package_data_directory(
+        self, command_mock
+    ) -> None:
+        remove_residual_package_data("serial-1", "  com.example.residual  ")
+
+        command_mock.assert_called_once_with(
+            "serial-1",
+            [
+                "shell",
+                "su",
+                "-c",
+                "path=/data/media/0/Android/data/com.example.residual; "
+                "if [ -e \"$path\" ]; then rm -rf -- \"$path\"; fi; "
+                "test ! -e \"$path\"",
+            ],
+            step="cleanup_app_data",
+            timeout_seconds=300,
+        )
+
+    @patch("services.device_recovery_service.run_adb")
+    def test_cleanup_rejects_unsafe_package_name_without_running_adb(
+        self, command_mock
+    ) -> None:
+        with self.assertRaises(RecoveryStepError) as raised:
+            remove_residual_package_data("serial-1", "com.example;rm -rf /")
+
+        self.assertEqual(raised.exception.step, "cleanup_app_data")
+        self.assertIn("invalid package name", raised.exception.detail)
+        command_mock.assert_not_called()
+
+    @patch("services.device_recovery_service.run_adb")
+    def test_cleanup_package_data_does_nothing_without_quarantine_package(
+        self, command_mock
+    ) -> None:
+        remove_residual_package_data("serial-1", None)
+
+        command_mock.assert_not_called()
+
+    @patch("services.device_recovery_service.run_adb")
+    def test_cleanup_project_temp_files_removes_only_owned_artifacts(
+        self, command_mock
+    ) -> None:
+        cleanup_project_temp_files("serial-1")
+
+        command_mock.assert_called_once_with(
+            "serial-1",
+            [
+                "shell",
+                "rm",
+                "-f",
+                "/sdcard/tmp.png",
+                "/sdcard/capture.pcap",
+                "/sdcard/capture-*.pcap",
+            ],
+            step="cleanup_temp",
+        )
+
+    @patch(
+        "services.device_recovery_service.run_adb",
+        side_effect=RecoveryStepError("cleanup_temp", "read-only file system"),
+    )
+    def test_cleanup_project_temp_files_propagates_cleanup_failure(
+        self, _command_mock
+    ) -> None:
+        with self.assertRaises(RecoveryStepError) as raised:
+            cleanup_project_temp_files("serial-1")
+
+        self.assertEqual(raised.exception.step, "cleanup_temp")
+
+    @patch(
+        "services.device_recovery_service.run_adb",
+        side_effect=RecoveryStepError("verify_uninstall", "adb exited with status 1"),
+    )
+    def test_package_exists_treats_empty_status_one_as_absent(self, command_mock) -> None:
+        exists = package_exists(
+            "serial-1",
+            "com.fraudanalysis.devicehealth",
+            step="verify_uninstall",
+        )
+
+        self.assertFalse(exists)
+        command_mock.assert_called_once_with(
+            "serial-1",
+            ["shell", "cmd", "package", "path", "com.fraudanalysis.devicehealth"],
+            step="verify_uninstall",
+        )
+
     @patch("services.device_recovery_service.check_device_health")
     def test_storage_health_reuses_existing_five_gib_probe(self, health_mock) -> None:
         health_mock.return_value = DeviceHealthResult(
@@ -398,6 +494,33 @@ class RecoveryValidationTest(unittest.TestCase):
         self.assertEqual(raised.exception.step, "storage")
         self.assertIn("5 GiB", raised.exception.detail)
         health_mock.assert_called_once_with("serial-1")
+
+    @patch("services.device_recovery_service.time.sleep")
+    @patch(
+        "services.device_recovery_service.time.monotonic",
+        side_effect=[0.0, 0.0, 10.0, 10.0, 20.0],
+    )
+    @patch("services.device_recovery_service.check_device_health")
+    def test_stable_health_retries_transient_package_and_storage_failures(
+        self,
+        health_mock,
+        _monotonic_mock,
+        sleep_mock,
+    ) -> None:
+        health_mock.side_effect = [
+            DeviceHealthResult("quarantined", "package manager check failed", None),
+            DeviceHealthResult("quarantined", "storage check failed", None),
+            DeviceHealthResult("healthy", None, 221230776),
+        ]
+
+        require_device_health_stable(
+            "serial-1",
+            timeout_seconds=60,
+            interval_seconds=10,
+        )
+
+        self.assertEqual(health_mock.call_count, 3)
+        self.assertEqual(sleep_mock.call_args_list, [call(10), call(10)])
 
     @patch("services.device_recovery_service.run_adb")
     def test_process_check_rejects_fork_failure_without_counting_processes(
@@ -531,7 +654,9 @@ class PerformDeviceRecoveryTest(unittest.TestCase):
             patch("services.device_recovery_service.run_adb"),
             patch("services.device_recovery_service.wait_for_device_boot"),
             patch("services.device_recovery_service.remove_residual_package"),
-            patch("services.device_recovery_service.require_device_health"),
+            patch("services.device_recovery_service.remove_residual_package_data"),
+            patch("services.device_recovery_service.cleanup_project_temp_files"),
+            patch("services.device_recovery_service.require_device_health_stable"),
             patch("services.device_recovery_service.require_process_command"),
             patch("services.device_recovery_service.verify_apk_round_trip"),
             patch.object(settings, "DEVICE_RECOVERY_APK_PATH", str(HEALTH_APK)),
@@ -540,12 +665,16 @@ class PerformDeviceRecoveryTest(unittest.TestCase):
         )
 
         with patches[0] as validate_mock, patches[1] as run_mock, patches[2] as wait_mock, \
-            patches[3] as cleanup_mock, patches[4] as health_mock, patches[5] as process_mock, \
-            patches[6] as round_trip_mock, patches[7], patches[8], patches[9]:
+            patches[3] as cleanup_mock, patches[4] as data_cleanup_mock, \
+            patches[5] as temp_cleanup_mock, patches[6] as health_mock, \
+            patches[7] as process_mock, patches[8] as round_trip_mock, \
+            patches[9], patches[10], patches[11]:
             parent.attach_mock(validate_mock, "validate")
             parent.attach_mock(run_mock, "run")
             parent.attach_mock(wait_mock, "wait")
             parent.attach_mock(cleanup_mock, "cleanup")
+            parent.attach_mock(data_cleanup_mock, "cleanup_data")
+            parent.attach_mock(temp_cleanup_mock, "cleanup_temp")
             parent.attach_mock(health_mock, "health")
             parent.attach_mock(process_mock, "process")
             parent.attach_mock(round_trip_mock, "round_trip")
@@ -564,6 +693,8 @@ class PerformDeviceRecoveryTest(unittest.TestCase):
                 call.run("serial-1", ["reboot"]),
                 call.wait("serial-1", timeout_seconds=180),
                 call.cleanup("serial-1", "com.example.residual"),
+                call.cleanup_data("serial-1", "com.example.residual"),
+                call.cleanup_temp("serial-1"),
                 call.health("serial-1"),
                 call.process("serial-1"),
                 call.round_trip("serial-1", HEALTH_APK, HEALTH_PACKAGE),
