@@ -73,6 +73,49 @@ CREATE TABLE IF NOT EXISTS devices (
   KEY idx_devices_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS models (
+  model_id VARCHAR(36) PRIMARY KEY,
+  model_name VARCHAR(255) NOT NULL,
+  model_type_code VARCHAR(64) NOT NULL,
+  model_type_name VARCHAR(128) NOT NULL,
+  model_expression LONGTEXT NOT NULL,
+  status TINYINT(1) NOT NULL DEFAULT 1,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_models_type_code (model_type_code),
+  KEY idx_models_status (status),
+  KEY idx_models_created_at (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+SET @models_status_col := (
+  SELECT COUNT(*) FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'models'
+    AND column_name = 'status'
+);
+SET @sql_models_status_col := IF(
+  @models_status_col = 0,
+  'ALTER TABLE models ADD COLUMN status TINYINT(1) NOT NULL DEFAULT 1 AFTER model_expression',
+  'SELECT 1'
+);
+PREPARE stmt_models_status_col FROM @sql_models_status_col;
+EXECUTE stmt_models_status_col;
+DEALLOCATE PREPARE stmt_models_status_col;
+
+SET @models_status_idx := (
+  SELECT COUNT(*) FROM information_schema.statistics
+  WHERE table_schema = DATABASE()
+    AND table_name = 'models'
+    AND index_name = 'idx_models_status'
+);
+SET @sql_models_status_idx := IF(
+  @models_status_idx = 0,
+  'ALTER TABLE models ADD KEY idx_models_status (status)',
+  'SELECT 1'
+);
+PREPARE stmt_models_status_idx FROM @sql_models_status_idx;
+EXECUTE stmt_models_status_idx;
+DEALLOCATE PREPARE stmt_models_status_idx;
+
 CREATE TABLE IF NOT EXISTS static_results (
   task_id VARCHAR(36) PRIMARY KEY,
   app_name VARCHAR(256) NULL,
@@ -89,14 +132,62 @@ CREATE TABLE IF NOT EXISTS static_results (
   services JSON NULL,
   providers JSON NULL,
   receivers JSON NULL,
-  so_files JSON NULL,
-  component_string LONGTEXT NULL,
+  so_libraries LONGTEXT NULL,
+  components LONGTEXT NULL,
   component_md5 VARCHAR(32) NULL,
+  model_id VARCHAR(36) NULL,
+  model_name VARCHAR(255) NULL,
+  model_type_name VARCHAR(128) NULL,
   KEY idx_static_results_package (package_name),
   CONSTRAINT fk_static_results_task_id
     FOREIGN KEY (task_id) REFERENCES tasks(id)
     ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+SET @static_results_model_id_col := (
+  SELECT COUNT(*) FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'model_id'
+);
+SET @sql_static_results_model_id_col := IF(
+  @static_results_model_id_col = 0,
+  'ALTER TABLE static_results ADD COLUMN model_id VARCHAR(36) NULL AFTER component_md5',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_model_id_col FROM @sql_static_results_model_id_col;
+EXECUTE stmt_static_results_model_id_col;
+DEALLOCATE PREPARE stmt_static_results_model_id_col;
+
+SET @static_results_model_name_col := (
+  SELECT COUNT(*) FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'model_name'
+);
+SET @sql_static_results_model_name_col := IF(
+  @static_results_model_name_col = 0,
+  'ALTER TABLE static_results ADD COLUMN model_name VARCHAR(255) NULL AFTER model_id',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_model_name_col FROM @sql_static_results_model_name_col;
+EXECUTE stmt_static_results_model_name_col;
+DEALLOCATE PREPARE stmt_static_results_model_name_col;
+
+SET @static_results_model_type_name_col := (
+  SELECT COUNT(*) FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'model_type_name'
+);
+SET @sql_static_results_model_type_name_col := IF(
+  @static_results_model_type_name_col = 0,
+  'ALTER TABLE static_results ADD COLUMN model_type_name VARCHAR(128) NULL AFTER model_name',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_model_type_name_col FROM @sql_static_results_model_type_name_col;
+EXECUTE stmt_static_results_model_type_name_col;
+DEALLOCATE PREPARE stmt_static_results_model_type_name_col;
 
 CREATE TABLE IF NOT EXISTS sdk_results (
   id VARCHAR(36) PRIMARY KEY,
@@ -590,6 +681,53 @@ PREPARE stmt_tasks_priority_idx FROM @sql_tasks_priority_idx;
 EXECUTE stmt_tasks_priority_idx;
 DEALLOCATE PREPARE stmt_tasks_priority_idx;
 
+-- Backward-compatible static_results native library column migration.
+SET @static_results_so_files_col := (
+  SELECT COUNT(*) FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'so_files'
+);
+SET @static_results_so_libraries_col := (
+  SELECT COUNT(*) FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'so_libraries'
+);
+SET @sql_static_results_so_libraries_col := IF(
+  @static_results_so_libraries_col = 0,
+  'ALTER TABLE static_results ADD COLUMN so_libraries LONGTEXT NULL AFTER receivers',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_so_libraries_col FROM @sql_static_results_so_libraries_col;
+EXECUTE stmt_static_results_so_libraries_col;
+DEALLOCATE PREPARE stmt_static_results_so_libraries_col;
+
+SET @sql_static_results_so_libraries_data := IF(
+  @static_results_so_files_col > 0,
+  'UPDATE static_results
+   SET so_libraries = CASE
+     WHEN so_files IS NULL THEN NULL
+     WHEN JSON_VALID(so_files) AND CAST(so_files AS CHAR) = ''[]'' THEN ''''
+     WHEN JSON_VALID(so_files) THEN TRIM(BOTH ''"'' FROM REPLACE(REPLACE(REPLACE(REPLACE(CAST(so_files AS CHAR), ''["'', ''''), ''"]'', ''''), ''","'', '',''), ''", "'', '',''))
+     ELSE CAST(so_files AS CHAR)
+   END
+   WHERE so_libraries IS NULL',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_so_libraries_data FROM @sql_static_results_so_libraries_data;
+EXECUTE stmt_static_results_so_libraries_data;
+DEALLOCATE PREPARE stmt_static_results_so_libraries_data;
+
+SET @sql_static_results_so_files_drop := IF(
+  @static_results_so_files_col > 0,
+  'ALTER TABLE static_results DROP COLUMN so_files',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_so_files_drop FROM @sql_static_results_so_files_drop;
+EXECUTE stmt_static_results_so_files_drop;
+DEALLOCATE PREPARE stmt_static_results_so_files_drop;
+
 -- Backward-compatible static_results component fingerprint columns.
 SET @static_results_component_string_col := (
   SELECT COUNT(*) FROM information_schema.columns
@@ -597,14 +735,62 @@ SET @static_results_component_string_col := (
     AND table_name = 'static_results'
     AND column_name = 'component_string'
 );
-SET @sql_static_results_component_string_col := IF(
-  @static_results_component_string_col = 0,
-  'ALTER TABLE static_results ADD COLUMN component_string LONGTEXT NULL AFTER so_files',
+SET @static_results_components_col := (
+  SELECT COUNT(*) FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'components'
+);
+SET @static_results_component_str_col := (
+  SELECT COUNT(*) FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND column_name = 'component_str'
+);
+SET @sql_static_results_components_col := IF(
+  @static_results_components_col = 0,
+  'ALTER TABLE static_results ADD COLUMN components LONGTEXT NULL AFTER so_libraries',
   'SELECT 1'
 );
-PREPARE stmt_static_results_component_string_col FROM @sql_static_results_component_string_col;
-EXECUTE stmt_static_results_component_string_col;
-DEALLOCATE PREPARE stmt_static_results_component_string_col;
+PREPARE stmt_static_results_components_col FROM @sql_static_results_components_col;
+EXECUTE stmt_static_results_components_col;
+DEALLOCATE PREPARE stmt_static_results_components_col;
+
+SET @sql_static_results_components_data := IF(
+  @static_results_component_string_col > 0,
+  'UPDATE static_results SET components = COALESCE(components, component_string) WHERE component_string IS NOT NULL',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_components_data FROM @sql_static_results_components_data;
+EXECUTE stmt_static_results_components_data;
+DEALLOCATE PREPARE stmt_static_results_components_data;
+
+SET @sql_static_results_component_str_data := IF(
+  @static_results_component_str_col > 0,
+  'UPDATE static_results SET components = COALESCE(components, component_str) WHERE component_str IS NOT NULL',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_component_str_data FROM @sql_static_results_component_str_data;
+EXECUTE stmt_static_results_component_str_data;
+DEALLOCATE PREPARE stmt_static_results_component_str_data;
+
+SET @sql_static_results_component_string_drop := IF(
+  @static_results_component_string_col > 0,
+  'ALTER TABLE static_results DROP COLUMN component_string',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_component_string_drop FROM @sql_static_results_component_string_drop;
+EXECUTE stmt_static_results_component_string_drop;
+DEALLOCATE PREPARE stmt_static_results_component_string_drop;
+
+SET @sql_static_results_component_str_drop := IF(
+  @static_results_component_str_col > 0,
+  'ALTER TABLE static_results DROP COLUMN component_str',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_component_str_drop FROM @sql_static_results_component_str_drop;
+EXECUTE stmt_static_results_component_str_drop;
+DEALLOCATE PREPARE stmt_static_results_component_str_drop;
 
 SET @static_results_component_md5_col := (
   SELECT COUNT(*) FROM information_schema.columns
@@ -614,7 +800,7 @@ SET @static_results_component_md5_col := (
 );
 SET @sql_static_results_component_md5_col := IF(
   @static_results_component_md5_col = 0,
-  'ALTER TABLE static_results ADD COLUMN component_md5 VARCHAR(32) NULL AFTER component_string',
+  'ALTER TABLE static_results ADD COLUMN component_md5 VARCHAR(32) NULL AFTER components',
   'SELECT 1'
 );
 PREPARE stmt_static_results_component_md5_col FROM @sql_static_results_component_md5_col;
@@ -938,12 +1124,26 @@ SET @static_results_dcloud_appids_col := (
 );
 SET @sql_static_results_dcloud_appids_col := IF(
   @static_results_dcloud_appids_col = 0,
-  'ALTER TABLE static_results ADD COLUMN dcloud_appids JSON NULL AFTER dcloud_tech_type',
+  'ALTER TABLE static_results ADD COLUMN dcloud_appids LONGTEXT NULL AFTER dcloud_tech_type',
   'SELECT 1'
 );
 PREPARE stmt_static_results_dcloud_appids_col FROM @sql_static_results_dcloud_appids_col;
 EXECUTE stmt_static_results_dcloud_appids_col;
 DEALLOCATE PREPARE stmt_static_results_dcloud_appids_col;
+SET @sql_static_results_dcloud_appids_type := IF(
+  @static_results_dcloud_appids_col > 0,
+  'ALTER TABLE static_results MODIFY COLUMN dcloud_appids LONGTEXT NULL',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_dcloud_appids_type FROM @sql_static_results_dcloud_appids_type;
+EXECUTE stmt_static_results_dcloud_appids_type;
+DEALLOCATE PREPARE stmt_static_results_dcloud_appids_type;
+UPDATE static_results
+SET dcloud_appids = CASE
+  WHEN CAST(dcloud_appids AS CHAR) = '[]' THEN ''
+  ELSE TRIM(BOTH '"' FROM REPLACE(REPLACE(REPLACE(REPLACE(CAST(dcloud_appids AS CHAR), '["', ''), '"]', ''), '","', ','), '", "', ','))
+END
+WHERE dcloud_appids IS NOT NULL AND JSON_VALID(dcloud_appids);
 
 SET @static_results_dcloud_pages_col := (
   SELECT COUNT(*)
@@ -954,12 +1154,26 @@ SET @static_results_dcloud_pages_col := (
 );
 SET @sql_static_results_dcloud_pages_col := IF(
   @static_results_dcloud_pages_col = 0,
-  'ALTER TABLE static_results ADD COLUMN dcloud_pages JSON NULL AFTER dcloud_appids',
+  'ALTER TABLE static_results ADD COLUMN dcloud_pages LONGTEXT NULL AFTER dcloud_appids',
   'SELECT 1'
 );
 PREPARE stmt_static_results_dcloud_pages_col FROM @sql_static_results_dcloud_pages_col;
 EXECUTE stmt_static_results_dcloud_pages_col;
 DEALLOCATE PREPARE stmt_static_results_dcloud_pages_col;
+SET @sql_static_results_dcloud_pages_type := IF(
+  @static_results_dcloud_pages_col > 0,
+  'ALTER TABLE static_results MODIFY COLUMN dcloud_pages LONGTEXT NULL',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_dcloud_pages_type FROM @sql_static_results_dcloud_pages_type;
+EXECUTE stmt_static_results_dcloud_pages_type;
+DEALLOCATE PREPARE stmt_static_results_dcloud_pages_type;
+UPDATE static_results
+SET dcloud_pages = CASE
+  WHEN CAST(dcloud_pages AS CHAR) = '[]' THEN ''
+  ELSE TRIM(BOTH '"' FROM REPLACE(REPLACE(REPLACE(REPLACE(CAST(dcloud_pages AS CHAR), '["', ''), '"]', ''), '","', ','), '", "', ','))
+END
+WHERE dcloud_pages IS NOT NULL AND JSON_VALID(dcloud_pages);
 
 SET @static_results_dcloud_api_routes_col := (
   SELECT COUNT(*)
@@ -970,12 +1184,26 @@ SET @static_results_dcloud_api_routes_col := (
 );
 SET @sql_static_results_dcloud_api_routes_col := IF(
   @static_results_dcloud_api_routes_col = 0,
-  'ALTER TABLE static_results ADD COLUMN dcloud_api_routes JSON NULL AFTER dcloud_pages',
+  'ALTER TABLE static_results ADD COLUMN dcloud_api_routes LONGTEXT NULL AFTER dcloud_pages',
   'SELECT 1'
 );
 PREPARE stmt_static_results_dcloud_api_routes_col FROM @sql_static_results_dcloud_api_routes_col;
 EXECUTE stmt_static_results_dcloud_api_routes_col;
 DEALLOCATE PREPARE stmt_static_results_dcloud_api_routes_col;
+SET @sql_static_results_dcloud_api_routes_type := IF(
+  @static_results_dcloud_api_routes_col > 0,
+  'ALTER TABLE static_results MODIFY COLUMN dcloud_api_routes LONGTEXT NULL',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_dcloud_api_routes_type FROM @sql_static_results_dcloud_api_routes_type;
+EXECUTE stmt_static_results_dcloud_api_routes_type;
+DEALLOCATE PREPARE stmt_static_results_dcloud_api_routes_type;
+UPDATE static_results
+SET dcloud_api_routes = CASE
+  WHEN CAST(dcloud_api_routes AS CHAR) = '[]' THEN ''
+  ELSE TRIM(BOTH '"' FROM REPLACE(REPLACE(REPLACE(REPLACE(CAST(dcloud_api_routes AS CHAR), '["', ''), '"]', ''), '","', ','), '", "', ','))
+END
+WHERE dcloud_api_routes IS NOT NULL AND JSON_VALID(dcloud_api_routes);
 
 SET @static_results_dcloud_remote_service_urls_col := (
   SELECT COUNT(*)
@@ -1066,12 +1294,26 @@ SET @static_results_flutter_library_uris_col := (
 );
 SET @sql_static_results_flutter_library_uris_col := IF(
   @static_results_flutter_library_uris_col = 0,
-  'ALTER TABLE static_results ADD COLUMN flutter_library_uris JSON NULL AFTER flutter_primary_entry_uri',
+  'ALTER TABLE static_results ADD COLUMN flutter_library_uris LONGTEXT NULL AFTER flutter_primary_entry_uri',
   'SELECT 1'
 );
 PREPARE stmt_static_results_flutter_library_uris_col FROM @sql_static_results_flutter_library_uris_col;
 EXECUTE stmt_static_results_flutter_library_uris_col;
 DEALLOCATE PREPARE stmt_static_results_flutter_library_uris_col;
+SET @sql_static_results_flutter_library_uris_type := IF(
+  @static_results_flutter_library_uris_col > 0,
+  'ALTER TABLE static_results MODIFY COLUMN flutter_library_uris LONGTEXT NULL',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_flutter_library_uris_type FROM @sql_static_results_flutter_library_uris_type;
+EXECUTE stmt_static_results_flutter_library_uris_type;
+DEALLOCATE PREPARE stmt_static_results_flutter_library_uris_type;
+UPDATE static_results
+SET flutter_library_uris = CASE
+  WHEN CAST(flutter_library_uris AS CHAR) = '[]' THEN ''
+  ELSE TRIM(BOTH '"' FROM REPLACE(REPLACE(REPLACE(REPLACE(CAST(flutter_library_uris AS CHAR), '["', ''), '"]', ''), '","', ','), '", "', ','))
+END
+WHERE flutter_library_uris IS NOT NULL AND JSON_VALID(flutter_library_uris);
 
 SET @static_results_flutter_primary_package_classes_col := (
   SELECT COUNT(*)
@@ -1082,12 +1324,26 @@ SET @static_results_flutter_primary_package_classes_col := (
 );
 SET @sql_static_results_flutter_primary_package_classes_col := IF(
   @static_results_flutter_primary_package_classes_col = 0,
-  'ALTER TABLE static_results ADD COLUMN flutter_primary_package_classes JSON NULL AFTER flutter_library_uris',
+  'ALTER TABLE static_results ADD COLUMN flutter_primary_package_classes LONGTEXT NULL AFTER flutter_library_uris',
   'SELECT 1'
 );
 PREPARE stmt_static_results_flutter_primary_package_classes_col FROM @sql_static_results_flutter_primary_package_classes_col;
 EXECUTE stmt_static_results_flutter_primary_package_classes_col;
 DEALLOCATE PREPARE stmt_static_results_flutter_primary_package_classes_col;
+SET @sql_static_results_flutter_primary_package_classes_type := IF(
+  @static_results_flutter_primary_package_classes_col > 0,
+  'ALTER TABLE static_results MODIFY COLUMN flutter_primary_package_classes LONGTEXT NULL',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_flutter_primary_package_classes_type FROM @sql_static_results_flutter_primary_package_classes_type;
+EXECUTE stmt_static_results_flutter_primary_package_classes_type;
+DEALLOCATE PREPARE stmt_static_results_flutter_primary_package_classes_type;
+UPDATE static_results
+SET flutter_primary_package_classes = CASE
+  WHEN CAST(flutter_primary_package_classes AS CHAR) = '[]' THEN ''
+  ELSE TRIM(BOTH '"' FROM REPLACE(REPLACE(REPLACE(REPLACE(CAST(flutter_primary_package_classes AS CHAR), '["', ''), '"]', ''), '","', ','), '", "', ','))
+END
+WHERE flutter_primary_package_classes IS NOT NULL AND JSON_VALID(flutter_primary_package_classes);
 
 SET @static_results_flutter_remote_service_urls_col := (
   SELECT COUNT(*)
@@ -1227,7 +1483,7 @@ SET @static_results_dcloud_info_col := (
 );
 SET @sql_static_results_dcloud_info_backfill := IF(
   @static_results_dcloud_info_col = 1,
-  'UPDATE static_results SET dcloud_tech_type = COALESCE(dcloud_tech_type, JSON_UNQUOTE(JSON_EXTRACT(dcloud_info, ''$.tech_type''))), dcloud_appids = COALESCE(dcloud_appids, JSON_EXTRACT(dcloud_info, ''$.appids'')), dcloud_pages = COALESCE(dcloud_pages, JSON_EXTRACT(dcloud_info, ''$.pages'')), dcloud_api_routes = COALESCE(dcloud_api_routes, JSON_EXTRACT(dcloud_info, ''$.api_routes'')), dcloud_remote_service_urls = COALESCE(dcloud_remote_service_urls, JSON_EXTRACT(dcloud_info, ''$.remote_service_urls'')), dcloud_remote_service_domains = COALESCE(dcloud_remote_service_domains, JSON_EXTRACT(dcloud_info, ''$.remote_service_domains'')), dcloud_is_confused = COALESCE(dcloud_is_confused, CAST(JSON_UNQUOTE(JSON_EXTRACT(dcloud_info, ''$.is_confused'')) AS UNSIGNED)) WHERE dcloud_info IS NOT NULL',
+  'UPDATE static_results SET dcloud_tech_type = COALESCE(dcloud_tech_type, JSON_UNQUOTE(JSON_EXTRACT(dcloud_info, ''$.tech_type''))), dcloud_appids = COALESCE(dcloud_appids, TRIM(BOTH ''"'' FROM REPLACE(REPLACE(REPLACE(REPLACE(CAST(JSON_EXTRACT(dcloud_info, ''$.appids'') AS CHAR), ''["'', ''''), ''"]'', ''''), ''","'', '',''), ''", "'', '',''))), dcloud_pages = COALESCE(dcloud_pages, TRIM(BOTH ''"'' FROM REPLACE(REPLACE(REPLACE(REPLACE(CAST(JSON_EXTRACT(dcloud_info, ''$.pages'') AS CHAR), ''["'', ''''), ''"]'', ''''), ''","'', '',''), ''", "'', '',''))), dcloud_api_routes = COALESCE(dcloud_api_routes, TRIM(BOTH ''"'' FROM REPLACE(REPLACE(REPLACE(REPLACE(CAST(JSON_EXTRACT(dcloud_info, ''$.api_routes'') AS CHAR), ''["'', ''''), ''"]'', ''''), ''","'', '',''), ''", "'', '',''))), dcloud_remote_service_urls = COALESCE(dcloud_remote_service_urls, JSON_EXTRACT(dcloud_info, ''$.remote_service_urls'')), dcloud_remote_service_domains = COALESCE(dcloud_remote_service_domains, JSON_EXTRACT(dcloud_info, ''$.remote_service_domains'')), dcloud_is_confused = COALESCE(dcloud_is_confused, CAST(JSON_UNQUOTE(JSON_EXTRACT(dcloud_info, ''$.is_confused'')) AS UNSIGNED)) WHERE dcloud_info IS NOT NULL',
   'SELECT 1'
 );
 PREPARE stmt_static_results_dcloud_info_backfill FROM @sql_static_results_dcloud_info_backfill;
@@ -1243,7 +1499,7 @@ SET @static_results_flutter_info_col := (
 );
 SET @sql_static_results_flutter_info_backfill := IF(
   @static_results_flutter_info_col = 1,
-  'UPDATE static_results SET flutter_primary_package = COALESCE(flutter_primary_package, JSON_UNQUOTE(JSON_EXTRACT(flutter_info, ''$.primary_package''))), flutter_primary_entry_uri = COALESCE(flutter_primary_entry_uri, JSON_UNQUOTE(JSON_EXTRACT(flutter_info, ''$.primary_entry_uri''))), flutter_library_uris = COALESCE(flutter_library_uris, JSON_EXTRACT(flutter_info, ''$.library_uris'')), flutter_primary_package_classes = COALESCE(flutter_primary_package_classes, JSON_EXTRACT(flutter_info, ''$.primary_package_classes'')), flutter_dart_version = COALESCE(flutter_dart_version, JSON_UNQUOTE(JSON_EXTRACT(flutter_info, ''$.dart_version''))), flutter_blutter_backend_version = COALESCE(flutter_blutter_backend_version, JSON_UNQUOTE(JSON_EXTRACT(flutter_info, ''$.blutter_backend_version''))) WHERE flutter_info IS NOT NULL',
+  'UPDATE static_results SET flutter_primary_package = COALESCE(flutter_primary_package, JSON_UNQUOTE(JSON_EXTRACT(flutter_info, ''$.primary_package''))), flutter_primary_entry_uri = COALESCE(flutter_primary_entry_uri, JSON_UNQUOTE(JSON_EXTRACT(flutter_info, ''$.primary_entry_uri''))), flutter_library_uris = COALESCE(flutter_library_uris, TRIM(BOTH ''"'' FROM REPLACE(REPLACE(REPLACE(REPLACE(CAST(JSON_EXTRACT(flutter_info, ''$.library_uris'') AS CHAR), ''["'', ''''), ''"]'', ''''), ''","'', '',''), ''", "'', '',''))), flutter_primary_package_classes = COALESCE(flutter_primary_package_classes, TRIM(BOTH ''"'' FROM REPLACE(REPLACE(REPLACE(REPLACE(CAST(JSON_EXTRACT(flutter_info, ''$.primary_package_classes'') AS CHAR), ''["'', ''''), ''"]'', ''''), ''","'', '',''), ''", "'', '',''))), flutter_dart_version = COALESCE(flutter_dart_version, JSON_UNQUOTE(JSON_EXTRACT(flutter_info, ''$.dart_version''))), flutter_blutter_backend_version = COALESCE(flutter_blutter_backend_version, JSON_UNQUOTE(JSON_EXTRACT(flutter_info, ''$.blutter_backend_version''))) WHERE flutter_info IS NOT NULL',
   'SELECT 1'
 );
 PREPARE stmt_static_results_flutter_info_backfill FROM @sql_static_results_flutter_info_backfill;

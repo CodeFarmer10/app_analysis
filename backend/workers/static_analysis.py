@@ -13,11 +13,13 @@ from analyzers.flutter_blutter_runner import run_flutter_blutter
 from analyzers.flutter_analyzer import analyze_flutter_asm_dir, missing_flutter_asm_result, resolve_flutter_asm_dir
 from analyzers.ioc_extractor import extract_source_iocs
 from analyzers.jadx_workspace import open_jadx_workspace
+from analyzers.model_matcher import find_first_matching_model
 from analyzers.sdk_detector import SdkDetectResult, detect_sdks
 from analyzers.source_artifact_scanner import scan_source_artifacts
 from protection import detect_protection
 from celery import Task
 from repositories.task_repo import get_task_by_id, update_task, upsert_static_result
+from repositories.model_repo import get_active_models_ordered
 from repositories.sdk_repo import replace_sdk_results
 from core.config import settings
 from services.storage_service import storage_service
@@ -164,6 +166,20 @@ def _flutter_static_fields(info: dict) -> dict:
     }
 
 
+def _cleanup_generated_flutter_output(output_dir: str, output_root: str, file_md5: object) -> None:
+    if not output_dir:
+        return
+    candidate = Path(output_dir).resolve()
+    root = Path(output_root).expanduser().resolve()
+    expected_md5 = str(file_md5 or "").strip().lower()
+    shutil.rmtree(candidate, ignore_errors=True)
+    if expected_md5 and candidate.parent.parent == root and candidate.parent.name.lower() == expected_md5:
+        try:
+            candidate.parent.rmdir()
+        except OSError:
+            pass
+
+
 def _extract_flutter_fields(local_apk_path: str, file_md5: object, framework_name: object) -> dict:
     if str(framework_name or "").strip() != "Flutter":
         return {}
@@ -183,12 +199,19 @@ def _extract_flutter_fields(local_apk_path: str, file_md5: object, framework_nam
         )
         blutter_fields = run_result.to_static_fields()
         generated_output_dir = run_result.output_dir
-        asm_dir, candidates = resolve_flutter_asm_dir(str(file_md5 or ""), roots)
+        if run_result.asm_dir and Path(run_result.asm_dir).is_dir():
+            asm_dir = Path(run_result.asm_dir)
+        else:
+            asm_dir, candidates = resolve_flutter_asm_dir(str(file_md5 or ""), roots)
         if asm_dir is None:
             missing = missing_flutter_asm_result(candidates)
             missing.update(blutter_fields)
             if generated_output_dir:
-                shutil.rmtree(generated_output_dir, ignore_errors=True)
+                _cleanup_generated_flutter_output(
+                    generated_output_dir,
+                    settings.FLUTTER_BLUTTER_OUTPUT_ROOT,
+                    file_md5,
+                )
             return _flutter_static_fields(missing)
 
     if asm_dir is None:
@@ -218,7 +241,11 @@ def _extract_flutter_fields(local_apk_path: str, file_md5: object, framework_nam
         return _flutter_static_fields(result)
     finally:
         if generated_output_dir:
-            shutil.rmtree(generated_output_dir, ignore_errors=True)
+            _cleanup_generated_flutter_output(
+                generated_output_dir,
+                settings.FLUTTER_BLUTTER_OUTPUT_ROOT,
+                file_md5,
+            )
 
 
 def _extract_source_ioc_fields(
@@ -387,33 +414,36 @@ def analyze_apk(self, task_id: str):
                 logger.warning("icon upload failed task_id=%s: %s", task_id, icon_exc)
                 icon_path = None
 
-        upsert_static_result(
-            task_id,
-            {
-                "app_name": app_name,
-                "package_name": package_name,
-                "version_name": parsed.get("version_name"),
-                "version_code": str(parsed.get("version_code")) if parsed.get("version_code") is not None else None,
-                "icon_path": icon_path,
-                "cert_md5": parsed.get("cert_md5"),
-                "cert_sha1": parsed.get("cert_sha1"),
-                "cert_sha256": parsed.get("cert_sha256"),
-                "cert_info": parsed.get("cert_info"),
-                "permissions": parsed.get("permissions") or [],
-                "activities": parsed.get("activities") or [],
-                "services": parsed.get("services") or [],
-                "providers": parsed.get("providers") or [],
-                "receivers": parsed.get("receivers") or [],
-                "so_files": parsed.get("so_files") or [],
-                "component_string": parsed.get("component_string"),
-                "component_md5": parsed.get("component_md5"),
-                **framework_fields,
-                **protection_fields,
-                **source_artifact_fields,
-                **dcloud_fields,
-                **flutter_fields,
-            },
+        static_result_data = {
+            "app_name": app_name,
+            "package_name": package_name,
+            "version_name": parsed.get("version_name"),
+            "version_code": str(parsed.get("version_code")) if parsed.get("version_code") is not None else None,
+            "icon_path": icon_path,
+            "cert_md5": parsed.get("cert_md5"),
+            "cert_sha1": parsed.get("cert_sha1"),
+            "cert_sha256": parsed.get("cert_sha256"),
+            "code_md5": task.get("file_md5"),
+            "cert_info": parsed.get("cert_info"),
+            "permissions": parsed.get("permissions") or [],
+            "activities": parsed.get("activities") or [],
+            "services": parsed.get("services") or [],
+            "providers": parsed.get("providers") or [],
+            "receivers": parsed.get("receivers") or [],
+            "so_libraries": parsed.get("so_files") or [],
+            "components": parsed.get("component_string"),
+            "component_md5": parsed.get("component_md5"),
+            **framework_fields,
+            **protection_fields,
+            **source_artifact_fields,
+            **dcloud_fields,
+            **flutter_fields,
+        }
+        static_result_data.update(
+            find_first_matching_model(static_result_data, get_active_models_ordered())
         )
+
+        upsert_static_result(task_id, static_result_data)
         replace_sdk_results(task_id, sdk_result.findings)
         update_task(
             task_id,

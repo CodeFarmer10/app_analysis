@@ -41,6 +41,7 @@ const TABLE_COLUMNS = [
   { title: 'APP名称/包名', key: 'app', width: 170 },
   { title: '来源', key: 'source', width: 180 },
   { title: '任务描述', key: 'task_description', dataIndex: 'task_description', width: 150 },
+  { title: '诈骗类型', key: 'model_type_name', dataIndex: 'model_type_name', width: 110 },
   { title: '文件MD5', key: 'file_md5', dataIndex: 'file_md5', width: 180 },
   { title: '状态', key: 'status', dataIndex: 'status', width: 140 },
   { title: '提交时间', key: 'created_at', dataIndex: 'created_at', width: 160 },
@@ -276,7 +277,7 @@ onBeforeUnmount(() => {
         :data-source="taskStore.tasks"
         :loading="taskStore.loading"
         :pagination="pagination"
-        :scroll="{ x: 1470 }"
+        :scroll="{ x: 1580 }"
         :row-class-name="getRowClassName"
         @change="handleTableChange"
       >
@@ -315,6 +316,11 @@ onBeforeUnmount(() => {
             <a-typography-text class="desc-text" :ellipsis="{ tooltip: record.task_description || '--' }">
               {{ record.task_description || '--' }}
             </a-typography-text>
+          </template>
+
+          <template v-else-if="column.key === 'model_type_name'">
+            <a-tag v-if="record.model_type_name" color="red">{{ record.model_type_name }}</a-tag>
+            <span v-else>--</span>
           </template>
 
           <template v-else-if="column.key === 'file_md5'">

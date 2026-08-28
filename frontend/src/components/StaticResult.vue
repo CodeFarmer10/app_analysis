@@ -70,7 +70,13 @@ const receiverList = computed(() => {
 })
 
 const soFileList = computed(() => {
-  const source = Array.isArray(props.result?.so_files) ? props.result.so_files : []
+  const rawSource = props.result?.so_libraries ?? props.result?.so_files
+  const source =
+    typeof rawSource === 'string'
+      ? rawSource.split(',').map((item) => item.trim())
+      : Array.isArray(rawSource)
+        ? rawSource
+        : []
   return source
     .map((item) => (typeof item === 'string' ? item : item?.name || ''))
     .filter(Boolean)
@@ -241,6 +247,9 @@ function formatPublicKey(cert) {
               </a-descriptions-item>
               <a-descriptions-item label="开发框架">
                 {{ result.framework_name || '--' }}
+              </a-descriptions-item>
+              <a-descriptions-item label="诈骗类型">
+                {{ result.model_type_name || '--' }}
               </a-descriptions-item>
               <a-descriptions-item label="是否加固">
                 <a-tag :color="result.is_packed ? 'red' : 'green'">{{ result.is_packed ? '是' : '否' }}</a-tag>

@@ -206,10 +206,11 @@ out = pathlib.Path(sys.argv[2])
             )
 
             self.assertEqual(result.status, "complete")
-            self.assertEqual(Path(result.asm_dir), output_root / md5 / "asm")
+            self.assertEqual(Path(result.asm_dir).parent.parent, output_root / md5)
+            self.assertEqual(Path(result.asm_dir).name, "asm")
             self.assertEqual(result.dart_version, "3.10.4")
             self.assertEqual(result.backend_match, "build_required")
-            self.assertTrue((output_root / md5 / "asm" / "demo" / "main.dart").is_file())
+            self.assertTrue((Path(result.asm_dir) / "demo" / "main.dart").is_file())
 
     def test_uses_nearest_compatible_backend_when_exact_missing(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -264,7 +265,7 @@ raise SystemExit("compatible backend should run directly")
                 timeout_seconds=10,
             )
 
-            args_text = (output_root / md5 / "args.txt").read_text(encoding="utf-8")
+            args_text = (Path(result.output_dir) / "args.txt").read_text(encoding="utf-8")
             self.assertEqual(result.status, "complete")
             self.assertEqual(result.backend_match, "compatible")
             self.assertEqual(result.backend_version, "3.12.0")

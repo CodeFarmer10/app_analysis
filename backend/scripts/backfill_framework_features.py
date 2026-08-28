@@ -57,16 +57,17 @@ def _load_candidates(
     if framework == DCLOUD_FRAMEWORK:
         missing_sql = """
             sr.dcloud_tech_type IS NULL OR sr.dcloud_tech_type = ''
-            OR sr.dcloud_pages IS NULL OR sr.dcloud_api_routes IS NULL
+            OR sr.dcloud_appids IS NULL OR sr.dcloud_appids = ''
+            OR sr.dcloud_pages IS NULL OR sr.dcloud_pages = ''
+            OR sr.dcloud_api_routes IS NULL OR sr.dcloud_api_routes = ''
             OR sr.dcloud_remote_service_urls IS NULL
             OR sr.dcloud_remote_service_domains IS NULL
         """
     else:
         missing_sql = """
             sr.flutter_primary_package IS NULL OR sr.flutter_primary_package = ''
-            OR sr.flutter_library_uris IS NULL
-            OR JSON_LENGTH(sr.flutter_library_uris) = 0
-            OR sr.flutter_primary_package_classes IS NULL
+            OR sr.flutter_library_uris IS NULL OR sr.flutter_library_uris = ''
+            OR sr.flutter_primary_package_classes IS NULL OR sr.flutter_primary_package_classes = ''
         """
 
     target_sql = ""

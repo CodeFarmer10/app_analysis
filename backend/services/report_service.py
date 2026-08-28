@@ -179,6 +179,8 @@ def _normalize_permission_item(item: Any) -> dict[str, Any] | None:
 
 
 def _normalize_named_items(items: Any) -> list[str]:
+    if isinstance(items, str):
+        items = [item.strip() for item in items.split(",")]
     if not isinstance(items, list):
         return []
     results: list[str] = []
@@ -430,7 +432,7 @@ def _build_report_context(task_id: str) -> dict[str, Any]:
     services = _normalize_named_items(static_result.get("services"))
     providers = _normalize_named_items(static_result.get("providers"))
     receivers = _normalize_named_items(static_result.get("receivers"))
-    so_files = _normalize_named_items(static_result.get("so_files"))
+    so_files = _normalize_named_items(static_result.get("so_libraries") or static_result.get("so_files"))
     certificate = _build_certificate_context(static_result.get("cert_info"))
     sdk_context = _build_sdk_context(static_result.get("sdk_findings"))
 

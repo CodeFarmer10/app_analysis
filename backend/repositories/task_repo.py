@@ -22,9 +22,12 @@ STATIC_RESULT_FIELDS = [
     "services",
     "providers",
     "receivers",
-    "so_files",
-    "component_string",
+    "so_libraries",
+    "components",
     "component_md5",
+    "model_id",
+    "model_name",
+    "model_type_name",
     "framework_name",
     "framework_matches",
     "is_packed",
@@ -67,7 +70,6 @@ JSON_STATIC_RESULT_FIELDS = {
     "services",
     "providers",
     "receivers",
-    "so_files",
     "packer_vendors",
     "packer_details",
     "obfuscation_vendors",
@@ -76,13 +78,8 @@ JSON_STATIC_RESULT_FIELDS = {
     "source_phones",
     "source_emails",
     "source_urls",
-    "dcloud_appids",
-    "dcloud_pages",
-    "dcloud_api_routes",
     "dcloud_remote_service_urls",
     "dcloud_remote_service_domains",
-    "flutter_library_uris",
-    "flutter_primary_package_classes",
     "flutter_remote_service_urls",
     "flutter_remote_service_domains",
     "flutter_primary_remote_service_urls",
@@ -95,7 +92,6 @@ JSON_ARRAY_STATIC_RESULT_FIELDS = {
     "services",
     "providers",
     "receivers",
-    "so_files",
     "packer_vendors",
     "packer_details",
     "obfuscation_vendors",
@@ -112,6 +108,15 @@ BOOL_STATIC_RESULT_FIELDS = {
     "dcloud_is_confused",
 }
 
+COMMA_STATIC_RESULT_FIELDS = {
+    "so_libraries",
+    "dcloud_appids",
+    "dcloud_pages",
+    "dcloud_api_routes",
+    "flutter_library_uris",
+    "flutter_primary_package_classes",
+}
+
 
 def _parse_json_value(value: Any) -> Any:
     if isinstance(value, str):
@@ -126,7 +131,20 @@ def _json_or_none(value: Any) -> str | None:
     return json.dumps(value, ensure_ascii=False) if value is not None else None
 
 
+def _comma_join_or_none(value: Any) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value
+    if isinstance(value, (list, tuple, set)):
+        items = [str(item).strip() for item in value]
+        return ",".join(item for item in items if item)
+    return str(value)
+
+
 def _serialize_static_value(field: str, value: Any) -> Any:
+    if field in COMMA_STATIC_RESULT_FIELDS:
+        return _comma_join_or_none(value)
     if field in JSON_STATIC_RESULT_FIELDS:
         if value is None and field in JSON_ARRAY_STATIC_RESULT_FIELDS:
             value = []
@@ -326,6 +344,7 @@ def list_tasks(filters: dict[str, Any], page: int, size: int) -> tuple[list[dict
             sr.app_name,
             sr.package_name,
             sr.icon_path,
+            sr.model_type_name,
             t.file_md5,
             t.status,
             t.apk_path,

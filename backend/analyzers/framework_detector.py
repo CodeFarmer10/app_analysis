@@ -1,15 +1,17 @@
 from __future__ import annotations
 
+import re
 import struct
 import zipfile
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Optional, Tuple
 
 
 FRAMEWORK_RULES: list[tuple[str, list[tuple[str, str]], str, str]] = [
     (
         "Flutter",
-        [("so", "libflutter.so"), ("so", "libapp.so"), ("path", "flutter_assets/")],
+        [("so", "libflutter.so"), ("so", "libapp.so")],
         "业务逻辑在 lib/<abi>/libapp.so(Dart AOT 机器码)",
         "blutter 恢复符号 / reFlutter 动态 hook；不是脱壳",
     ),
@@ -21,7 +23,11 @@ FRAMEWORK_RULES: list[tuple[str, list[tuple[str, str]], str, str]] = [
     ),
     (
         "uni-app/DCloud",
-        [("path", "assets/apps/__UNI__"), ("path", "dcloud_control"), ("so", "libweexcore"), ("path", "io/dcloud")],
+        [
+            ("path", "assets/apps/"),
+            ("path", "dcloud_control.xml"),
+            ("so", "libweexcore.so"),
+        ],
         "前端 JS 在 assets/apps/<id>/www/(app-service.js)，容器在 dex(io.dcloud)",
         "取 www/ 美化 JS；可能加密则 hook WebView evaluateJavascript",
     ),
@@ -69,6 +75,20 @@ FRAMEWORK_RULES: list[tuple[str, list[tuple[str, str]], str, str]] = [
     ),
 ]
 
+FLUTTER_LIBRARY_PATH = re.compile(r"^lib/([^/]+)/(libapp\.so|libflutter\.so)$")
+DCLOUD_DIRECT_RESOURCE = re.compile(
+    r"^assets/apps/([^/]+)/www/(manifest\.json|index\.html|app-config-service\.js)$"
+)
+DCLOUD_APP_ROOT = re.compile(r"^assets/apps/([^/]+)(?:/|$)")
+VALID_DCLOUD_APPID = re.compile(r"^[A-Za-z0-9_.-]+$")
+ANDROID_NAME = "{http://schemas.android.com/apk/res/android}name"
+ANDROID_TARGET_ACTIVITY = "{http://schemas.android.com/apk/res/android}targetActivity"
+KNOWN_DCLOUD_LAUNCHERS = {
+    "io.dcloud.PandoraEntry",
+    "io.dcloud.PandoraEntryActivity",
+    "io.dcloud.uniapp.UniAppActivity",
+}
+
 
 @dataclass
 class FrameworkMatch:
@@ -105,6 +125,20 @@ def detect_framework(apk_path: str) -> FrameworkDetectResult:
 
     scored: list[tuple[str, int, list[str], str, str]] = []
     for framework_name, signatures, code_location, reverse_hint in FRAMEWORK_RULES:
+        if framework_name == "Flutter":
+            candidate = _flutter_candidate(names)
+            if candidate:
+                score, evidence = candidate
+                scored.append((framework_name, score, evidence, code_location, reverse_hint))
+            continue
+
+        if framework_name == "uni-app/DCloud":
+            candidate = _dcloud_candidate(apk_path, names)
+            if candidate:
+                score, evidence = candidate
+                scored.append((framework_name, score, evidence, code_location, reverse_hint))
+            continue
+
         evidence: list[str] = []
         for kind, pattern in signatures:
             if kind == "so":
@@ -132,6 +166,167 @@ def detect_framework(apk_path: str) -> FrameworkDetectResult:
         confidence="high" if primary[1] >= 2 else "low",
         matches=[FrameworkMatch(framework=item[0], score=item[1], evidence=item[2]) for item in scored],
     )
+
+
+def _flutter_candidate(names: list[str]) -> Optional[Tuple[int, list[str]]]:
+    libraries_by_abi: dict[str, set[str]] = {}
+    for name in names:
+        match = FLUTTER_LIBRARY_PATH.fullmatch(name)
+        if match:
+            libraries_by_abi.setdefault(match.group(1), set()).add(match.group(2))
+
+    for abi in sorted(libraries_by_abi):
+        if {"libapp.so", "libflutter.so"}.issubset(libraries_by_abi[abi]):
+            return (
+                2,
+                [
+                    f"lib/{abi}/libapp.so",
+                    f"lib/{abi}/libflutter.so",
+                ],
+            )
+    return None
+
+
+def _is_valid_dcloud_appid(value: str) -> bool:
+    return value not in {".", ".."} and VALID_DCLOUD_APPID.fullmatch(value) is not None
+
+
+def _dcloud_direct_candidate(names: list[str]) -> Optional[Tuple[int, list[str]]]:
+    for name in names:
+        match = DCLOUD_DIRECT_RESOURCE.fullmatch(name)
+        if match and _is_valid_dcloud_appid(match.group(1)):
+            root = f"assets/apps/{match.group(1)}/www/"
+            return 3, [root, name]
+    return None
+
+
+def _dcloud_auxiliary_evidence(names: list[str]) -> list[str]:
+    evidence: list[str] = []
+
+    control = next(
+        (name for name in names if name.rsplit("/", 1)[-1] == "dcloud_control.xml"),
+        None,
+    )
+    if control:
+        evidence.append(control)
+
+    for name in names:
+        match = DCLOUD_APP_ROOT.match(name)
+        if match and _is_valid_dcloud_appid(match.group(1)):
+            evidence.append(name)
+            break
+
+    weex = next(
+        (name for name in names if name.rsplit("/", 1)[-1] == "libweexcore.so"),
+        None,
+    )
+    if weex:
+        evidence.append(weex)
+
+    return evidence
+
+
+def _dcloud_candidate(
+    apk_path: str,
+    names: list[str],
+) -> Optional[Tuple[int, list[str]]]:
+    direct = _dcloud_direct_candidate(names)
+    if direct:
+        return direct
+
+    auxiliary = _dcloud_auxiliary_evidence(names)
+    if not auxiliary:
+        return None
+
+    launcher = _known_dcloud_launcher(apk_path)
+    if not launcher:
+        return None
+
+    return 2, [f"launcher:{launcher}", auxiliary[0]]
+
+
+def _manifest_xml(apk_path: str) -> str:
+    try:
+        with zipfile.ZipFile(apk_path) as archive:
+            raw = archive.read("AndroidManifest.xml")
+        if raw.lstrip().startswith(b"<"):
+            return raw.decode("utf-8", "replace")
+    except (KeyError, OSError, zipfile.BadZipFile):
+        return ""
+
+    try:
+        from apkInspector.axml import parse_apk_for_manifest
+
+        manifest = parse_apk_for_manifest(apk_path)
+        if isinstance(manifest, bytes):
+            return manifest.decode("utf-8", "replace")
+        return manifest or ""
+    except Exception:
+        return ""
+
+
+def _known_dcloud_launcher(apk_path: str) -> Optional[str]:
+    manifest = _manifest_xml(apk_path)
+    if not manifest:
+        return None
+
+    try:
+        root = ET.fromstring(manifest)
+    except (ET.ParseError, TypeError, ValueError):
+        return None
+
+    package_name = root.attrib.get("package", "")
+    for component in root.iter():
+        component_type = _local_name(component.tag)
+        if component_type not in {"activity", "activity-alias"}:
+            continue
+        if not _has_launcher_intent(component):
+            continue
+
+        attribute = ANDROID_TARGET_ACTIVITY if component_type == "activity-alias" else ANDROID_NAME
+        activity_name = _normalize_activity_name(
+            component.attrib.get(attribute, ""),
+            package_name,
+        )
+        if activity_name in KNOWN_DCLOUD_LAUNCHERS:
+            return activity_name
+    return None
+
+
+def _has_launcher_intent(component: ET.Element) -> bool:
+    for intent_filter in component:
+        if _local_name(intent_filter.tag) != "intent-filter":
+            continue
+
+        actions: set[str] = set()
+        categories: set[str] = set()
+        for item in intent_filter:
+            item_type = _local_name(item.tag)
+            if item_type == "action":
+                actions.add(item.attrib.get(ANDROID_NAME, ""))
+            elif item_type == "category":
+                categories.add(item.attrib.get(ANDROID_NAME, ""))
+
+        if (
+            "android.intent.action.MAIN" in actions
+            and "android.intent.category.LAUNCHER" in categories
+        ):
+            return True
+    return False
+
+
+def _normalize_activity_name(name: str, package_name: str) -> str:
+    if not name:
+        return ""
+    if name.startswith("."):
+        return package_name + name
+    if "." not in name and package_name:
+        return package_name + "." + name
+    return name
+
+
+def _local_name(tag: object) -> str:
+    return str(tag).rsplit("}", 1)[-1]
 
 
 def _list_entry_names(apk_path: str) -> list[str]:

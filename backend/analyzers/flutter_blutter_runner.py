@@ -2,14 +2,26 @@ from __future__ import annotations
 
 import os
 import re
+import secrets
 import shutil
 import subprocess
 import sys
 import zipfile
+import logging
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from importlib import util
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional, Union
+
+from analyzers.flutter_blutter_recovery import (
+    backend_signature,
+    cleanup_recovery_attempt,
+    create_recovery_attempt,
+    fingerprint_lock,
+    prepare_isolated_tool,
+    promote_backend,
+)
 
 
 ARM64_APP = "lib/arm64-v8a/libapp.so"
@@ -21,6 +33,13 @@ BLUTTER_BACKEND_RE = re.compile(
     r"(?P<pointers>compressed|uncompressed)"
     r"(?P<suffix>_no-analysis)?$"
 )
+BLUTTER_FAILURES = (
+    OSError,
+    subprocess.CalledProcessError,
+    RuntimeError,
+    subprocess.TimeoutExpired,
+)
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -34,7 +53,7 @@ class FlutterBlutterRunResult:
     snapshot_hash: str = ""
     target_arch: str = ""
     target_os: str = ""
-    compressed_pointers: bool | None = None
+    compressed_pointers: Optional[bool] = None
     backend_version: str = ""
     backend_executable: str = ""
     backend_match: str = ""
@@ -60,12 +79,22 @@ class FlutterBlutterRunResult:
         }
 
 
+@dataclass
+class _RecoveryOutcome:
+    success: bool
+    log_path: Path
+    backend: dict[str, Any]
+    command: list[str]
+    error: str = ""
+    backend_promoted: bool = False
+
+
 def run_flutter_blutter(
-    apk_path: str | Path,
+    apk_path: Union[str, Path],
     file_md5: str,
     *,
-    tool_root: str | Path,
-    output_root: str | Path,
+    tool_root: Union[str, Path],
+    output_root: Union[str, Path],
     timeout_seconds: int,
     build_docker_image: str = "",
 ) -> FlutterBlutterRunResult:
@@ -82,7 +111,7 @@ def run_flutter_blutter(
     if not blutter_script.is_file():
         return FlutterBlutterRunResult(status="error", error=f"Blutter 脚本不存在: {blutter_script}")
 
-    output_dir = Path(output_root).expanduser() / md5
+    output_dir = Path(output_root).expanduser() / md5 / _new_run_attempt_id()
     asm_dir = output_dir / "asm"
     input_dir = output_dir / "input"
     log_path = output_dir / "blutter.log"
@@ -101,10 +130,16 @@ def run_flutter_blutter(
     dart_info: dict[str, Any] = {}
     backend: dict[str, Any] = {}
     command: list[str] = []
+    result_log_path = log_path
     try:
         _extract_flutter_libs(apk, input_dir)
         dart_info = _extract_dart_info(blutter_root, input_dir)
         backend = _select_backend(blutter_root, dart_info)
+        failed_backend_signature = (
+            backend_signature(_backend_executable(blutter_root, dart_info))
+            if backend.get("match") == "exact"
+            else None
+        )
         command = _build_blutter_command(
             blutter_script,
             input_dir,
@@ -121,45 +156,85 @@ def run_flutter_blutter(
                     blutter_root=blutter_root,
                     env=env,
                     log_file=log_file,
-                    timeout_seconds=timeout_seconds,
+                    timeout_seconds=_backend_timeout(backend, timeout_seconds),
                 )
-            except (OSError, subprocess.CalledProcessError, RuntimeError, subprocess.TimeoutExpired) as compatible_exc:
-                if backend.get("match") != "compatible":
-                    raise
-                log_file.write(
-                    f"\n[app_analysis] compatible backend failed: {compatible_exc}\n"
-                    "[app_analysis] retrying with build_required backend\n"
-                )
-                log_file.flush()
-                _clear_blutter_output(output_dir, input_dir, log_path)
-                backend = _build_required_backend(blutter_root, dart_info)
-                command = _build_blutter_command(
-                    blutter_script,
-                    input_dir,
-                    output_dir,
-                    backend,
-                    build_docker_image=build_docker_image,
-                )
-                try:
-                    _run_blutter_command(
-                        command,
-                        asm_dir=asm_dir,
-                        blutter_root=blutter_root,
-                        env=env,
-                        log_file=log_file,
-                        timeout_seconds=timeout_seconds,
+            except BLUTTER_FAILURES as first_exc:
+                exact_exc = first_exc
+                compatible_exc: Optional[BaseException] = None
+                if backend.get("match") == "compatible":
+                    compatible_exc = first_exc
+                    log_file.write(
+                        f"\n[app_analysis] compatible backend failed: {compatible_exc}\n"
+                        "[app_analysis] retrying with build_required backend\n"
                     )
-                except (OSError, subprocess.CalledProcessError, RuntimeError, subprocess.TimeoutExpired) as build_exc:
-                    raise RuntimeError(
-                        f"相近 Blutter 后端执行失败: {compatible_exc}; "
-                        f"精确后端自动构建或执行失败: {build_exc}"
-                    ) from build_exc
+                    log_file.flush()
+                    _clear_blutter_output(output_dir, input_dir, log_path)
+                    backend = _build_required_backend(blutter_root, dart_info)
+                    failed_backend_signature = None
+                    command = _build_blutter_command(
+                        blutter_script,
+                        input_dir,
+                        output_dir,
+                        backend,
+                        build_docker_image=build_docker_image,
+                    )
+                    try:
+                        _run_blutter_command(
+                            command,
+                            asm_dir=asm_dir,
+                            blutter_root=blutter_root,
+                            env=env,
+                            log_file=log_file,
+                            timeout_seconds=_backend_timeout(backend, timeout_seconds),
+                        )
+                        exact_exc = None
+                    except BLUTTER_FAILURES as build_exc:
+                        exact_exc = build_exc
+
+                if exact_exc is not None:
+                    initial_error = str(exact_exc)
+                    if compatible_exc is not None:
+                        initial_error = (
+                            f"相近 Blutter 后端执行失败: {compatible_exc}; "
+                            f"精确后端自动构建或执行失败: {exact_exc}"
+                        )
+                    recovery = _recover_exact_backend(
+                        md5=md5,
+                        output_root=Path(output_root).expanduser(),
+                        output_dir=output_dir,
+                        asm_dir=asm_dir,
+                        input_dir=input_dir,
+                        normal_log_path=log_path,
+                        normal_log_file=log_file,
+                        blutter_root=blutter_root,
+                        dart_info=dart_info,
+                        backend=backend,
+                        command=command,
+                        failed_backend_signature=failed_backend_signature,
+                        initial_error=initial_error,
+                        timeout_seconds=timeout_seconds,
+                        build_docker_image=build_docker_image,
+                    )
+                    result_log_path = recovery.log_path
+                    backend = recovery.backend
+                    command = recovery.command
+                    if not recovery.success:
+                        return _failed_result(
+                            output_dir,
+                            asm_dir,
+                            input_dir,
+                            recovery.log_path,
+                            recovery.error,
+                            dart_info=dart_info,
+                            backend=backend,
+                            command=command,
+                        )
         return FlutterBlutterRunResult(
             status="complete",
             output_dir=str(output_dir),
             asm_dir=str(asm_dir),
             input_dir=str(input_dir),
-            log_path=str(log_path),
+            log_path=str(result_log_path),
             dart_version=dart_info["dart_version"],
             snapshot_hash=dart_info["snapshot_hash"],
             target_arch=dart_info["target_arch"],
@@ -214,6 +289,234 @@ def _run_blutter_command(
     )
     if not asm_dir.is_dir():
         raise RuntimeError("Blutter 执行完成但未生成 asm 目录")
+
+
+def _backend_timeout(backend: dict[str, Any], timeout_seconds: int) -> int:
+    configured = max(1, int(timeout_seconds or 1))
+    if backend.get("match") == "compatible":
+        return min(30, configured)
+    return configured
+
+
+def _recover_exact_backend(
+    *,
+    md5: str,
+    output_root: Path,
+    output_dir: Path,
+    asm_dir: Path,
+    input_dir: Path,
+    normal_log_path: Path,
+    normal_log_file: Any,
+    blutter_root: Path,
+    dart_info: dict[str, Any],
+    backend: dict[str, Any],
+    command: list[str],
+    failed_backend_signature: Optional[tuple[int, int, int]],
+    initial_error: str,
+    timeout_seconds: int,
+    build_docker_image: str,
+) -> _RecoveryOutcome:
+    attempt = None
+    recovery_file = None
+    recovery_log_file = normal_log_file
+    recovery_log_path = normal_log_path
+    backend_promoted = False
+    recovery_backend = dict(backend)
+    recovery_command = list(command)
+    final_status = "failed"
+    final_error = initial_error
+
+    try:
+        attempt = create_recovery_attempt(output_root, md5)
+        normal_log_file.flush()
+        try:
+            descriptor = os.open(
+                str(attempt.log_path),
+                os.O_CREAT | os.O_EXCL | os.O_WRONLY,
+                0o600,
+            )
+            recovery_file = os.fdopen(descriptor, "w", encoding="utf-8")
+            recovery_log_file = recovery_file
+            recovery_log_path = attempt.log_path
+        except OSError as log_exc:
+            logger.exception(
+                "create flutter blutter recovery log failed md5=%s path=%s err=%s",
+                md5,
+                attempt.log_path,
+                log_exc,
+            )
+
+        started_at = datetime.now(timezone.utc).isoformat()
+        fingerprint = _backend_executable(blutter_root, dart_info).name
+        _write_recovery_text(
+            recovery_log_file,
+            "\n[recovery]\n"
+            f"md5={md5}\n"
+            f"attempt_id={attempt.attempt_id}\n"
+            f"started_at={started_at}\n"
+            f"backend_fingerprint={fingerprint}\n"
+            f"initial_backend_match={backend.get('match', '')}\n"
+            "initial_status=failed\n"
+            f"initial_error={initial_error}\n",
+        )
+        if recovery_file is not None:
+            _write_recovery_text(recovery_log_file, "\n[initial_log]\n")
+            try:
+                initial_log = normal_log_path.read_text(encoding="utf-8", errors="replace")
+            except OSError as read_exc:
+                initial_log = f"[unable to read initial log: {read_exc}]\n"
+            _write_recovery_text(recovery_log_file, initial_log)
+        _write_recovery_text(recovery_log_file, "\n[isolated_rebuild_log]\n")
+
+        shutil.copy2(str(input_dir / "libapp.so"), str(attempt.input_dir / "libapp.so"))
+        shutil.copy2(
+            str(input_dir / "libflutter.so"),
+            str(attempt.input_dir / "libflutter.so"),
+        )
+
+        shared_backend = _backend_executable(blutter_root, dart_info)
+        with fingerprint_lock(blutter_root, fingerprint):
+            current_signature = backend_signature(shared_backend)
+            reuse_shared = (
+                backend.get("match") == "exact"
+                and failed_backend_signature is not None
+                and current_signature is not None
+                and current_signature != failed_backend_signature
+            )
+            if reuse_shared:
+                _write_recovery_text(
+                    recovery_log_file,
+                    "[app_analysis] shared exact backend was repaired while waiting; reusing it\n",
+                )
+                recovery_command = [
+                    str(shared_backend.resolve()),
+                    "-i",
+                    str((attempt.input_dir / "libapp.so").resolve()),
+                    "-o",
+                    str(attempt.output_dir.resolve()),
+                ]
+                recovery_run_root = blutter_root
+                recovery_env = _build_blutter_env(blutter_root)
+            else:
+                prepare_isolated_tool(blutter_root, attempt)
+                isolated_backend = _build_required_backend(attempt.tool_root, dart_info)
+                recovery_command = _build_blutter_command(
+                    attempt.tool_root / "blutter.py",
+                    attempt.input_dir,
+                    attempt.output_dir,
+                    isolated_backend,
+                    build_docker_image=build_docker_image,
+                )
+                recovery_run_root = attempt.tool_root
+                recovery_env = _build_blutter_env(attempt.tool_root)
+
+            _write_recovery_text(
+                recovery_log_file,
+                "[app_analysis] command=" + repr(recovery_command) + "\n",
+            )
+            _run_blutter_command(
+                recovery_command,
+                asm_dir=attempt.output_dir / "asm",
+                blutter_root=recovery_run_root,
+                env=recovery_env,
+                log_file=recovery_log_file,
+                timeout_seconds=timeout_seconds,
+            )
+
+            if not reuse_shared:
+                isolated_executable = _backend_executable(attempt.tool_root, dart_info)
+                if isolated_executable.is_file():
+                    try:
+                        promote_backend(isolated_executable, shared_backend)
+                        backend_promoted = True
+                    except OSError as promote_exc:
+                        _write_recovery_text(
+                            recovery_log_file,
+                            f"[app_analysis] backend promotion failed: {promote_exc}\n",
+                        )
+
+        _replace_recovered_output(
+            attempt.output_dir,
+            output_dir,
+            input_dir,
+            normal_log_path,
+        )
+        if not asm_dir.is_dir():
+            raise RuntimeError("隔离 Blutter 恢复完成但正常输出目录缺少 asm")
+
+        recovery_backend = {
+            "version": str(dart_info.get("dart_version") or ""),
+            "executable": shared_backend,
+            "match": "isolated_rebuild",
+        }
+        final_status = "recovered"
+        final_error = ""
+        return _RecoveryOutcome(
+            success=True,
+            log_path=recovery_log_path,
+            backend=recovery_backend,
+            command=recovery_command,
+            backend_promoted=backend_promoted,
+        )
+    except Exception as recovery_exc:
+        final_error = f"精确后端失败: {initial_error}; 隔离重编译或重试失败: {recovery_exc}"
+        return _RecoveryOutcome(
+            success=False,
+            log_path=recovery_log_path,
+            backend=recovery_backend,
+            command=recovery_command,
+            error=final_error,
+            backend_promoted=backend_promoted,
+        )
+    finally:
+        _write_recovery_text(
+            recovery_log_file,
+            "\n[final]\n"
+            f"status={final_status}\n"
+            f"backend_promoted={'true' if backend_promoted else 'false'}\n"
+            f"finished_at={datetime.now(timezone.utc).isoformat()}\n"
+            f"final_error={final_error}\n",
+        )
+        if recovery_file is not None:
+            try:
+                recovery_file.close()
+            except OSError:
+                pass
+        if attempt is not None:
+            try:
+                cleanup_recovery_attempt(attempt)
+            except (OSError, ValueError) as cleanup_exc:
+                logger.warning(
+                    "cleanup flutter blutter recovery attempt failed md5=%s path=%s err=%s",
+                    md5,
+                    attempt.root,
+                    cleanup_exc,
+                )
+
+
+def _replace_recovered_output(
+    recovered_output: Path,
+    output_dir: Path,
+    input_dir: Path,
+    normal_log_path: Path,
+) -> None:
+    _clear_blutter_output(output_dir, input_dir, normal_log_path)
+    for path in recovered_output.iterdir():
+        target = output_dir / path.name
+        if target.exists():
+            if target.is_dir():
+                shutil.rmtree(str(target))
+            else:
+                target.unlink()
+        shutil.move(str(path), str(target))
+
+
+def _write_recovery_text(log_file: Any, text: str) -> None:
+    try:
+        log_file.write(text)
+        log_file.flush()
+    except (AttributeError, OSError, ValueError) as log_exc:
+        logger.warning("write flutter blutter recovery log failed err=%s", log_exc)
 
 
 def _clear_blutter_output(output_dir: Path, input_dir: Path, log_path: Path) -> None:
@@ -303,7 +606,9 @@ def _build_required_backend(blutter_root: Path, dart_info: dict[str, Any]) -> di
     }
 
 
-def _nearest_compatible_backend(blutter_root: Path, dart_info: dict[str, Any]) -> dict[str, Any] | None:
+def _nearest_compatible_backend(
+    blutter_root: Path, dart_info: dict[str, Any]
+) -> Optional[dict[str, Any]]:
     actual = _version_tuple(str(dart_info["dart_version"]))
     if not actual:
         return None
@@ -358,6 +663,7 @@ def _build_blutter_command(
     if backend["match"] == "build_required" and image:
         blutter_root = blutter_script.parent.resolve()
         output_root = output_dir.resolve()
+        input_root = input_dir.resolve()
         return [
             "docker",
             "run",
@@ -366,6 +672,8 @@ def _build_blutter_command(
             f"{blutter_root}:{blutter_root}",
             "--volume",
             f"{output_root}:{output_root}",
+            "--volume",
+            f"{input_root}:{input_root}",
             "--workdir",
             str(_tool_workspace(blutter_root)),
             "--env",
@@ -430,6 +738,11 @@ def _tool_workspace(blutter_root: Path) -> Path:
     return blutter_root.resolve().parent
 
 
+def _new_run_attempt_id() -> str:
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    return f"{timestamp}-{os.getpid()}-{secrets.token_hex(3)}"
+
+
 def _failed_result(
     output_dir: Path,
     asm_dir: Path,
@@ -437,9 +750,9 @@ def _failed_result(
     log_path: Path,
     error: str,
     *,
-    dart_info: dict[str, Any] | None = None,
-    backend: dict[str, Any] | None = None,
-    command: list[str] | None = None,
+    dart_info: Optional[dict[str, Any]] = None,
+    backend: Optional[dict[str, Any]] = None,
+    command: Optional[list[str]] = None,
 ) -> FlutterBlutterRunResult:
     dart_info = dart_info or {}
     backend = backend or {}
