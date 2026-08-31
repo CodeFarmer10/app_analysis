@@ -62,6 +62,7 @@ class TaskListItem(BaseModel):
     source_name: str
     app_name: str | None = None
     package_name: str | None = None
+    model_type_name: str | None = None
     icon_url: str | None = None
     file_md5: str | None = None
     status: str

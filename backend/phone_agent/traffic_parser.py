@@ -2,10 +2,15 @@
 
 import csv
 import logging
+import shutil
 import subprocess
 import time
 from dataclasses import dataclass
 from typing import Iterator, List, Optional
+
+
+logger = logging.getLogger(__name__)
+_TSHARK_AVAILABILITY_CACHE: dict[str, bool] = {}
 
 
 @dataclass
@@ -87,43 +92,16 @@ class TrafficParser:
         self.tshark_path = tshark_path
 
     def _check_tshark(self) -> bool:
-        """Check if tshark is available."""
-        timeout_seconds = 15
-        max_attempts = 2
-        for attempt in range(1, max_attempts + 1):
-            try:
-                subprocess.run(
-                    [self.tshark_path, '-v'],
-                    capture_output=True,
-                    timeout=timeout_seconds,
-                    check=True,
-                )
-                return True
-            except FileNotFoundError as exc:
-                logger.warning(
-                    "tshark check failed attempt=%s/%s type=FileNotFoundError path=%s err=%s",
-                    attempt,
-                    max_attempts,
-                    self.tshark_path,
-                    exc,
-                )
-            except subprocess.TimeoutExpired as exc:
-                logger.warning(
-                    "tshark check failed attempt=%s/%s type=TimeoutExpired timeout=%ss err=%s",
-                    attempt,
-                    max_attempts,
-                    timeout_seconds,
-                    exc,
-                )
-            except subprocess.CalledProcessError as exc:
-                logger.warning(
-                    "tshark check failed attempt=%s/%s type=CalledProcessError returncode=%s err=%s",
-                    attempt,
-                    max_attempts,
-                    exc.returncode,
-                    exc,
-                )
-        return False
+        """Check whether the tshark executable can be found without starting it."""
+        cached = _TSHARK_AVAILABILITY_CACHE.get(self.tshark_path)
+        if cached is not None:
+            return cached
+
+        available = shutil.which(self.tshark_path) is not None
+        _TSHARK_AVAILABILITY_CACHE[self.tshark_path] = available
+        if not available:
+            logger.warning("tshark executable not found path=%s", self.tshark_path)
+        return available
 
     def parse_pcap(self, pcap_path: str, filter_expr: Optional[str] = None) -> List[PacketInfo]:
         """
@@ -153,21 +131,25 @@ class TrafficParser:
         """
         if not self._check_tshark():
             raise RuntimeError(
-                "tshark is not available. Please install Wireshark from "
-                "https://www.wireshark.org/download.html"
+                f"tshark executable not found: {self.tshark_path}. "
+                "Please install Wireshark/tshark on the dynamic worker host."
             )
 
         # Build tshark command
         cmd = self._build_command(pcap_path, filter_expr)
 
         # Run tshark
-        process = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            bufsize=1  # Line buffered
-        )
+        try:
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1  # Line buffered
+            )
+        except FileNotFoundError as exc:
+            _TSHARK_AVAILABILITY_CACHE.pop(self.tshark_path, None)
+            raise RuntimeError(f"tshark executable not found: {self.tshark_path}") from exc
 
         try:
             # Use csv.DictReader to parse tab-separated output
@@ -319,8 +301,5 @@ def main():
 
     print("-" * 80)
     print(f"Total packets: {count}")
-
-
 if __name__ == '__main__':
     main()
-logger = logging.getLogger(__name__)

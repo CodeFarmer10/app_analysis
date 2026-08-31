@@ -42,7 +42,6 @@ const TABLE_COLUMNS = [
   { title: '来源', key: 'source', width: 180 },
   { title: '任务描述', key: 'task_description', dataIndex: 'task_description', width: 150 },
   { title: '诈骗类型', key: 'model_type_name', dataIndex: 'model_type_name', width: 110 },
-  { title: '文件MD5', key: 'file_md5', dataIndex: 'file_md5', width: 180 },
   { title: '状态', key: 'status', dataIndex: 'status', width: 140 },
   { title: '提交时间', key: 'created_at', dataIndex: 'created_at', width: 160 },
   { title: '分配设备', key: 'device_id', dataIndex: 'device_id', width: 180 },
@@ -323,12 +322,6 @@ onBeforeUnmount(() => {
             <span v-else>--</span>
           </template>
 
-          <template v-else-if="column.key === 'file_md5'">
-            <a-tooltip :title="record.file_md5 || '--'">
-              <div class="md5-text mono-text">{{ record.file_md5 || '--' }}</div>
-            </a-tooltip>
-          </template>
-
           <template v-else-if="column.key === 'created_at'">
             {{ formatDateTime(record.created_at) }}
           </template>
@@ -565,16 +558,6 @@ onBeforeUnmount(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
   color: #d7e3ef;
-}
-
-.md5-text {
-  width: 160px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: #c8d9ec;
-  font-family: var(--font-mono);
-  letter-spacing: 0.2px;
 }
 
 .task-list-page :deep(.task-table .ant-table-expanded-row > td) {
