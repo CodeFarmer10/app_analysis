@@ -9,6 +9,7 @@ import pymysql
 from analyzers.apk_parser import parse_apk
 from analyzers.dcloud_analyzer import analyze_dcloud_apk
 from analyzers.framework_detector import detect_framework
+from analyzers.flutter_aot_features import classify_flutter_raw_strings, extract_flutter_aot_features_from_apk
 from analyzers.flutter_blutter_runner import run_flutter_blutter
 from analyzers.flutter_analyzer import analyze_flutter_asm_dir, missing_flutter_asm_result, resolve_flutter_asm_dir
 from analyzers.ioc_extractor import extract_source_iocs
@@ -157,13 +158,29 @@ def _flutter_static_fields(info: dict) -> dict:
         "flutter_primary_entry_uri": info.get("primary_entry_uri"),
         "flutter_library_uris": info.get("library_uris"),
         "flutter_primary_package_classes": info.get("primary_package_classes"),
-        "flutter_remote_service_urls": info.get("remote_service_urls"),
-        "flutter_remote_service_domains": info.get("remote_service_domains"),
         "flutter_primary_remote_service_urls": info.get("primary_remote_service_urls"),
         "flutter_primary_remote_service_domains": info.get("primary_remote_service_domains"),
         "flutter_dart_version": info.get("dart_version"),
         "flutter_blutter_backend_version": info.get("blutter_backend_version"),
     }
+
+
+def _empty_flutter_string_features() -> dict:
+    return classify_flutter_raw_strings([])
+
+
+def _extract_flutter_aot_feature_fields(local_apk_path: str, framework_name: object) -> dict:
+    if str(framework_name or "").strip() != "Flutter":
+        return {}
+    try:
+        result = extract_flutter_aot_features_from_apk(local_apk_path)
+        return result.to_static_fields()
+    except Exception as exc:  # pragma: no cover - depends on APK/ELF/toolchain
+        logger.warning("flutter aot feature extraction failed path=%s err=%s", local_apk_path, exc)
+        return {
+            "flutter_aot_opcode_4grams": [],
+            "flutter_string_features": _empty_flutter_string_features(),
+        }
 
 
 def _cleanup_generated_flutter_output(output_dir: str, output_root: str, file_md5: object) -> None:
@@ -388,6 +405,10 @@ def analyze_apk(self, task_id: str):
             task.get("file_md5"),
             framework_fields.get("framework_name"),
         )
+        flutter_aot_feature_fields = _extract_flutter_aot_feature_fields(
+            local_apk_path,
+            framework_fields.get("framework_name"),
+        )
         source_artifact_fields, sdk_result = _extract_source_artifact_fields(
             local_apk_path,
             is_packed=bool(protection_fields.get("is_packed")),
@@ -438,6 +459,7 @@ def analyze_apk(self, task_id: str):
             **source_artifact_fields,
             **dcloud_fields,
             **flutter_fields,
+            **flutter_aot_feature_fields,
         }
         static_result_data.update(
             find_first_matching_model(static_result_data, get_active_models_ordered())

@@ -55,12 +55,12 @@ STATIC_RESULT_FIELDS = [
     "flutter_primary_entry_uri",
     "flutter_library_uris",
     "flutter_primary_package_classes",
-    "flutter_remote_service_urls",
-    "flutter_remote_service_domains",
     "flutter_primary_remote_service_urls",
     "flutter_primary_remote_service_domains",
     "flutter_dart_version",
     "flutter_blutter_backend_version",
+    "flutter_aot_opcode_4grams",
+    "flutter_string_features",
 ]
 
 JSON_STATIC_RESULT_FIELDS = {
@@ -80,10 +80,9 @@ JSON_STATIC_RESULT_FIELDS = {
     "source_urls",
     "dcloud_remote_service_urls",
     "dcloud_remote_service_domains",
-    "flutter_remote_service_urls",
-    "flutter_remote_service_domains",
     "flutter_primary_remote_service_urls",
     "flutter_primary_remote_service_domains",
+    "flutter_string_features",
 }
 
 JSON_ARRAY_STATIC_RESULT_FIELDS = {
@@ -115,6 +114,7 @@ COMMA_STATIC_RESULT_FIELDS = {
     "dcloud_api_routes",
     "flutter_library_uris",
     "flutter_primary_package_classes",
+    "flutter_aot_opcode_4grams",
 }
 
 

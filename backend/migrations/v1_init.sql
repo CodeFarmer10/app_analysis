@@ -138,6 +138,8 @@ CREATE TABLE IF NOT EXISTS static_results (
   model_id VARCHAR(36) NULL,
   model_name VARCHAR(255) NULL,
   model_type_name VARCHAR(128) NULL,
+  flutter_aot_opcode_4grams LONGTEXT NULL,
+  flutter_string_features JSON NULL,
   KEY idx_static_results_package (package_name),
   CONSTRAINT fk_static_results_task_id
     FOREIGN KEY (task_id) REFERENCES tasks(id)
@@ -1345,38 +1347,6 @@ SET flutter_primary_package_classes = CASE
 END
 WHERE flutter_primary_package_classes IS NOT NULL AND JSON_VALID(flutter_primary_package_classes);
 
-SET @static_results_flutter_remote_service_urls_col := (
-  SELECT COUNT(*)
-  FROM information_schema.columns
-  WHERE table_schema = DATABASE()
-    AND table_name = 'static_results'
-    AND column_name = 'flutter_remote_service_urls'
-);
-SET @sql_static_results_flutter_remote_service_urls_col := IF(
-  @static_results_flutter_remote_service_urls_col = 0,
-  'ALTER TABLE static_results ADD COLUMN flutter_remote_service_urls JSON NULL AFTER flutter_primary_package_classes',
-  'SELECT 1'
-);
-PREPARE stmt_static_results_flutter_remote_service_urls_col FROM @sql_static_results_flutter_remote_service_urls_col;
-EXECUTE stmt_static_results_flutter_remote_service_urls_col;
-DEALLOCATE PREPARE stmt_static_results_flutter_remote_service_urls_col;
-
-SET @static_results_flutter_remote_service_domains_col := (
-  SELECT COUNT(*)
-  FROM information_schema.columns
-  WHERE table_schema = DATABASE()
-    AND table_name = 'static_results'
-    AND column_name = 'flutter_remote_service_domains'
-);
-SET @sql_static_results_flutter_remote_service_domains_col := IF(
-  @static_results_flutter_remote_service_domains_col = 0,
-  'ALTER TABLE static_results ADD COLUMN flutter_remote_service_domains JSON NULL AFTER flutter_remote_service_urls',
-  'SELECT 1'
-);
-PREPARE stmt_static_results_flutter_remote_service_domains_col FROM @sql_static_results_flutter_remote_service_domains_col;
-EXECUTE stmt_static_results_flutter_remote_service_domains_col;
-DEALLOCATE PREPARE stmt_static_results_flutter_remote_service_domains_col;
-
 SET @static_results_flutter_primary_remote_service_urls_col := (
   SELECT COUNT(*)
   FROM information_schema.columns
@@ -1386,7 +1356,7 @@ SET @static_results_flutter_primary_remote_service_urls_col := (
 );
 SET @sql_static_results_flutter_primary_remote_service_urls_col := IF(
   @static_results_flutter_primary_remote_service_urls_col = 0,
-  'ALTER TABLE static_results ADD COLUMN flutter_primary_remote_service_urls JSON NULL AFTER flutter_remote_service_domains',
+  'ALTER TABLE static_results ADD COLUMN flutter_primary_remote_service_urls JSON NULL AFTER flutter_primary_package_classes',
   'SELECT 1'
 );
 PREPARE stmt_static_results_flutter_primary_remote_service_urls_col FROM @sql_static_results_flutter_primary_remote_service_urls_col;
@@ -1441,38 +1411,46 @@ PREPARE stmt_static_results_flutter_blutter_backend_version_col FROM @sql_static
 EXECUTE stmt_static_results_flutter_blutter_backend_version_col;
 DEALLOCATE PREPARE stmt_static_results_flutter_blutter_backend_version_col;
 
--- Backfill split columns from legacy aggregate JSON blobs before dropping them.
-SET @static_results_flutter_remote_service_ips_drop_col := (
+SET @static_results_flutter_aot_opcode_4grams_col := (
   SELECT COUNT(*)
   FROM information_schema.columns
   WHERE table_schema = DATABASE()
     AND table_name = 'static_results'
-    AND column_name = 'flutter_remote_service_ips'
+    AND column_name = 'flutter_aot_opcode_4grams'
 );
-SET @sql_static_results_flutter_remote_service_ips_drop_col := IF(
-  @static_results_flutter_remote_service_ips_drop_col = 1,
-  'ALTER TABLE static_results DROP COLUMN flutter_remote_service_ips',
+SET @sql_static_results_flutter_aot_opcode_4grams_col := IF(
+  @static_results_flutter_aot_opcode_4grams_col = 0,
+  'ALTER TABLE static_results ADD COLUMN flutter_aot_opcode_4grams LONGTEXT NULL AFTER flutter_blutter_backend_version',
   'SELECT 1'
 );
-PREPARE stmt_static_results_flutter_remote_service_ips_drop_col FROM @sql_static_results_flutter_remote_service_ips_drop_col;
-EXECUTE stmt_static_results_flutter_remote_service_ips_drop_col;
-DEALLOCATE PREPARE stmt_static_results_flutter_remote_service_ips_drop_col;
+PREPARE stmt_static_results_flutter_aot_opcode_4grams_col FROM @sql_static_results_flutter_aot_opcode_4grams_col;
+EXECUTE stmt_static_results_flutter_aot_opcode_4grams_col;
+DEALLOCATE PREPARE stmt_static_results_flutter_aot_opcode_4grams_col;
 
-SET @static_results_flutter_primary_remote_service_ips_drop_col := (
+SET @sql_static_results_flutter_aot_opcode_4grams_type := IF(
+  @static_results_flutter_aot_opcode_4grams_col > 0,
+  'ALTER TABLE static_results MODIFY COLUMN flutter_aot_opcode_4grams LONGTEXT NULL',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_flutter_aot_opcode_4grams_type FROM @sql_static_results_flutter_aot_opcode_4grams_type;
+EXECUTE stmt_static_results_flutter_aot_opcode_4grams_type;
+DEALLOCATE PREPARE stmt_static_results_flutter_aot_opcode_4grams_type;
+
+SET @static_results_flutter_string_features_col := (
   SELECT COUNT(*)
   FROM information_schema.columns
   WHERE table_schema = DATABASE()
     AND table_name = 'static_results'
-    AND column_name = 'flutter_primary_remote_service_ips'
+    AND column_name = 'flutter_string_features'
 );
-SET @sql_static_results_flutter_primary_remote_service_ips_drop_col := IF(
-  @static_results_flutter_primary_remote_service_ips_drop_col = 1,
-  'ALTER TABLE static_results DROP COLUMN flutter_primary_remote_service_ips',
+SET @sql_static_results_flutter_string_features_col := IF(
+  @static_results_flutter_string_features_col = 0,
+  'ALTER TABLE static_results ADD COLUMN flutter_string_features JSON NULL AFTER flutter_aot_opcode_4grams',
   'SELECT 1'
 );
-PREPARE stmt_static_results_flutter_primary_remote_service_ips_drop_col FROM @sql_static_results_flutter_primary_remote_service_ips_drop_col;
-EXECUTE stmt_static_results_flutter_primary_remote_service_ips_drop_col;
-DEALLOCATE PREPARE stmt_static_results_flutter_primary_remote_service_ips_drop_col;
+PREPARE stmt_static_results_flutter_string_features_col FROM @sql_static_results_flutter_string_features_col;
+EXECUTE stmt_static_results_flutter_string_features_col;
+DEALLOCATE PREPARE stmt_static_results_flutter_string_features_col;
 
 SET @static_results_dcloud_info_col := (
   SELECT COUNT(*)

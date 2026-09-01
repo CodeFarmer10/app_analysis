@@ -27,3 +27,4 @@ frida-tools==14.7.0
 frida-dexdump>=2.0.1
 apkid>=2.1.5
 PyYAML==6.0.3
+capstone>=5.0.0

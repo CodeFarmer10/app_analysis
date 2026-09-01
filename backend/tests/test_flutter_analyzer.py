@@ -2,11 +2,17 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+import sys
 import zipfile
 from pathlib import Path
 
+BACKEND_DIR = Path(__file__).resolve().parents[1]
+if str(BACKEND_DIR) not in sys.path:
+    sys.path.insert(0, str(BACKEND_DIR))
+
 from analyzers import flutter_blutter_runner
 from analyzers.flutter_blutter_runner import run_flutter_blutter
+from analyzers import flutter_analyzer
 from analyzers.flutter_analyzer import analyze_flutter_asm_dir, resolve_flutter_asm_dir
 from workers import static_analysis
 
@@ -123,14 +129,6 @@ class Dio {
             result["primary_package_classes"],
             ["LoginPage", "LoginState", "MyRootApp"],
         )
-        self.assertEqual(
-            result["remote_service_urls"],
-            ["https://api.fraud.example.com/v1/login", "https://sdk.example.com/collect"],
-        )
-        self.assertEqual(
-            result["remote_service_domains"],
-            ["api.fraud.example.com", "data.fraud.example.net:8443", "sdk.example.com"],
-        )
         self.assertEqual(result["primary_remote_service_urls"], ["https://api.fraud.example.com/v1/login"])
         self.assertEqual(result["primary_remote_service_domains"], ["api.fraud.example.com", "data.fraud.example.net:8443"])
 
@@ -153,6 +151,29 @@ class Dio {
         self.assertEqual(result["primary_package"], "")
         self.assertEqual(result["primary_package_classes"], [])
         self.assertEqual(result["library_uris"], ["AFi", "AGi"])
+
+    def test_skips_missing_asm_files_during_scan(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            asm_dir = Path(temp_dir, "abc123", "asm")
+            asm_dir.mkdir(parents=True)
+            missing = asm_dir / "missing.dart"
+            present = asm_dir / "present.dart"
+            missing.write_text("// lib: , url: package:app/missing.dart\n", encoding="utf-8")
+            present.write_text("// lib: , url: package:app/present.dart\nclass A {}\n", encoding="utf-8")
+            original = flutter_analyzer._parse_library_record
+
+            def parse_or_missing(path: Path) -> dict:
+                if path == missing:
+                    raise FileNotFoundError(path)
+                return original(path)
+
+            try:
+                flutter_analyzer._parse_library_record = parse_or_missing
+                result = analyze_flutter_asm_dir(asm_dir).to_static_field()
+            finally:
+                flutter_analyzer._parse_library_record = original
+
+        self.assertEqual(result["library_uris"], ["package:app/present.dart"])
 
     def test_resolves_configured_md5_asm_dir(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

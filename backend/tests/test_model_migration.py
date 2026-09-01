@@ -49,6 +49,26 @@ class ModelMigrationTest(unittest.TestCase):
         self.assertIn("ALTER TABLE static_results ADD COLUMN model_name VARCHAR(255) NULL", sql)
         self.assertIn("ALTER TABLE static_results ADD COLUMN model_type_name VARCHAR(128) NULL", sql)
 
+    def test_static_results_flutter_aot_feature_columns_have_idempotent_upgrade_sql(self) -> None:
+        sql = MIGRATION_SQL.read_text(encoding="utf-8")
+
+        self.assertIn("column_name = 'flutter_aot_opcode_4grams'", sql)
+        self.assertIn("column_name = 'flutter_string_features'", sql)
+        self.assertIn("column_name = 'flutter_primary_remote_service_urls'", sql)
+        self.assertIn("column_name = 'flutter_primary_remote_service_domains'", sql)
+        self.assertIn("ALTER TABLE static_results ADD COLUMN flutter_aot_opcode_4grams LONGTEXT NULL", sql)
+        self.assertIn("ALTER TABLE static_results ADD COLUMN flutter_string_features JSON NULL", sql)
+        self.assertIn("ALTER TABLE static_results ADD COLUMN flutter_primary_remote_service_urls JSON NULL", sql)
+        self.assertIn("ALTER TABLE static_results ADD COLUMN flutter_primary_remote_service_domains JSON NULL", sql)
+        self.assertIn("ALTER TABLE static_results MODIFY COLUMN flutter_aot_opcode_4grams LONGTEXT NULL", sql)
+        removed_fields = [
+            "flutter_" + "remote_" + suffix
+            for suffix in ("service_urls", "service_domains")
+        ]
+        for field in removed_fields:
+            with self.subTest(field=field):
+                self.assertNotIn(field, sql)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -78,8 +78,6 @@ class FlutterAnalysisResult:
     root_widget_library_uri: str = ""
     library_uris: list[str] = field(default_factory=list)
     primary_package_classes: list[str] = field(default_factory=list)
-    remote_service_urls: list[str] = field(default_factory=list)
-    remote_service_domains: list[str] = field(default_factory=list)
     primary_remote_service_urls: list[str] = field(default_factory=list)
     primary_remote_service_domains: list[str] = field(default_factory=list)
     class_count: int = 0
@@ -97,8 +95,6 @@ class FlutterAnalysisResult:
             "root_widget_library_uri": self.root_widget_library_uri,
             "library_uris": self.library_uris,
             "primary_package_classes": self.primary_package_classes,
-            "remote_service_urls": self.remote_service_urls,
-            "remote_service_domains": self.remote_service_domains,
             "primary_remote_service_urls": self.primary_remote_service_urls,
             "primary_remote_service_domains": self.primary_remote_service_domains,
             "class_count": self.class_count,
@@ -112,8 +108,6 @@ def missing_flutter_asm_result(candidates: list[str]) -> dict[str, Any]:
         error="未找到 Flutter blutter asm 产物",
         library_uris=[],
         primary_package_classes=[],
-        remote_service_urls=[],
-        remote_service_domains=[],
         primary_remote_service_urls=[],
         primary_remote_service_domains=[],
     ).to_static_field() | {"candidate_asm_dirs": candidates}
@@ -128,7 +122,6 @@ def analyze_flutter_asm_dir(asm_dir: str | Path) -> FlutterAnalysisResult:
     primary = _locate_primary_entry(records)
     library_uris = _extract_library_uris(records)
     primary_classes = _extract_primary_classes(records, primary)
-    network = _network_features_from_records(records)
     primary_network = _network_features_from_records(_primary_library_records(records, primary))
 
     return FlutterAnalysisResult(
@@ -142,8 +135,6 @@ def analyze_flutter_asm_dir(asm_dir: str | Path) -> FlutterAnalysisResult:
         root_widget_library_uri=str(primary["root_widget_library_uri"]),
         library_uris=library_uris,
         primary_package_classes=primary_classes,
-        remote_service_urls=network["urls"],
-        remote_service_domains=network["domains"],
         primary_remote_service_urls=primary_network["urls"] if primary["package"] else [],
         primary_remote_service_domains=primary_network["domains"] if primary["package"] else [],
         class_count=len(primary_classes),
@@ -188,6 +179,16 @@ def _decode_quoted(value: str) -> str:
     return decoded if isinstance(decoded, str) else str(decoded)
 
 
+def _valid_remote_url_host(value: str) -> bool:
+    try:
+        host = (urlsplit(value).hostname or "").lower()
+    except ValueError:
+        return False
+    if "." not in host or IP_RE.fullmatch(host):
+        return False
+    return all(label for label in host.split("."))
+
+
 def _network_features(strings: set[str]) -> dict[str, list[str]]:
     urls: set[str] = set()
     domains: set[str] = set()
@@ -197,7 +198,7 @@ def _network_features(strings: set[str]) -> dict[str, list[str]]:
         if not value:
             continue
 
-        if URL_RE.fullmatch(value):
+        if URL_RE.fullmatch(value) and _valid_remote_url_host(value):
             try:
                 parts = urlsplit(value)
                 port = parts.port
@@ -206,9 +207,7 @@ def _network_features(strings: set[str]) -> dict[str, list[str]]:
             if parts.hostname:
                 urls.add(value)
                 host = parts.hostname.lower()
-                host_with_port = f"{host}:{port}" if port is not None else host
-                if not IP_RE.fullmatch(host_with_port):
-                    domains.add(host_with_port)
+                domains.add(f"{host}:{port}" if port is not None else host)
             continue
 
         if DOMAIN_RE.fullmatch(value):
@@ -366,7 +365,13 @@ def _parse_library_record(path: Path) -> dict[str, Any]:
 
 
 def _scan_library_records(asm_dir: Path) -> list[dict[str, Any]]:
-    return [_parse_library_record(path) for path in sorted(item for item in asm_dir.rglob("*") if item.is_file())]
+    records: list[dict[str, Any]] = []
+    for path in sorted(item for item in asm_dir.rglob("*") if item.is_file()):
+        try:
+            records.append(_parse_library_record(path))
+        except FileNotFoundError:
+            continue
+    return records
 
 
 def _root_widget_candidates(records: list[dict[str, Any]]) -> list[dict[str, Any]]:

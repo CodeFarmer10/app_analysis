@@ -68,6 +68,8 @@ def _load_candidates(
             sr.flutter_primary_package IS NULL OR sr.flutter_primary_package = ''
             OR sr.flutter_library_uris IS NULL OR sr.flutter_library_uris = ''
             OR sr.flutter_primary_package_classes IS NULL OR sr.flutter_primary_package_classes = ''
+            OR sr.flutter_primary_remote_service_urls IS NULL
+            OR sr.flutter_primary_remote_service_domains IS NULL
         """
 
     target_sql = ""
@@ -212,8 +214,8 @@ def _process_flutter(candidate: Candidate) -> dict[str, Any]:
             "primary_package": fields.get("flutter_primary_package"),
             "library_uri_count": len(library_uris),
             "primary_class_count": len(fields.get("flutter_primary_package_classes") or []),
-            "remote_url_count": len(fields.get("flutter_remote_service_urls") or []),
-            "remote_domain_count": len(fields.get("flutter_remote_service_domains") or []),
+            "primary_remote_url_count": len(fields.get("flutter_primary_remote_service_urls") or []),
+            "primary_remote_domain_count": len(fields.get("flutter_primary_remote_service_domains") or []),
         }
     except Exception as exc:
         return {
