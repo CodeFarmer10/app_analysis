@@ -385,11 +385,13 @@ def perform_device_recovery(device: dict) -> None:
     expected_package = settings.DEVICE_RECOVERY_APK_PACKAGE
 
     validate_health_apk(apk_path, expected_package)
-    run_adb(serial, ["reboot"])
-    wait_for_device_boot(
-        serial,
-        timeout_seconds=settings.DEVICE_RECOVERY_REBOOT_TIMEOUT_SECONDS,
-    )
+    health = check_device_health(serial)
+    if health.state != "healthy":
+        run_adb(serial, ["reboot"])
+        wait_for_device_boot(
+            serial,
+            timeout_seconds=settings.DEVICE_RECOVERY_REBOOT_TIMEOUT_SECONDS,
+        )
     remove_residual_package(serial, device.get("quarantine_package_name"))
     remove_residual_package_data(serial, device.get("quarantine_package_name"))
     cleanup_project_temp_files(serial)
