@@ -76,6 +76,7 @@ CREATE TABLE IF NOT EXISTS devices (
 CREATE TABLE IF NOT EXISTS models (
   model_id VARCHAR(36) PRIMARY KEY,
   model_name VARCHAR(255) NOT NULL,
+  family_description VARCHAR(500) NULL,
   model_type_code VARCHAR(64) NOT NULL,
   model_type_name VARCHAR(128) NOT NULL,
   model_expression LONGTEXT NOT NULL,
@@ -85,6 +86,21 @@ CREATE TABLE IF NOT EXISTS models (
   KEY idx_models_status (status),
   KEY idx_models_created_at (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+SET @models_family_description_col := (
+  SELECT COUNT(*) FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'models'
+    AND column_name = 'family_description'
+);
+SET @sql_models_family_description_col := IF(
+  @models_family_description_col = 0,
+  'ALTER TABLE models ADD COLUMN family_description VARCHAR(500) NULL AFTER model_name',
+  'SELECT 1'
+);
+PREPARE stmt_models_family_description_col FROM @sql_models_family_description_col;
+EXECUTE stmt_models_family_description_col;
+DEALLOCATE PREPARE stmt_models_family_description_col;
 
 SET @models_status_col := (
   SELECT COUNT(*) FROM information_schema.columns
@@ -141,6 +157,7 @@ CREATE TABLE IF NOT EXISTS static_results (
   flutter_aot_opcode_4grams LONGTEXT NULL,
   flutter_string_features JSON NULL,
   KEY idx_static_results_package (package_name),
+  KEY idx_static_results_model_id (model_id),
   CONSTRAINT fk_static_results_task_id
     FOREIGN KEY (task_id) REFERENCES tasks(id)
     ON DELETE CASCADE
@@ -160,6 +177,21 @@ SET @sql_static_results_model_id_col := IF(
 PREPARE stmt_static_results_model_id_col FROM @sql_static_results_model_id_col;
 EXECUTE stmt_static_results_model_id_col;
 DEALLOCATE PREPARE stmt_static_results_model_id_col;
+
+SET @static_results_model_id_idx := (
+  SELECT COUNT(*) FROM information_schema.statistics
+  WHERE table_schema = DATABASE()
+    AND table_name = 'static_results'
+    AND index_name = 'idx_static_results_model_id'
+);
+SET @sql_static_results_model_id_idx := IF(
+  @static_results_model_id_idx = 0,
+  'ALTER TABLE static_results ADD KEY idx_static_results_model_id (model_id)',
+  'SELECT 1'
+);
+PREPARE stmt_static_results_model_id_idx FROM @sql_static_results_model_id_idx;
+EXECUTE stmt_static_results_model_id_idx;
+DEALLOCATE PREPARE stmt_static_results_model_id_idx;
 
 SET @static_results_model_name_col := (
   SELECT COUNT(*) FROM information_schema.columns

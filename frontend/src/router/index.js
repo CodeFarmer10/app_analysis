@@ -37,6 +37,29 @@ const routes = [
         meta: { title: '任务详情' },
       },
       {
+        path: 'families',
+        name: 'family-list',
+        component: () => import('../views/FamilyList.vue'),
+        meta: { title: '家族列表' },
+      },
+      {
+        path: 'families/new',
+        name: 'family-create',
+        component: () => import('../views/FamilyCreate.vue'),
+        meta: { title: '新增家族' },
+      },
+      {
+        path: 'families/candidates/:familyId',
+        name: 'family-candidate-detail',
+        redirect: '/families/new',
+      },
+      {
+        path: 'families/:familyId',
+        name: 'family-detail',
+        component: () => import('../views/FamilyDetail.vue'),
+        meta: { title: '家族详情' },
+      },
+      {
         path: 'devices',
         name: 'devices',
         component: () => import('../views/DeviceList.vue'),

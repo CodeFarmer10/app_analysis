@@ -2,11 +2,10 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
-import TaskStatusTag from '../components/TaskStatusTag.vue'
+import TaskRecordsTable from '../components/TaskRecordsTable.vue'
 import TaskUploadModal from '../components/TaskUploadModal.vue'
 import { getTaskApkDownload, getTaskPcapDownload, getTaskReportDownload } from '../api/tasks'
 import { useTaskStore } from '../stores/task'
-import { formatDateTime } from '../utils/format'
 import { TASK_TERMINAL_STATUSES, usePolling } from '../utils/polling'
 
 const router = useRouter()
@@ -35,19 +34,6 @@ const STATUS_OPTIONS = [
   { label: '已完成', value: 'completed' },
 ]
 
-const TABLE_COLUMNS = [
-  { title: '序号', key: 'index', width: 70, fixed: 'left' },
-  { title: '图标', key: 'icon', width: 70 },
-  { title: 'APP名称/包名', key: 'app', width: 170 },
-  { title: '来源', key: 'source', width: 180 },
-  { title: '任务描述', key: 'task_description', dataIndex: 'task_description', width: 150 },
-  { title: '诈骗类型', key: 'model_type_name', dataIndex: 'model_type_name', width: 110 },
-  { title: '状态', key: 'status', dataIndex: 'status', width: 140 },
-  { title: '提交时间', key: 'created_at', dataIndex: 'created_at', width: 160 },
-  { title: '分配设备', key: 'device_id', dataIndex: 'device_id', width: 180 },
-  { title: '操作', key: 'actions', fixed: 'right', width: 160 },
-]
-
 const TERMINAL_SET = new Set(TASK_TERMINAL_STATUSES)
 const DOWNLOAD_FLAG_MAP = {
   apk: 'can_download_apk',
@@ -67,25 +53,10 @@ const pagination = computed(() => ({
   showTotal: (total) => `共 ${total} 条`,
 }))
 
-function getRowClassName() {
-  return 'task-row'
-}
-
 const { start: startPolling, stop: stopPolling } = usePolling(async () => {
   await taskStore.fetchTasks()
   syncPollingState()
 }, 30000)
-
-function getAppInitial(appName) {
-  if (!appName) {
-    return 'APP'
-  }
-  return appName.slice(0, 1).toUpperCase()
-}
-
-function getSourceText(record) {
-  return record.source_name || '--'
-}
 
 function buildFilterPayload() {
   let start = ''
@@ -196,14 +167,6 @@ function isDownloadEnabled(record, type) {
   return typeof flag === 'boolean' ? flag : false
 }
 
-function hasAnyDownload(record) {
-  return (
-    isDownloadEnabled(record, 'apk') ||
-    isDownloadEnabled(record, 'report') ||
-    isDownloadEnabled(record, 'pcap')
-  )
-}
-
 onMounted(async () => {
   await fetchList()
 })
@@ -269,94 +232,14 @@ onBeforeUnmount(() => {
         </div>
       </template>
 
-      <a-table
-        class="task-table"
-        row-key="id"
-        :columns="TABLE_COLUMNS"
-        :data-source="taskStore.tasks"
+      <TaskRecordsTable
+        :tasks="taskStore.tasks"
         :loading="taskStore.loading"
         :pagination="pagination"
-        :scroll="{ x: 1580 }"
-        :row-class-name="getRowClassName"
         @change="handleTableChange"
-      >
-        <template #bodyCell="{ column, record, index }">
-          <template v-if="column.key === 'index'">
-            {{ (taskStore.page - 1) * taskStore.size + index + 1 }}
-          </template>
-          <template v-else-if="column.key === 'icon'">
-            <a-avatar shape="square" class="task-icon" :src="record.icon_url">
-              {{ getAppInitial(record.app_name) }}
-            </a-avatar>
-          </template>
-
-          <template v-else-if="column.key === 'app'">
-            <a-tooltip placement="topLeft">
-              <template #title>
-                <div class="app-tooltip">
-                  <div>名称：{{ record.app_name || '分析中' }}</div>
-                  <div class="mono-text">包名：{{ record.package_name || '--' }}</div>
-                </div>
-              </template>
-              <div class="app-cell">
-                <div class="app-name">{{ record.app_name || '分析中' }}</div>
-                <div class="app-package mono-text">{{ record.package_name || '--' }}</div>
-              </div>
-            </a-tooltip>
-          </template>
-
-          <template v-else-if="column.key === 'source'">
-            <a-tooltip :title="record.source_name || '--'">
-              <div class="source-text mono-text">{{ getSourceText(record) }}</div>
-            </a-tooltip>
-          </template>
-
-          <template v-else-if="column.key === 'task_description'">
-            <a-typography-text class="desc-text" :ellipsis="{ tooltip: record.task_description || '--' }">
-              {{ record.task_description || '--' }}
-            </a-typography-text>
-          </template>
-
-          <template v-else-if="column.key === 'model_type_name'">
-            <a-tag v-if="record.model_type_name" color="red">{{ record.model_type_name }}</a-tag>
-            <span v-else>--</span>
-          </template>
-
-          <template v-else-if="column.key === 'created_at'">
-            {{ formatDateTime(record.created_at) }}
-          </template>
-
-          <template v-else-if="column.key === 'status'">
-            <TaskStatusTag :status="record.status" />
-          </template>
-
-          <template v-else-if="column.key === 'device_id'">
-            {{ record.device_serial || record.device_id || '--' }}
-          </template>
-
-          <template v-else-if="column.key === 'actions'">
-            <a-space size="small">
-              <a-button type="link" @click="openTaskDetail(record.id)">查看</a-button>
-              <a-dropdown placement="bottomRight" :trigger="hasAnyDownload(record) ? ['click'] : []">
-                <a-button type="link" :disabled="!hasAnyDownload(record)">下载</a-button>
-                <template #overlay>
-                  <a-menu @click="({ key }) => handleDownload(record.id, key)">
-                    <a-menu-item key="apk" :disabled="!isDownloadEnabled(record, 'apk')">
-                      下载APK
-                    </a-menu-item>
-                    <a-menu-item key="report" :disabled="!isDownloadEnabled(record, 'report')">
-                      下载报告
-                    </a-menu-item>
-                    <a-menu-item key="pcap" :disabled="!isDownloadEnabled(record, 'pcap')">
-                      下载PCAP
-                    </a-menu-item>
-                  </a-menu>
-                </template>
-              </a-dropdown>
-            </a-space>
-          </template>
-        </template>
-      </a-table>
+        @view="openTaskDetail"
+        @download="handleDownload"
+      />
     </a-card>
 
     <TaskUploadModal v-model:open="showUploadModal" @success="handleModalSuccess" />
@@ -504,125 +387,4 @@ onBeforeUnmount(() => {
   font-size: 16px;
 }
 
-.task-icon {
-  background: rgba(59, 130, 246, 0.14);
-  color: #bfdbfe;
-  border: 1px solid rgba(59, 130, 246, 0.42);
-  font-weight: 600;
-}
-
-.app-cell {
-  line-height: 1.5;
-  width: 150px;
-  display: flex;
-  flex-direction: column;
-}
-
-.app-name,
-.app-package {
-  display: inline-block;
-  width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.app-name {
-  color: var(--text-primary);
-}
-
-.app-package {
-  color: var(--text-secondary);
-  font-size: 12px;
-  font-family: var(--font-mono);
-}
-
-.app-tooltip {
-  max-width: 460px;
-  line-height: 1.6;
-  white-space: normal;
-  word-break: break-all;
-}
-
-.source-text {
-  width: 170px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: #9fb4cb;
-}
-
-.desc-text {
-  width: 140px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: #d7e3ef;
-}
-
-.task-list-page :deep(.task-table .ant-table-expanded-row > td) {
-  background: rgba(59, 130, 246, 0.02) !important;
-}
-
-.task-list-page :deep(.task-table .ant-table-cell-fix-left),
-.task-list-page :deep(.task-table .ant-table-cell-fix-right) {
-  background: #151c2b !important;
-  z-index: 4;
-  background-clip: padding-box;
-}
-
-.task-list-page :deep(.task-table .ant-table-tbody > tr:hover .ant-table-cell-fix-left),
-.task-list-page :deep(.task-table .ant-table-tbody > tr:hover .ant-table-cell-fix-right) {
-  background: #1a2740 !important;
-}
-
-.task-list-page :deep(.task-table .ant-table-tbody > tr > td.ant-table-cell-row-hover) {
-  background: #1a2740 !important;
-}
-
-.task-list-page :deep(.task-table .ant-table-tbody > tr.ant-table-row-selected > td) {
-  background: #2a4f85 !important;
-  color: #eef5ff !important;
-}
-
-.task-list-page :deep(.task-table .ant-table-tbody > tr.ant-table-row-selected:hover > td),
-.task-list-page :deep(.task-table .ant-table-tbody > tr.ant-table-row-selected > td.ant-table-cell-row-hover) {
-  background: #315b97 !important;
-}
-
-.task-list-page :deep(.task-table .ant-table-tbody > tr.ant-table-row-selected .ant-table-cell-fix-left),
-.task-list-page :deep(.task-table .ant-table-tbody > tr.ant-table-row-selected .ant-table-cell-fix-right) {
-  background: #2a4f85 !important;
-  color: #eef5ff !important;
-}
-
-.task-list-page :deep(.task-table .ant-table-tbody > tr.ant-table-row-selected:hover .ant-table-cell-fix-left),
-.task-list-page :deep(.task-table .ant-table-tbody > tr.ant-table-row-selected:hover .ant-table-cell-fix-right),
-.task-list-page :deep(.task-table .ant-table-tbody > tr.ant-table-row-selected .ant-table-cell-fix-left.ant-table-cell-row-hover),
-.task-list-page :deep(.task-table .ant-table-tbody > tr.ant-table-row-selected .ant-table-cell-fix-right.ant-table-cell-row-hover) {
-  background: #315b97 !important;
-}
-
-.task-list-page :deep(.task-table .ant-table-tbody > tr > td.ant-table-cell-fix-left),
-.task-list-page :deep(.task-table .ant-table-tbody > tr > td.ant-table-cell-fix-right) {
-  background: #151c2b !important;
-}
-
-.task-list-page :deep(.task-table .ant-table-thead > tr > .ant-table-cell-fix-left),
-.task-list-page :deep(.task-table .ant-table-thead > tr > .ant-table-cell-fix-right) {
-  background: #1a2232 !important;
-}
-
-.task-list-page :deep(.task-table .ant-table-cell-fix-left-last::after),
-.task-list-page :deep(.task-table .ant-table-cell-fix-right-first::after) {
-  display: none !important;
-}
-
-.task-list-page :deep(.task-table .ant-btn-link) {
-  color: #9ec5ff;
-}
-
-.task-list-page :deep(.task-table .ant-btn-link:hover) {
-  color: #c7defd;
-}
 </style>

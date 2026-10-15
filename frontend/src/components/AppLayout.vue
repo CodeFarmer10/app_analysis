@@ -30,6 +30,14 @@ const menuItems = computed(() => {
   const items = [
     { key: '/dashboard', label: createMenuLabel('主页', 'icon-dashboard') },
     { key: '/tasks', label: createMenuLabel('任务管理', 'icon-task') },
+    {
+      key: 'family-management',
+      label: createMenuLabel('家族管理', 'icon-family'),
+      children: [
+        { key: '/families', label: '家族列表' },
+        { key: '/families/new', label: '新增家族' },
+      ],
+    },
     { key: '/devices', label: createMenuLabel('设备管理', 'icon-device') },
   ]
   if (authStore.role === 'admin') {
@@ -39,6 +47,12 @@ const menuItems = computed(() => {
 })
 
 const selectedMenuKey = computed(() => {
+  if (route.path.startsWith('/families/new') || route.path.startsWith('/families/candidates')) {
+    return '/families/new'
+  }
+  if (route.path.startsWith('/families')) {
+    return '/families'
+  }
   if (route.path.startsWith('/tasks')) {
     return '/tasks'
   }
@@ -105,6 +119,7 @@ async function handleLogout() {
         mode="inline"
         theme="dark"
         :selected-keys="[selectedMenuKey]"
+        :open-keys="collapsed ? [] : ['family-management']"
         :items="menuItems"
         @click="handleMenuClick"
       />
@@ -297,6 +312,26 @@ async function handleLogout() {
   color: #dbeafe;
 }
 
+.app-sider :deep(.ant-menu-submenu-title) {
+  margin: 6px 0 0;
+  border-radius: 6px;
+  color: var(--text-secondary);
+  cursor: default;
+  pointer-events: none;
+}
+
+.app-sider :deep(.ant-menu-submenu-selected > .ant-menu-submenu-title) {
+  color: #dbeafe;
+}
+
+.app-sider :deep(.ant-menu-submenu-arrow) {
+  display: none;
+}
+
+.app-sider :deep(.ant-menu-submenu .ant-menu-item:first-child) {
+  margin-top: 0;
+}
+
 .app-sider :deep(.ant-menu-title-content) {
   width: 100%;
 }
@@ -329,6 +364,7 @@ async function handleLogout() {
 .app-sider :deep(.icon-dashboard::before),
 .app-sider :deep(.icon-task::before),
 .app-sider :deep(.icon-device::before),
+.app-sider :deep(.icon-family::before),
 .app-sider :deep(.icon-user::before) {
   content: '';
   position: absolute;
@@ -368,6 +404,16 @@ async function handleLogout() {
   border: 1px solid rgba(15, 23, 42, 0.95);
   border-radius: 1px;
   box-shadow: 0 7px 0 -2px rgba(15, 23, 42, 0.95);
+}
+
+.app-sider :deep(.icon-family::before) {
+  width: 10px;
+  height: 8px;
+  left: 2px;
+  top: 3px;
+  border: 1px solid rgba(15, 23, 42, 0.95);
+  border-radius: 2px;
+  box-shadow: 0 -3px 0 -1px rgba(15, 23, 42, 0.95);
 }
 
 .app-sider :deep(.icon-user::before) {
