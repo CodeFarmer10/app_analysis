@@ -6,11 +6,25 @@ from contextlib import ExitStack
 from pathlib import Path
 from unittest.mock import ANY, MagicMock, patch
 
+from phone_agent.adb.device import OrientationState
 from services.device_service import DeviceHealthResult
 from workers import dynamic_trace
 
 
 class DynamicDeviceFailureTest(unittest.TestCase):
+    def setUp(self) -> None:
+        portrait_patcher = patch(
+            "workers.dynamic_trace.lock_portrait_orientation",
+            return_value=OrientationState("1", "0"),
+        )
+        restore_patcher = patch(
+            "workers.dynamic_trace.restore_orientation", return_value=(True, "")
+        )
+        self.portrait_mock = portrait_patcher.start()
+        self.restore_mock = restore_patcher.start()
+        self.addCleanup(portrait_patcher.stop)
+        self.addCleanup(restore_patcher.stop)
+
     def _connection_mocks(self):
         connection = MagicMock()
         cursor = MagicMock()
@@ -201,6 +215,39 @@ class DynamicDeviceFailureTest(unittest.TestCase):
                 mocks["mark_failed"].assert_called_once()
                 mocks["requeue"].assert_not_called()
                 mocks["quarantine"].assert_not_called()
+
+    def test_portrait_is_set_before_first_launch_and_restored_after_trace(self) -> None:
+        events: list[str] = []
+
+        def record_install(*_args, **_kwargs):
+            events.append("install")
+            return True, "Success"
+
+        def fail_agent(**_kwargs):
+            events.append("agent")
+            raise RuntimeError("stop")
+
+        with tempfile.TemporaryDirectory() as temp_dir, ExitStack() as stack:
+            result_dir = Path(temp_dir) / "result"
+            result_dir.mkdir()
+            mocks = self._patch_trace_until_agent(stack, result_dir)
+            mocks["install"].side_effect = record_install
+            self.portrait_mock.side_effect = lambda *_args: (
+                events.append("portrait") or OrientationState("1", "0")
+            )
+            stack.enter_context(
+                patch(
+                    "workers.dynamic_trace._maybe_unpack_packed_app",
+                    side_effect=lambda **_kwargs: events.append("first_launch") or None,
+                )
+            )
+            mocks["run"].side_effect = fail_agent
+            self.restore_mock.side_effect = lambda *_args: (events.append("restore") or True, "")
+
+            result = dynamic_trace.trace_task("task-1", "device-1")
+
+        self.assertEqual(result["status"], "dynamic_failed")
+        self.assertEqual(events, ["install", "portrait", "first_launch", "agent", "restore"])
 
     def test_runtime_adb_classifier_requires_trusted_context(self) -> None:
         positive_messages = (
