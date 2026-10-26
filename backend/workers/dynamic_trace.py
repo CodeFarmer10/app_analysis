@@ -18,7 +18,14 @@ from core.database import execute, fetch_one, get_connection
 from multi_main import Logger, run_task_with_planning
 from phone_agent import PlanAgentConfig
 from phone_agent.agent import AgentConfig
-from phone_agent.adb.device import clear_accessibility_services, install_apk, uninstall_apk
+from phone_agent.adb.device import (
+    OrientationState,
+    clear_accessibility_services,
+    install_apk,
+    lock_portrait_orientation,
+    restore_orientation,
+    uninstall_apk,
+)
 from phone_agent.model import ModelConfig
 from repositories.task_repo import get_static_result, get_task_by_id, update_static_result_fields
 from repositories.sdk_repo import replace_sdk_results
@@ -1084,6 +1091,7 @@ def _cleanup_device_after_trace(
     package_name: str,
     adb_device_id: str,
     app_installed: bool,
+    rotation_state: OrientationState | None = None,
 ) -> bool:
     """Clean device state and return whether it must remain isolated."""
     isolated = False
@@ -1138,6 +1146,26 @@ def _cleanup_device_after_trace(
                     package_name,
                 )
 
+    if rotation_state is not None:
+        try:
+            rotation_ok, rotation_detail = restore_orientation(rotation_state, adb_device_id)
+        except Exception as exc:  # pragma: no cover - defensive around ADB wrapper
+            rotation_ok, rotation_detail = False, str(exc)
+        if not rotation_ok:
+            isolated = True
+            _quarantine_owned_device(
+                task_id,
+                device_id,
+                f"恢复屏幕方向失败: {rotation_detail}",
+                package_name,
+            )
+            logger.warning(
+                "restore rotation failed task_id=%s device_id=%s err=%s",
+                task_id,
+                adb_device_id,
+                rotation_detail,
+            )
+
     return isolated
 
 
@@ -1169,6 +1197,7 @@ def trace_task(task_id: str, device_id: str):
     adb_device_id = ""
     result_dir: Path | None = None
     app_installed = False
+    rotation_state: OrientationState | None = None
     device_isolated = False
     skip_device_cleanup = False
 
@@ -1189,6 +1218,25 @@ def trace_task(task_id: str, device_id: str):
                     raise DeviceUnavailableError(f"{install_error}; 设备健康检查失败: {health_reason}")
             raise RuntimeError(install_error)
         app_installed = True
+
+        try:
+            rotation_state = lock_portrait_orientation(adb_device_id)
+        except Exception as exc:
+            raise DeviceUnavailableError(f"设置设备竖屏失败: {exc}") from exc
+        if not rotation_state.portrait_applied:
+            logger.warning(
+                "device rejected portrait controls; continuing without rotation lock "
+                "task_id=%s device_id=%s",
+                task_id,
+                adb_device_id,
+            )
+        elif rotation_state.window_rotation is None:
+            logger.warning(
+                "device does not support app orientation override; using system portrait settings "
+                "task_id=%s device_id=%s",
+                task_id,
+                adb_device_id,
+            )
 
         unpack_archive_path = _maybe_unpack_packed_app(
             task_id=task_id,
@@ -1332,6 +1380,7 @@ def trace_task(task_id: str, device_id: str):
                 package_name=package_name,
                 adb_device_id=adb_device_id,
                 app_installed=app_installed,
+                rotation_state=rotation_state,
             )
             device_isolated = device_isolated or cleanup_isolated
             if not device_isolated:

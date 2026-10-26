@@ -1,14 +1,18 @@
 """Device control utilities for Android automation."""
 
+import logging
 import os
 import re
 import shlex
 import subprocess
 import time
+from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
 from phone_agent.config.apps import APP_PACKAGES
 from phone_agent.config.timing import TIMING_CONFIG
+
+logger = logging.getLogger(__name__)
 
 
 def get_current_app(device_id: str | None = None) -> str:
@@ -267,22 +271,8 @@ def launch_app(
     if app_name not in APP_PACKAGES:
         return False
 
-    adb_prefix = _get_adb_prefix(device_id)
     package = APP_PACKAGES[app_name]
-
-    subprocess.run(
-        adb_prefix
-        + [
-            "shell",
-            "monkey",
-            "-p",
-            package,
-            "-c",
-            "android.intent.category.LAUNCHER",
-            "1",
-        ],
-        capture_output=True,
-    )
+    _launch_package_with_monkey(package, device_id)
     time.sleep(delay)
     return True
 
@@ -303,23 +293,51 @@ def launch_app_by_package(
     if delay is None:
         delay = TIMING_CONFIG.device.default_launch_delay
 
-    adb_prefix = _get_adb_prefix(device_id)
-    
-    subprocess.run(
-        adb_prefix
-        + [
-            "shell",
-            "monkey",
-            "-p",
-            package,
-            "-c",
-            "android.intent.category.LAUNCHER",
-            "1",
-        ],
-        capture_output=True,
-    )
+    _launch_package_with_monkey(package, device_id)
     time.sleep(delay)
     return True
+
+
+def _launch_package_with_monkey(package: str, device_id: str | None) -> None:
+    try:
+        subprocess.run(
+            _get_adb_prefix(device_id)
+            + ["shell", "monkey", "-p", package,
+               "-c", "android.intent.category.LAUNCHER", "1"],
+            capture_output=True,
+        )
+    finally:
+        relock_portrait_after_monkey(device_id)
+
+
+def relock_portrait_after_monkey(device_id: str | None) -> tuple[bool, str]:
+    """Undo Monkey's unconditional rotation thaw after it exits."""
+    def apply(args: list[str]) -> tuple[bool, str]:
+        ok, detail = run_shell_command(args, device_id=device_id, timeout=10)
+        unsupported = any(marker in detail.lower() for marker in (
+            "unknown command", "unrecognized command", "not supported",
+        ))
+        return ok and not unsupported, detail
+
+    locked, detail = apply(["wm", "user-rotation", "lock", "0"])
+    if not locked:
+        locked, detail = apply(["cmd", "window", "user-rotation", "lock", "0"])
+    if not locked:
+        accelerator_ok, accelerator_detail = apply(
+            ["settings", "put", "system", "accelerometer_rotation", "0"]
+        )
+        user_ok, user_detail = apply(["settings", "put", "system", "user_rotation", "0"])
+        locked = accelerator_ok and user_ok
+        detail = f"accelerometer_rotation: {accelerator_detail}; user_rotation: {user_detail}"
+
+    fixed, fixed_detail = apply(["wm", "fixed-to-user-rotation", "enabled"])
+    if not fixed:
+        fixed, fixed_detail = apply(["cmd", "window", "fixed-to-user-rotation", "enabled"])
+    if not fixed and "unknown command" not in fixed_detail.lower():
+        logger.warning("fixed-to-user-rotation unavailable device_id=%s detail=%s", device_id, fixed_detail)
+    if not locked:
+        logger.warning("portrait relock after monkey failed device_id=%s detail=%s", device_id, detail)
+    return locked, detail
 
 
 def install_apk(
@@ -469,6 +487,205 @@ def run_shell_command(
         return False, "adb command not found"
     except Exception as exc:
         return False, f"adb shell error: {exc}"
+
+
+@dataclass(frozen=True)
+class OrientationState:
+    """Device rotation preferences saved before a dynamic trace."""
+
+    accelerometer_rotation: str | None
+    user_rotation: str | None
+    window_rotation: str | None = None
+    ignore_orientation_request: str | None = None
+    fixed_to_user_rotation: str | None = None
+
+    @property
+    def portrait_applied(self) -> bool:
+        return self.window_rotation is not None or self.accelerometer_rotation is not None
+
+
+def lock_portrait_orientation(device_id: str) -> OrientationState:
+    """Prefer portrait on every device; override app requests when supported."""
+    saved_settings: dict[str, str] = {}
+    for name in ("accelerometer_rotation", "user_rotation"):
+        ok, value = run_shell_command(
+            ["settings", "get", "system", name], device_id=device_id, timeout=10
+        )
+        if not ok:
+            raise RuntimeError(f"读取设备旋转设置失败 ({name}): {value}")
+        saved_settings[name] = value.strip()
+
+    rotation_ok, rotation_output = run_shell_command(
+        ["cmd", "window", "user-rotation"], device_id=device_id, timeout=10
+    )
+    ignore_ok, ignore_output = run_shell_command(
+        ["cmd", "window", "get-ignore-orientation-request"], device_id=device_id, timeout=10
+    )
+    fixed_ok, fixed_output = run_shell_command(
+        ["cmd", "window", "fixed-to-user-rotation"], device_id=device_id, timeout=10
+    )
+    fixed_mode = fixed_output.strip() if fixed_ok and fixed_output.strip() in {
+        "default", "disabled", "enabled"
+    } else None
+    rotation = rotation_output.strip() if rotation_ok else ""
+    ignore_match = re.search(r"ignoreOrientationRequest\s+(true|false)\b", ignore_output)
+    has_window_override = bool(
+        re.fullmatch(r"free|lock [0-3]", rotation) and ignore_ok and ignore_match
+    )
+    if has_window_override:
+        if fixed_mode is not None:
+            fixed_set_ok, fixed_set_detail = run_shell_command(
+                ["cmd", "window", "fixed-to-user-rotation", "enabled"],
+                device_id=device_id, timeout=10,
+            )
+            if not fixed_set_ok or "Unknown command" in fixed_set_detail:
+                fixed_mode = None
+        window_state = OrientationState(
+            accelerometer_rotation=None,
+            user_rotation=None,
+            window_rotation=rotation,
+            ignore_orientation_request=ignore_match.group(1),
+            fixed_to_user_rotation=fixed_mode,
+        )
+        for index, command in enumerate((
+            ["cmd", "window", "set-ignore-orientation-request", "true"],
+            ["cmd", "window", "user-rotation", "lock", "0"],
+        )):
+            ok, detail = run_shell_command(command, device_id=device_id, timeout=10)
+            unsupported = any(
+                marker in detail.lower()
+                for marker in ("unknown command", "unrecognized command", "not supported")
+            )
+            if not ok or unsupported:
+                restored, restore_detail = restore_orientation(
+                    OrientationState(
+                        None, None,
+                        ignore_orientation_request=ignore_match.group(1) if index == 1 else None,
+                        fixed_to_user_rotation=fixed_mode,
+                    ),
+                    device_id,
+                )
+                if not restored:
+                    raise RuntimeError(f"恢复设备原旋转方向失败: {restore_detail}")
+                break
+        else:
+            return window_state
+
+    settings_state = OrientationState(
+        accelerometer_rotation=saved_settings["accelerometer_rotation"],
+        user_rotation=saved_settings["user_rotation"],
+    )
+    changed: list[str] = []
+    for name in ("accelerometer_rotation", "user_rotation"):
+        command = ["settings", "put", "system", name, "0"]
+        ok, detail = run_shell_command(command, device_id=device_id, timeout=10)
+        if not ok:
+            rollback = OrientationState(
+                accelerometer_rotation=saved_settings["accelerometer_rotation"] if "accelerometer_rotation" in changed else None,
+                user_rotation=saved_settings["user_rotation"] if "user_rotation" in changed else None,
+            )
+            restored, restore_detail = restore_orientation(rollback, device_id)
+            if not restored:
+                raise RuntimeError(f"恢复设备原旋转设置失败: {restore_detail}")
+            if "WRITE_SETTINGS" in detail or "Permission denial" in detail:
+                return OrientationState(None, None)
+            raise RuntimeError(f"锁定设备竖屏失败 ({' '.join(command)}): {detail}")
+        changed.append(name)
+    return settings_state
+
+
+def restore_orientation(state: OrientationState, device_id: str) -> tuple[bool, str]:
+    """Restore the device preferences saved by lock_portrait_orientation."""
+    commands: list[list[str]] = []
+    if state.fixed_to_user_rotation is not None:
+        commands.append(
+            ["cmd", "window", "fixed-to-user-rotation", state.fixed_to_user_rotation]
+        )
+    if state.ignore_orientation_request is not None:
+        commands.append(
+            ["cmd", "window", "set-ignore-orientation-request", state.ignore_orientation_request]
+        )
+    if state.window_rotation is not None:
+        commands.append(["cmd", "window", "user-rotation", *state.window_rotation.split()])
+    for name, value in (
+        ("accelerometer_rotation", state.accelerometer_rotation),
+        ("user_rotation", state.user_rotation),
+    ):
+        if value is None:
+            continue
+        if value == "null":
+            commands.append(["settings", "delete", "system", name])
+        else:
+            commands.append(["settings", "put", "system", name, value])
+
+    errors: list[str] = []
+    for command in commands:
+        ok, detail = run_shell_command(command, device_id=device_id, timeout=10)
+        if not ok or "Unknown command" in detail:
+            errors.append(f"{' '.join(command)}: {detail}")
+    return not errors, " | ".join(errors)
+
+
+def reassert_portrait_orientation(state: OrientationState, device_id: str) -> tuple[bool, str]:
+    """Reapply portrait if a running app or device policy changes the rotation."""
+    if not state.portrait_applied:
+        return True, "portrait controls unavailable"
+    if state.window_rotation is not None:
+        checks = [
+            ["cmd", "window", "get-ignore-orientation-request"],
+            ["cmd", "window", "user-rotation"],
+        ]
+        if state.fixed_to_user_rotation is not None:
+            checks.append(["cmd", "window", "fixed-to-user-rotation"])
+        values: list[str] = []
+        for command in checks:
+            ok, detail = run_shell_command(command, device_id=device_id, timeout=10)
+            if not ok:
+                return False, f"{' '.join(command)}: {detail}"
+            values.append(detail.strip())
+        if (
+            "ignoreOrientationRequest true" in values[0]
+            and values[1] == "lock 0"
+            and (state.fixed_to_user_rotation is None or values[2] == "enabled")
+        ):
+            return True, "already portrait"
+        commands = [
+            ["cmd", "window", "set-ignore-orientation-request", "true"],
+            ["cmd", "window", "user-rotation", "lock", "0"],
+        ]
+        if state.fixed_to_user_rotation is not None:
+            commands.insert(0, ["cmd", "window", "fixed-to-user-rotation", "enabled"])
+    else:
+        values = []
+        for name in ("accelerometer_rotation", "user_rotation"):
+            command = ["settings", "get", "system", name]
+            ok, detail = run_shell_command(command, device_id=device_id, timeout=10)
+            if not ok:
+                return False, f"{' '.join(command)}: {detail}"
+            values.append(detail.strip())
+        if values == ["0", "0"]:
+            return True, "already portrait"
+        commands = (
+            ["settings", "put", "system", "accelerometer_rotation", "0"],
+            ["settings", "put", "system", "user_rotation", "0"],
+        )
+    for command in commands:
+        ok, detail = run_shell_command(command, device_id=device_id, timeout=10)
+        if not ok:
+            return False, f"{' '.join(command)}: {detail}"
+    if state.window_rotation is not None:
+        ok, detail = run_shell_command(
+            ["cmd", "window", "user-rotation"], device_id=device_id, timeout=10
+        )
+        if not ok or detail.strip() != "lock 0":
+            return False, f"portrait lock not retained: {detail}"
+        if state.fixed_to_user_rotation is not None:
+            ok, detail = run_shell_command(
+                ["cmd", "window", "fixed-to-user-rotation"], device_id=device_id, timeout=10
+            )
+            if not ok or detail.strip() != "enabled":
+                return False, f"fixed portrait policy not retained: {detail}"
+    return True, "portrait reapplied"
 
 
 def run_root_shell_command(

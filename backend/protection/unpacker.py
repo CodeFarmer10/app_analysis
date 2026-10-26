@@ -9,6 +9,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from phone_agent.adb.device import relock_portrait_after_monkey
 from protection.dex_filter import analyze_and_filter_dex, copy_repaired_dex_files, pkg_to_prefixes
 
 
@@ -167,11 +168,14 @@ def _start_frida_server(device_serial: str) -> None:
 
 def _launch_app(package_name: str, device_serial: str) -> None:
     _run_adb(device_serial, ["shell", "am", "force-stop", package_name], timeout=20)
-    result = _run_adb(
-        device_serial,
-        ["shell", "monkey", "-p", package_name, "-c", "android.intent.category.LAUNCHER", "1"],
-        timeout=30,
-    )
+    try:
+        result = _run_adb(
+            device_serial,
+            ["shell", "monkey", "-p", package_name, "-c", "android.intent.category.LAUNCHER", "1"],
+            timeout=30,
+        )
+    finally:
+        relock_portrait_after_monkey(device_serial)
     if "Events injected" not in (result.stdout or ""):
         raise RuntimeError(f"启动 APP 失败: {(result.stdout + result.stderr).strip()[:500]}")
 
