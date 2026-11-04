@@ -114,6 +114,24 @@ class ModelMatcherTest(unittest.TestCase):
                 )
             )
 
+    def test_jaccard_sim_splits_values_on_commas_or_spaces_and_compares_threshold(self) -> None:
+        static_result = {
+            "flutter_aot_opcode_4grams": "a,b c,d",
+        }
+
+        self.assertTrue(
+            evaluate_model_expression(
+                "jaccard_sim(flutterAotOpcode4grams,'a,b,c,d')>0.9",
+                static_result,
+            )
+        )
+        self.assertFalse(
+            evaluate_model_expression(
+                "jaccard_sim(flutterAotOpcode4grams,'a,b,c,e')>0.9",
+                static_result,
+            )
+        )
+
     def test_find_first_matching_model_returns_first_ordered_match(self) -> None:
         static_result = {"app_name": "有钱花", "code_md5": "dedb1369e3f64726e3c0ccf8bf0ac285"}
         models = [

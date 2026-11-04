@@ -54,6 +54,12 @@ const routes = [
         redirect: '/families/new',
       },
       {
+        path: 'families/recommendations/:familyId',
+        name: 'family-recommendation-detail',
+        component: () => import('../views/FamilyDetail.vue'),
+        meta: { title: '自动推荐详情', familySource: 'recommendation' },
+      },
+      {
         path: 'families/:familyId',
         name: 'family-detail',
         component: () => import('../views/FamilyDetail.vue'),

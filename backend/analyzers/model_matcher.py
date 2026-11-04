@@ -23,6 +23,10 @@ REGEX_MATCH_PATTERN = re.compile(
     r"""^(?P<field>[A-Za-z_][A-Za-z0-9_]*)\s*=~\s*/(?P<regex>.*)/$""",
     re.DOTALL,
 )
+JACCARD_SIM_PATTERN = re.compile(
+    r"""^jaccard_sim\(\s*(?P<field>[A-Za-z_][A-Za-z0-9_]*)\s*,\s*(?P<quote>['"])(?P<values>.*)(?P=quote)\s*\)\s*(?P<op>>=|<=|==|>|<)\s*(?P<threshold>\d+(?:\.\d+)?)$""",
+    re.DOTALL,
+)
 EQUALS_PATTERN = re.compile(
     r"""^(?P<field>[A-Za-z_][A-Za-z0-9_]*)\s*==\s*(?P<quote>['"])(?P<value>.*)(?P=quote)$""",
     re.DOTALL,
@@ -34,10 +38,18 @@ def _camel_to_snake(value: str) -> str:
     return re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", first_pass).lower()
 
 
+def _field_candidates(field: str) -> list[str]:
+    snake = _camel_to_snake(field)
+    digit_snake = re.sub(r"([a-z])([0-9])", r"\1_\2", snake)
+    return list(dict.fromkeys((snake, digit_snake, field)))
+
+
 def _field_value(static_result: dict[str, Any], field: str) -> str:
-    value = static_result.get(_camel_to_snake(field))
-    if value is None:
-        value = static_result.get(field)
+    value = None
+    for candidate in _field_candidates(field):
+        value = static_result.get(candidate)
+        if value is not None:
+            break
     if value is None:
         return ""
     if isinstance(value, (list, tuple, set)):
@@ -47,6 +59,10 @@ def _field_value(static_result: dict[str, Any], field: str) -> str:
 
 def _split_comma_values(value: str) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def _split_similarity_values(value: str) -> set[str]:
+    return {item.strip() for item in re.split(r"[,\s]+", value) if item.strip()}
 
 
 def _split_field_values(field: str, value: str) -> list[str]:
@@ -124,9 +140,39 @@ def _equals(expression: str, static_result: dict[str, Any]) -> bool | None:
     return _field_value(static_result, match.group("field")) == match.group("value")
 
 
+def _compare_number(actual: float, operator: str, expected: float) -> bool:
+    if operator == ">":
+        return actual > expected
+    if operator == ">=":
+        return actual >= expected
+    if operator == "<":
+        return actual < expected
+    if operator == "<=":
+        return actual <= expected
+    if operator == "==":
+        return actual == expected
+    return False
+
+
+def _jaccard_sim(expression: str, static_result: dict[str, Any]) -> bool | None:
+    match = JACCARD_SIM_PATTERN.match(expression)
+    if not match:
+        return None
+
+    actual_values = _split_similarity_values(_field_value(static_result, match.group("field")))
+    expected_values = _split_similarity_values(match.group("values"))
+    if not actual_values and not expected_values:
+        similarity = 1.0
+    elif not actual_values or not expected_values:
+        similarity = 0.0
+    else:
+        similarity = len(actual_values & expected_values) / len(actual_values | expected_values)
+    return _compare_number(similarity, match.group("op"), float(match.group("threshold")))
+
+
 def _evaluate_atom(expression: str, static_result: dict[str, Any]) -> bool:
     stripped = expression.strip()
-    for evaluator in (_content_include, _keywords_contains, _regex_match, _equals):
+    for evaluator in (_content_include, _keywords_contains, _regex_match, _jaccard_sim, _equals):
         result = evaluator(stripped, static_result)
         if result is not None:
             return result

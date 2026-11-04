@@ -68,6 +68,8 @@ class Settings(BaseSettings):
     REAL_CONTROLLER_TAGGING_MODEL: str = "qwen3-vl-235b-a22b-instruct"
     REAL_CONTROLLER_TAGGING_API_KEY: str = "sk-11c87318288d4bbbb102ab2a831a7b3c"
 
+    FAMILY_RECOMMENDATION_LLM_INTERVAL_SECONDS: float = 30.0
+
     model_config = SettingsConfigDict(
         env_file=str(BASE_DIR / ".env"),
         env_file_encoding="utf-8",

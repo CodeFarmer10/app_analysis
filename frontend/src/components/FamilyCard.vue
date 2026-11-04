@@ -6,6 +6,7 @@ import { formatDateTime } from '../utils/format'
 const props = defineProps({
   family: { type: Object, required: true },
   candidate: { type: Boolean, default: false },
+  reviewDisabled: { type: Boolean, default: false },
 })
 
 defineEmits(['view', 'review', 'rule'])
@@ -26,7 +27,7 @@ const latestTime = computed(() => formatDateTime(props.family.latestTaskAt))
 
     <div class="card-main">
       <h3 :title="family.name">{{ family.name }}</h3>
-      <p :title="family.description">{{ family.description || '暂无家族简介' }}</p>
+      <p :title="family.description">{{ family.description || (family.status === 'inference_failed' ? '模型元数据推断失败，查看详情' : '暂无家族简介') }}</p>
     </div>
 
     <div class="card-metrics">
@@ -42,7 +43,7 @@ const latestTime = computed(() => formatDateTime(props.family.latestTaskAt))
 
     <div v-if="candidate" class="card-actions">
       <a-button size="small" @click="$emit('rule', family)">家族规则</a-button>
-      <a-button type="primary" size="small" @click="$emit('review', family)">审核入库</a-button>
+      <a-button type="primary" size="small" :disabled="reviewDisabled" @click="$emit('review', family)">审核入库</a-button>
     </div>
   </article>
 </template>

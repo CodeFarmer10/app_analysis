@@ -3,12 +3,19 @@ import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import TaskRecordsTable from '../components/TaskRecordsTable.vue'
-import { getFamilyDetail, getFamilyMembers } from '../api/families'
+import {
+  getFamilyDetail,
+  getFamilyMembers,
+  getFamilyRecommendation,
+  getFamilyRecommendationMembers,
+} from '../api/families'
 import { getTaskApkDownload, getTaskPcapDownload, getTaskReportDownload } from '../api/tasks'
 import { formatDateTime } from '../utils/format'
 
 const route = useRoute()
 const router = useRouter()
+const isRecommendation = computed(() => route.meta.familySource === 'recommendation')
+const detailId = computed(() => String(route.params.familyId || ''))
 const family = ref(null)
 const members = ref([])
 const memberTotal = ref(0)
@@ -33,8 +40,9 @@ async function loadMembers(modelId) {
   membersLoading.value = true
   membersError.value = false
   try {
-    const data = await getFamilyMembers(modelId, { page: memberPage.value, size: memberPageSize })
-    if (sequence !== memberRequestSequence || route.params.familyId !== modelId) return
+    const loader = isRecommendation.value ? getFamilyRecommendationMembers : getFamilyMembers
+    const data = await loader(modelId, { page: memberPage.value, size: memberPageSize })
+    if (sequence !== memberRequestSequence || detailId.value !== modelId) return
     members.value = data?.items || []
     memberTotal.value = data?.total || 0
   } catch {
@@ -55,8 +63,9 @@ async function loadFamily(modelId) {
   familyLoading.value = true
   familyError.value = ''
   try {
-    const data = await getFamilyDetail(modelId)
-    if (sequence !== familyRequestSequence || route.params.familyId !== modelId) return
+    const loader = isRecommendation.value ? getFamilyRecommendation : getFamilyDetail
+    const data = await loader(modelId)
+    if (sequence !== familyRequestSequence || detailId.value !== modelId) return
     family.value = data
     void loadMembers(modelId)
   } catch (error) {
@@ -70,7 +79,7 @@ async function loadFamily(modelId) {
 
 function handlePageChange(pager) {
   memberPage.value = pager.current || 1
-  void loadMembers(route.params.familyId)
+  void loadMembers(detailId.value)
 }
 
 function openTask(taskId) {
@@ -89,21 +98,31 @@ async function handleDownload(taskId, type) {
   if (data?.download_url) window.open(data.download_url, '_blank', 'noopener')
 }
 
-watch(() => route.params.familyId, (modelId) => { void loadFamily(modelId) }, { immediate: true })
+watch(
+  () => [route.meta.familySource, route.params.familyId],
+  ([, modelId]) => { void loadFamily(modelId) },
+  { immediate: true },
+)
 </script>
 
 <template>
   <div class="family-page">
     <a-breadcrumb class="family-breadcrumb">
-      <a-breadcrumb-item><router-link to="/families">家族列表</router-link></a-breadcrumb-item>
-      <a-breadcrumb-item>{{ family?.name || '家族详情' }}</a-breadcrumb-item>
+      <a-breadcrumb-item>
+        <router-link :to="isRecommendation ? '/families/new' : '/families'">
+          {{ isRecommendation ? '新增家族' : '家族列表' }}
+        </router-link>
+      </a-breadcrumb-item>
+      <a-breadcrumb-item>{{ family?.name || (isRecommendation ? '自动推荐详情' : '家族详情') }}</a-breadcrumb-item>
     </a-breadcrumb>
 
     <a-spin v-if="familyLoading" :spinning="true" class="family-loading" />
     <a-result v-else-if="familyError" status="error" :title="familyError">
       <template #extra>
-        <a-button v-if="familyError === '家族不存在'" @click="router.push('/families')">返回家族列表</a-button>
-        <a-button v-else @click="loadFamily(route.params.familyId)">重试</a-button>
+        <a-button v-if="familyError === '家族不存在'" @click="router.push(isRecommendation ? '/families/new' : '/families')">
+          {{ isRecommendation ? '返回新增家族' : '返回家族列表' }}
+        </a-button>
+        <a-button v-else @click="loadFamily(detailId)">重试</a-button>
       </template>
     </a-result>
 
@@ -113,18 +132,27 @@ watch(() => route.params.familyId, (modelId) => { void loadFamily(modelId) }, { 
           <h1>{{ family.name }}</h1>
           <p class="family-subtitle">{{ family.description || '暂无家族简介' }}</p>
         </div>
-        <a-tag color="blue" class="detail-type">{{ family.type }}</a-tag>
+        <a-tag color="blue" class="detail-type">{{ family.type || '待确认' }}</a-tag>
       </div>
 
       <div class="family-overview">
         <div><span>关联数量</span><strong>{{ family.count ?? 0 }}</strong></div>
         <div><span>最近关联任务时间</span><strong>{{ formatDateTime(family.latestTaskAt) }}</strong></div>
-        <div><span>关联来源</span><strong>模型关联</strong></div>
+        <div><span>关联来源</span><strong>{{ isRecommendation ? '自动推荐' : '模型关联' }}</strong></div>
       </div>
 
       <section class="family-detail-section">
         <div class="family-section-heading"><h2>关联模型</h2></div>
-        <div class="rule-summary">{{ family.name }}（模型编号：{{ family.modelId }}）</div>
+        <div class="rule-summary">
+          {{ family.name }}（{{ isRecommendation ? `候选编号：${family.id}` : `模型编号：${family.modelId}` }}）
+        </div>
+        <div v-if="isRecommendation" class="candidate-detail-meta">
+          <span>框架：{{ family.frameworkName || '未知' }}</span>
+          <span>聚类阶段：{{ family.clusterStage || '未知' }}</span>
+          <span v-if="family.minPairSimilarity != null">家族内最小相似度：{{ Number(family.minPairSimilarity).toFixed(4) }}</span>
+          <span v-if="family.status">状态：{{ family.status }}</span>
+        </div>
+        <a-alert v-if="isRecommendation && family.failureReason" type="warning" show-icon :message="family.failureReason" class="family-notice" />
       </section>
 
       <section class="family-detail-section">
@@ -134,7 +162,7 @@ watch(() => route.params.familyId, (modelId) => { void loadFamily(modelId) }, { 
         </div>
         <a-spin :spinning="membersLoading">
           <a-result v-if="membersError" status="error" title="关联任务加载失败">
-            <template #extra><a-button @click="loadMembers(route.params.familyId)">重试</a-button></template>
+            <template #extra><a-button @click="loadMembers(detailId)">重试</a-button></template>
           </a-result>
           <a-empty v-else-if="!membersLoading && members.length === 0" description="暂无可查看的关联任务" />
           <TaskRecordsTable
@@ -154,3 +182,12 @@ watch(() => route.params.familyId, (modelId) => { void loadFamily(modelId) }, { 
 </template>
 
 <style src="./family.css"></style>
+<style scoped>
+.candidate-detail-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  margin-top: 12px;
+  color: var(--text-secondary);
+}
+</style>

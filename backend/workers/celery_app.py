@@ -1,5 +1,5 @@
 from celery import Celery
-from kombu import Queue
+from kombu import Exchange, Queue
 
 from core.config import settings
 
@@ -22,6 +22,7 @@ celery_app.conf.update(
         "workers.static_analysis",
         "workers.dynamic_trace",
         "workers.report",
+        "workers.family_recommendations",
     ),
     task_default_queue="queue_download",
     task_queues=(
@@ -29,11 +30,13 @@ celery_app.conf.update(
         Queue("queue_static"),
         Queue("queue_dynamic"),
         Queue("queue_report"),
+        Queue("queue_family", Exchange("queue_family", type="direct"), routing_key="queue_family"),
     ),
     task_routes={
         "workers.download.*": {"queue": "queue_download"},
         "workers.static_analysis.*": {"queue": "queue_static"},
         "workers.dynamic_trace.*": {"queue": "queue_dynamic"},
         "workers.report.*": {"queue": "queue_report"},
+        "workers.family_recommendations.*": {"queue": "queue_family"},
     },
 )

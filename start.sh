@@ -84,6 +84,9 @@ main() {
   start_process celery_report "${BACKEND_DIR}" \
     "${PYTHON_BIN}" -m celery -A workers.celery_app worker --loglevel=info \
     -Q queue_report -n "report@%h" -c "${CELERY_REPORT_CONCURRENCY}" --prefetch-multiplier=1
+  start_process celery_family "${BACKEND_DIR}" \
+    "${PYTHON_BIN}" -m celery -A workers.celery_app worker --loglevel=info \
+    -Q queue_family -n "family@%h" -c 1 --prefetch-multiplier=1
   start_process celery_download "${BACKEND_DIR}" \
     "${PYTHON_BIN}" -m celery -A workers.celery_app worker --loglevel=info \
     -Q queue_download -n "download@%h" -c "${CELERY_DOWNLOAD_CONCURRENCY}" --prefetch-multiplier=1

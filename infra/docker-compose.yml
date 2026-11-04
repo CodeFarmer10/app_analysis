@@ -68,6 +68,14 @@ services:
       - redis
       - minio
 
+  worker_family:
+    build:
+      context: ../backend
+    command: celery -A workers.celery_app worker -Q queue_family -n family@%h -c 1 --prefetch-multiplier=1
+    depends_on:
+      - mysql
+      - redis
+
   worker_download:
     build:
       context: ../backend
