@@ -275,7 +275,9 @@ def update_task(task_id: str, fields: dict[str, Any]) -> int:
     return rows
 
 
-def list_tasks(filters: dict[str, Any], page: int, size: int) -> tuple[list[dict], int]:
+def list_tasks(
+    filters: dict[str, Any], page: int, size: int, include_total: bool = True
+) -> tuple[list[dict], int | None]:
     where_clauses = ["1 = 1"]
     params: list[Any] = []
 
@@ -323,16 +325,21 @@ def list_tasks(filters: dict[str, Any], page: int, size: int) -> tuple[list[dict
 
     where_sql = " AND ".join(where_clauses)
 
-    total_sql = f"""
-        SELECT COUNT(*) AS total
-        FROM tasks t
-        LEFT JOIN static_results sr ON sr.task_id = t.id
-        WHERE {where_sql}
-    """
-    total_row = fetch_one(total_sql, tuple(params))
-    total = int(total_row["total"]) if total_row else 0
+    needs_static_filter = bool(name or package_name)
+    count_join = "LEFT JOIN static_results sr ON sr.task_id = t.id" if needs_static_filter else ""
+    total = None
+    if include_total:
+        total_sql = f"""
+            SELECT COUNT(*) AS total
+            FROM tasks t
+            {count_join}
+            WHERE {where_sql}
+        """
+        total_row = fetch_one(total_sql, tuple(params))
+        total = int(total_row["total"]) if total_row else 0
 
     offset = (page - 1) * size
+    page_join = "LEFT JOIN static_results sr ON sr.task_id = t.id" if needs_static_filter else ""
     list_sql = f"""
         SELECT
             t.id,
@@ -354,12 +361,18 @@ def list_tasks(filters: dict[str, Any], page: int, size: int) -> tuple[list[dict
             d.serial AS device_serial,
             t.created_at,
             t.updated_at
-        FROM tasks t
+        FROM (
+            SELECT t.id, t.created_at
+            FROM tasks t
+            {page_join}
+            WHERE {where_sql}
+            ORDER BY t.created_at DESC, t.id DESC
+            LIMIT %s OFFSET %s
+        ) page
+        JOIN tasks t ON t.id = page.id
         LEFT JOIN static_results sr ON sr.task_id = t.id
         LEFT JOIN devices d ON d.id = t.device_id
-        WHERE {where_sql}
-        ORDER BY t.created_at DESC, t.id DESC
-        LIMIT %s OFFSET %s
+        ORDER BY page.created_at DESC, page.id DESC
     """
     items = fetch_all(list_sql, tuple([*params, size, offset]))
     return items, total

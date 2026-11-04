@@ -46,6 +46,9 @@ CREATE TABLE IF NOT EXISTS tasks (
   KEY idx_tasks_status (status),
   KEY idx_tasks_created_at (created_at),
   KEY idx_tasks_user_id (user_id),
+  KEY idx_tasks_user_created_id (user_id, created_at, id),
+  KEY idx_tasks_user_status_created_id (user_id, status, created_at, id),
+  KEY idx_tasks_status_created_id (status, created_at, id),
   KEY idx_tasks_batch_id (batch_id),
   KEY idx_tasks_priority (priority)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

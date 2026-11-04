@@ -77,6 +77,7 @@ async def list_task_items(
     end: str | None = Query(default=None),
     page: int = Query(default=1, ge=1),
     size: int = Query(default=20, ge=1, le=100),
+    include_total: bool = Query(default=True),
     current_user: dict = Depends(get_current_user),
 ):
     current_role = str(current_user.get("role") or "").strip().lower()
@@ -91,7 +92,9 @@ async def list_task_items(
         "end": parse_datetime_filter(end, "end"),
         "owner_user_id": owner_user_id,
     }
-    items, total, normalized_page, normalized_size = get_task_list(filters, page, size)
+    items, total, normalized_page, normalized_size = get_task_list(
+        filters, page, size, include_total=include_total
+    )
     data = TaskListResponse(
         items=items,
         total=total,

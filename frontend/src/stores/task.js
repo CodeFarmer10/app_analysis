@@ -25,12 +25,13 @@ export const useTaskStore = defineStore('task', {
   },
 
   actions: {
-    async fetchTasks() {
+    async fetchTasks({ refreshTotal = true } = {}) {
       this.loading = true
       try {
         const params = {
           page: this.page,
           size: this.size,
+          include_total: refreshTotal,
           md5: this.filters.md5 || undefined,
           name: this.filters.name || undefined,
           task_description: this.filters.task_description || undefined,
@@ -41,7 +42,7 @@ export const useTaskStore = defineStore('task', {
         }
         const data = await getTaskList(params)
         this.tasks = data.items || []
-        this.total = data.total || 0
+        if (data.total != null) this.total = data.total
         this.page = data.page || this.page
         this.size = data.size || this.size
       } finally {

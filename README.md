@@ -16,6 +16,7 @@
 
 1. 使用 MySQL 客户端连接到目标数据库实例
 2. 执行初始化脚本：`backend/migrations/v1_init.sql`
+   已有数据库升级任务列表索引时，单独执行可重复运行的 `backend/migrations/v3_task_list_indexes.sql`。
 3. 手动插入一条管理员用户记录（`users.password_hash` 使用 bcrypt 预生成哈希）
 4. 可选：运行连接测试脚本 `backend/scripts/db_test.py` 验证数据库连通性
 

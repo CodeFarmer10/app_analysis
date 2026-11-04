@@ -596,7 +596,8 @@ def get_task_list(
     filters: dict[str, Any],
     page: int,
     size: int,
-) -> tuple[list[dict], int, int, int]:
+    include_total: bool = True,
+) -> tuple[list[dict], int | None, int, int]:
     normalized_page = max(page, 1)
     normalized_size = min(max(size, 1), 100)
 
@@ -610,7 +611,7 @@ def get_task_list(
         "end": filters.get("end"),
         "owner_user_id": filters.get("owner_user_id"),
     }
-    items, total = list_tasks(normalized_filters, normalized_page, normalized_size)
+    items, total = list_tasks(normalized_filters, normalized_page, normalized_size, include_total)
 
     enriched_items: list[dict[str, Any]] = []
     for item in items:

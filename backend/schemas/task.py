@@ -77,6 +77,6 @@ class TaskListItem(BaseModel):
 
 class TaskListResponse(BaseModel):
     items: list[TaskListItem]
-    total: int
+    total: int | None
     page: int
     size: int

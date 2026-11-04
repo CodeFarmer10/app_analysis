@@ -13,6 +13,7 @@ const taskStore = useTaskStore()
 
 const showUploadModal = ref(false)
 const pollingActive = ref(false)
+let pollsSinceTotal = 0
 
 const searchForm = reactive({
   md5: '',
@@ -54,7 +55,8 @@ const pagination = computed(() => ({
 }))
 
 const { start: startPolling, stop: stopPolling } = usePolling(async () => {
-  await taskStore.fetchTasks()
+  pollsSinceTotal += 1
+  await taskStore.fetchTasks({ refreshTotal: pollsSinceTotal % 10 === 0 })
   syncPollingState()
 }, 30000)
 
@@ -125,7 +127,8 @@ async function handleReset() {
 
 async function handleTableChange(pager) {
   taskStore.setPage(pager.current || 1, pager.pageSize || taskStore.size)
-  await fetchList()
+  await taskStore.fetchTasks({ refreshTotal: false })
+  syncPollingState()
 }
 
 async function handleModalSuccess() {
