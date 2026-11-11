@@ -158,7 +158,7 @@ class ECaptureParser:
         "http.request_in", "http.response_in", "http.request.method", "http.host",
         "http.request.uri", "http.request.full_uri", "http.response.code", "http.request.line",
         "http.response.line", "http.file_data", "http2.streamid", "http2.type",
-        "http2.flags.end_stream", "http2.request_in", "http2.response_in", "http2.headers.method",
+        "http2.flags.end_stream", "http2.headers.method",
         "http2.headers.scheme", "http2.headers.authority", "http2.headers.path", "http2.headers.status",
         "http2.header.name", "http2.header.value", "http2.data.data",
     ]

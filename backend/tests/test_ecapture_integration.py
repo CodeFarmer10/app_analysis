@@ -173,6 +173,8 @@ class ECaptureParserTest(unittest.TestCase):
 
         self.assertIn("ek", command)
         self.assertNotIn("fields", command)
+        self.assertNotIn("http2.request_in", command)
+        self.assertNotIn("http2.response_in", command)
 
     def test_http1_scheme_uses_tls_evidence_rather_than_port(self) -> None:
         layers = {
