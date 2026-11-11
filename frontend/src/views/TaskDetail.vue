@@ -37,6 +37,7 @@ const dynamicResults = ref({
 })
 const dynamicSummary = ref({})
 const stepTrafficLogs = ref({})
+const stepHttpsUrls = ref({})
 
 const terminalStatusSet = new Set(TASK_TERMINAL_STATUSES)
 const staticReadyStatusSet = new Set(['waiting_device', 'dynamic_tracing', 'dynamic_failed', 'completed'])
@@ -133,6 +134,7 @@ function resetResultState() {
   dynamicResults.value = { items: [], total: 0, page: 1, size: 20 }
   dynamicSummary.value = {}
   stepTrafficLogs.value = {}
+  stepHttpsUrls.value = {}
 }
 
 function syncPollingState() {
@@ -180,6 +182,7 @@ async function fetchDynamicResult(options = {}) {
     dynamicResults.value = { items: [], total: 0, page: 1, size: 20 }
     dynamicSummary.value = {}
     stepTrafficLogs.value = {}
+    stepHttpsUrls.value = {}
     return
   }
 
@@ -202,6 +205,7 @@ async function fetchDynamicResult(options = {}) {
     }
     dynamicSummary.value = data?.dynamic_summary || {}
     stepTrafficLogs.value = data?.step_traffic_logs || {}
+    stepHttpsUrls.value = data?.step_https_urls || {}
   } finally {
     dynamicLoading.value = false
   }
@@ -372,6 +376,7 @@ onBeforeUnmount(() => {
             :dynamic-results="dynamicResults"
             :dynamic-summary="dynamicSummary"
             :step-traffic-logs="stepTrafficLogs"
+            :step-https-urls="stepHttpsUrls"
             :loading="dynamicLoading"
             @change-dynamic-page="handleDynamicPageChange"
           />

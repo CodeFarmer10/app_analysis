@@ -647,10 +647,70 @@ class RecoveryApkRoundTripTest(unittest.TestCase):
 
 
 class PerformDeviceRecoveryTest(unittest.TestCase):
+    def test_recovery_skips_reboot_when_device_is_already_healthy(self) -> None:
+        parent = MagicMock()
+        patches = (
+            patch("services.device_recovery_service.validate_health_apk"),
+            patch("services.device_recovery_service.check_device_health"),
+            patch("services.device_recovery_service.run_adb"),
+            patch("services.device_recovery_service.wait_for_device_boot"),
+            patch("services.device_recovery_service.remove_residual_package"),
+            patch("services.device_recovery_service.remove_residual_package_data"),
+            patch("services.device_recovery_service.cleanup_project_temp_files"),
+            patch("services.device_recovery_service.require_device_health_stable"),
+            patch("services.device_recovery_service.require_process_command"),
+            patch("services.device_recovery_service.verify_apk_round_trip"),
+            patch.object(settings, "DEVICE_RECOVERY_APK_PATH", str(HEALTH_APK)),
+            patch.object(settings, "DEVICE_RECOVERY_APK_PACKAGE", HEALTH_PACKAGE),
+        )
+
+        with patches[0] as validate_mock, patches[1] as current_health_mock, \
+            patches[2] as run_mock, patches[3] as wait_mock, \
+            patches[4] as cleanup_mock, patches[5] as data_cleanup_mock, \
+            patches[6] as temp_cleanup_mock, patches[7] as stable_health_mock, \
+            patches[8] as process_mock, patches[9] as round_trip_mock, \
+            patches[10], patches[11]:
+            current_health_mock.return_value = DeviceHealthResult(
+                "healthy", None, 221230776
+            )
+            parent.attach_mock(validate_mock, "validate")
+            parent.attach_mock(current_health_mock, "current_health")
+            parent.attach_mock(cleanup_mock, "cleanup")
+            parent.attach_mock(data_cleanup_mock, "cleanup_data")
+            parent.attach_mock(temp_cleanup_mock, "cleanup_temp")
+            parent.attach_mock(stable_health_mock, "stable_health")
+            parent.attach_mock(process_mock, "process")
+            parent.attach_mock(round_trip_mock, "round_trip")
+
+            perform_device_recovery(
+                {
+                    "serial": "serial-1",
+                    "quarantine_package_name": "com.example.residual",
+                }
+            )
+
+        run_mock.assert_not_called()
+        wait_mock.assert_not_called()
+        self.assertEqual(
+            parent.mock_calls,
+            [
+                call.validate(HEALTH_APK, HEALTH_PACKAGE),
+                call.current_health("serial-1"),
+                call.cleanup("serial-1", "com.example.residual"),
+                call.cleanup_data("serial-1", "com.example.residual"),
+                call.cleanup_temp("serial-1"),
+                call.stable_health("serial-1"),
+                call.process("serial-1"),
+                call.round_trip("serial-1", HEALTH_APK, HEALTH_PACKAGE),
+                call.stable_health("serial-1"),
+            ],
+        )
+
     def test_recovery_executes_only_the_approved_order(self) -> None:
         parent = MagicMock()
         patches = (
             patch("services.device_recovery_service.validate_health_apk"),
+            patch("services.device_recovery_service.check_device_health"),
             patch("services.device_recovery_service.run_adb"),
             patch("services.device_recovery_service.wait_for_device_boot"),
             patch("services.device_recovery_service.remove_residual_package"),
@@ -664,18 +724,23 @@ class PerformDeviceRecoveryTest(unittest.TestCase):
             patch.object(settings, "DEVICE_RECOVERY_REBOOT_TIMEOUT_SECONDS", 180),
         )
 
-        with patches[0] as validate_mock, patches[1] as run_mock, patches[2] as wait_mock, \
-            patches[3] as cleanup_mock, patches[4] as data_cleanup_mock, \
-            patches[5] as temp_cleanup_mock, patches[6] as health_mock, \
-            patches[7] as process_mock, patches[8] as round_trip_mock, \
-            patches[9], patches[10], patches[11]:
+        with patches[0] as validate_mock, patches[1] as current_health_mock, \
+            patches[2] as run_mock, patches[3] as wait_mock, \
+            patches[4] as cleanup_mock, patches[5] as data_cleanup_mock, \
+            patches[6] as temp_cleanup_mock, patches[7] as stable_health_mock, \
+            patches[8] as process_mock, patches[9] as round_trip_mock, \
+            patches[10], patches[11], patches[12]:
+            current_health_mock.return_value = DeviceHealthResult(
+                "offline", "adb get-state returned unavailable", None
+            )
             parent.attach_mock(validate_mock, "validate")
+            parent.attach_mock(current_health_mock, "current_health")
             parent.attach_mock(run_mock, "run")
             parent.attach_mock(wait_mock, "wait")
             parent.attach_mock(cleanup_mock, "cleanup")
             parent.attach_mock(data_cleanup_mock, "cleanup_data")
             parent.attach_mock(temp_cleanup_mock, "cleanup_temp")
-            parent.attach_mock(health_mock, "health")
+            parent.attach_mock(stable_health_mock, "health")
             parent.attach_mock(process_mock, "process")
             parent.attach_mock(round_trip_mock, "round_trip")
 
@@ -690,6 +755,7 @@ class PerformDeviceRecoveryTest(unittest.TestCase):
             parent.mock_calls,
             [
                 call.validate(HEALTH_APK, HEALTH_PACKAGE),
+                call.current_health("serial-1"),
                 call.run("serial-1", ["reboot"]),
                 call.wait("serial-1", timeout_seconds=180),
                 call.cleanup("serial-1", "com.example.residual"),

@@ -44,6 +44,15 @@ class Settings(BaseSettings):
 
     DYNAMIC_TRACE_TASK_TEXT: str = "模拟操作探索APP功能"
     DYNAMIC_TRACE_RESULT_DIR: str = str(BASE_DIR / "data" / "dynamic_trace")
+    ECAPTURE_ENABLED: bool = True
+    ECAPTURE_BINARY_PATH: str = str(
+        BASE_DIR / "tools" / "ecapture" / "ecapture-v1.5.2-android-arm64" / "ecapture"
+    )
+    ECAPTURE_DEVICE_PATH: str = "/data/local/tmp/ecapture"
+    ECAPTURE_IFACE: str = "wlan0"
+    ECAPTURE_SSL_VERSION: str = "boringssl_a_15"
+    ECAPTURE_BODY_PREVIEW_LIMIT: int = 2048
+    NETWORK_HOOK_ENABLED: bool = True
     DEVICE_RECOVERY_SCAN_INTERVAL_SECONDS: int = 60
     DEVICE_RECOVERY_REBOOT_TIMEOUT_SECONDS: int = 180
     DEVICE_RECOVERY_INSTALL_TIMEOUT_SECONDS: int = 120

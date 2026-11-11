@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   error_message TEXT NULL,
   apk_path VARCHAR(512) NULL,
   pcap_path VARCHAR(512) NULL,
+  ecapture_pcapng_path VARCHAR(512) NULL,
   report_path VARCHAR(512) NULL,
   run_log_path VARCHAR(512) NULL,
   device_id VARCHAR(36) NULL,
@@ -75,6 +76,22 @@ CREATE TABLE IF NOT EXISTS devices (
   UNIQUE KEY uk_devices_serial (serial),
   KEY idx_devices_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Backward-compatible eCapture PCAPNG path for existing task tables.
+SET @tasks_ecapture_pcapng_path_col := (
+  SELECT COUNT(*) FROM information_schema.columns
+  WHERE table_schema = DATABASE()
+    AND table_name = 'tasks'
+    AND column_name = 'ecapture_pcapng_path'
+);
+SET @sql_tasks_ecapture_pcapng_path_col := IF(
+  @tasks_ecapture_pcapng_path_col = 0,
+  'ALTER TABLE tasks ADD COLUMN ecapture_pcapng_path VARCHAR(512) NULL AFTER pcap_path',
+  'SELECT 1'
+);
+PREPARE stmt_tasks_ecapture_pcapng_path_col FROM @sql_tasks_ecapture_pcapng_path_col;
+EXECUTE stmt_tasks_ecapture_pcapng_path_col;
+DEALLOCATE PREPARE stmt_tasks_ecapture_pcapng_path_col;
 
 CREATE TABLE IF NOT EXISTS models (
   model_id VARCHAR(36) PRIMARY KEY,
@@ -317,6 +334,176 @@ CREATE TABLE IF NOT EXISTS frida_logs (
     FOREIGN KEY (dynamic_result_id) REFERENCES dynamic_results(id)
     ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS frida_http_logs (
+  frida_http_log_id VARCHAR(36) PRIMARY KEY,
+  task_id VARCHAR(36) NOT NULL,
+  dynamic_result_id VARCHAR(36) NULL,
+  seq INT NOT NULL,
+  event_time DATETIME(6) NULL,
+  hook_library VARCHAR(32) NOT NULL DEFAULT 'unknown',
+  hook_class VARCHAR(256) NULL,
+  hook_method VARCHAR(128) NULL,
+  http_method VARCHAR(16) NULL,
+  http_path TEXT NULL,
+  domain VARCHAR(512) NULL,
+  url TEXT NULL,
+  request_headers_json JSON NULL,
+  request_body_preview TEXT NULL,
+  response_status SMALLINT UNSIGNED NULL,
+  response_headers_json JSON NULL,
+  response_body_preview TEXT NULL,
+  content_type VARCHAR(256) NULL,
+  parse_status VARCHAR(16) NOT NULL DEFAULT 'partial',
+  is_complete TINYINT(1) NOT NULL DEFAULT 0,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_frida_http_logs_task (task_id),
+  KEY idx_frida_http_logs_task_event_time (task_id, event_time),
+  KEY idx_frida_http_logs_dynamic_result_id (dynamic_result_id),
+  KEY idx_frida_http_logs_url (url(191)),
+  CONSTRAINT fk_frida_http_logs_task_id
+    FOREIGN KEY (task_id) REFERENCES tasks(id)
+    ON DELETE CASCADE,
+  CONSTRAINT fk_frida_http_logs_dynamic_result_id
+    FOREIGN KEY (dynamic_result_id) REFERENCES dynamic_results(id)
+    ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS ecapture_logs (
+  id VARCHAR(36) PRIMARY KEY,
+  task_id VARCHAR(36) NOT NULL,
+  dynamic_result_id VARCHAR(36) NULL,
+  seq INT NOT NULL,
+  src_ip VARCHAR(45) NULL,
+  dst_ip VARCHAR(45) NULL,
+  src_port SMALLINT UNSIGNED NULL,
+  dst_port SMALLINT UNSIGNED NULL,
+  protocol VARCHAR(32) NOT NULL DEFAULT 'HTTPS',
+  domain VARCHAR(512) NULL,
+  url TEXT NULL,
+  resolved_ip VARCHAR(45) NULL,
+  ip_country VARCHAR(128) NULL,
+  is_up TINYINT(1) NOT NULL DEFAULT 0,
+  is_real_controller TINYINT(1) NOT NULL DEFAULT 0,
+  http_method VARCHAR(16) NULL,
+  http_path TEXT NULL,
+  event_time DATETIME(6) NULL,
+  request_time DATETIME(6) NULL,
+  response_time DATETIME(6) NULL,
+  response_status SMALLINT UNSIGNED NULL,
+  request_headers_json JSON NULL,
+  request_body_preview TEXT NULL,
+  response_headers_json JSON NULL,
+  response_body_preview TEXT NULL,
+  content_type VARCHAR(256) NULL,
+  capture_source VARCHAR(64) NOT NULL DEFAULT 'ecapture',
+  parse_status VARCHAR(16) NOT NULL DEFAULT 'partial',
+  is_complete TINYINT(1) NOT NULL DEFAULT 0,
+  process_name VARCHAR(256) NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_ecapture_logs_task (task_id),
+  KEY idx_ecapture_logs_task_event_time (task_id, event_time),
+  KEY idx_ecapture_logs_dynamic_result_id (dynamic_result_id),
+  KEY idx_ecapture_logs_domain (domain),
+  CONSTRAINT fk_ecapture_logs_task_id
+    FOREIGN KEY (task_id) REFERENCES tasks(id)
+    ON DELETE CASCADE,
+  CONSTRAINT fk_ecapture_logs_dynamic_result_id
+    FOREIGN KEY (dynamic_result_id) REFERENCES dynamic_results(id)
+    ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Capture sources remain independent; existing legacy merge columns are unused.
+SET @ecapture_missing_event_time := (SELECT COUNT(*) = 0 FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'ecapture_logs' AND column_name = 'event_time');
+SET @ecapture_sql_event_time := IF(@ecapture_missing_event_time, 'ALTER TABLE ecapture_logs ADD COLUMN event_time DATETIME(6) NULL AFTER http_path', 'SELECT 1');
+PREPARE stmt_ecapture_event_time FROM @ecapture_sql_event_time;
+EXECUTE stmt_ecapture_event_time;
+DEALLOCATE PREPARE stmt_ecapture_event_time;
+
+ALTER TABLE frida_http_logs MODIFY COLUMN event_time DATETIME(6) NULL;
+
+-- Idempotent transaction columns for databases created before HTTP transaction storage.
+SET @ecapture_missing_request_time := (SELECT COUNT(*) = 0 FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'ecapture_logs' AND column_name = 'request_time');
+SET @ecapture_sql_request_time := IF(@ecapture_missing_request_time, 'ALTER TABLE ecapture_logs ADD COLUMN request_time DATETIME NULL AFTER http_path', 'SELECT 1');
+PREPARE stmt_ecapture_request_time FROM @ecapture_sql_request_time;
+EXECUTE stmt_ecapture_request_time;
+DEALLOCATE PREPARE stmt_ecapture_request_time;
+
+SET @ecapture_missing_response_time := (SELECT COUNT(*) = 0 FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'ecapture_logs' AND column_name = 'response_time');
+SET @ecapture_sql_response_time := IF(@ecapture_missing_response_time, 'ALTER TABLE ecapture_logs ADD COLUMN response_time DATETIME NULL AFTER request_time', 'SELECT 1');
+PREPARE stmt_ecapture_response_time FROM @ecapture_sql_response_time;
+EXECUTE stmt_ecapture_response_time;
+DEALLOCATE PREPARE stmt_ecapture_response_time;
+
+ALTER TABLE ecapture_logs MODIFY COLUMN event_time DATETIME(6) NULL,
+  MODIFY COLUMN request_time DATETIME(6) NULL,
+  MODIFY COLUMN response_time DATETIME(6) NULL;
+
+SET @ecapture_missing_time_index := (SELECT COUNT(*) = 0 FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'ecapture_logs' AND index_name = 'idx_ecapture_logs_task_event_time');
+SET @ecapture_sql_time_index := IF(@ecapture_missing_time_index, 'ALTER TABLE ecapture_logs ADD KEY idx_ecapture_logs_task_event_time (task_id, event_time)', 'SELECT 1');
+PREPARE stmt_ecapture_time_index FROM @ecapture_sql_time_index;
+EXECUTE stmt_ecapture_time_index;
+DEALLOCATE PREPARE stmt_ecapture_time_index;
+
+SET @frida_missing_time_index := (SELECT COUNT(*) = 0 FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'frida_http_logs' AND index_name = 'idx_frida_http_logs_task_event_time');
+SET @frida_sql_time_index := IF(@frida_missing_time_index, 'ALTER TABLE frida_http_logs ADD KEY idx_frida_http_logs_task_event_time (task_id, event_time)', 'SELECT 1');
+PREPARE stmt_frida_time_index FROM @frida_sql_time_index;
+EXECUTE stmt_frida_time_index;
+DEALLOCATE PREPARE stmt_frida_time_index;
+
+SET @ecapture_missing_response_status := (SELECT COUNT(*) = 0 FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'ecapture_logs' AND column_name = 'response_status');
+SET @ecapture_sql_response_status := IF(@ecapture_missing_response_status, 'ALTER TABLE ecapture_logs ADD COLUMN response_status SMALLINT UNSIGNED NULL AFTER response_time', 'SELECT 1');
+PREPARE stmt_ecapture_response_status FROM @ecapture_sql_response_status;
+EXECUTE stmt_ecapture_response_status;
+DEALLOCATE PREPARE stmt_ecapture_response_status;
+
+SET @ecapture_missing_request_headers := (SELECT COUNT(*) = 0 FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'ecapture_logs' AND column_name = 'request_headers_json');
+SET @ecapture_sql_request_headers := IF(@ecapture_missing_request_headers, 'ALTER TABLE ecapture_logs ADD COLUMN request_headers_json JSON NULL AFTER response_status', 'SELECT 1');
+PREPARE stmt_ecapture_request_headers FROM @ecapture_sql_request_headers;
+EXECUTE stmt_ecapture_request_headers;
+DEALLOCATE PREPARE stmt_ecapture_request_headers;
+
+SET @ecapture_missing_request_body := (SELECT COUNT(*) = 0 FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'ecapture_logs' AND column_name = 'request_body_preview');
+SET @ecapture_sql_request_body := IF(@ecapture_missing_request_body, 'ALTER TABLE ecapture_logs ADD COLUMN request_body_preview TEXT NULL AFTER request_headers_json', 'SELECT 1');
+PREPARE stmt_ecapture_request_body FROM @ecapture_sql_request_body;
+EXECUTE stmt_ecapture_request_body;
+DEALLOCATE PREPARE stmt_ecapture_request_body;
+
+SET @ecapture_missing_response_headers := (SELECT COUNT(*) = 0 FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'ecapture_logs' AND column_name = 'response_headers_json');
+SET @ecapture_sql_response_headers := IF(@ecapture_missing_response_headers, 'ALTER TABLE ecapture_logs ADD COLUMN response_headers_json JSON NULL AFTER request_body_preview', 'SELECT 1');
+PREPARE stmt_ecapture_response_headers FROM @ecapture_sql_response_headers;
+EXECUTE stmt_ecapture_response_headers;
+DEALLOCATE PREPARE stmt_ecapture_response_headers;
+
+SET @ecapture_missing_response_body := (SELECT COUNT(*) = 0 FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'ecapture_logs' AND column_name = 'response_body_preview');
+SET @ecapture_sql_response_body := IF(@ecapture_missing_response_body, 'ALTER TABLE ecapture_logs ADD COLUMN response_body_preview TEXT NULL AFTER response_headers_json', 'SELECT 1');
+PREPARE stmt_ecapture_response_body FROM @ecapture_sql_response_body;
+EXECUTE stmt_ecapture_response_body;
+DEALLOCATE PREPARE stmt_ecapture_response_body;
+
+SET @ecapture_missing_content_type := (SELECT COUNT(*) = 0 FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'ecapture_logs' AND column_name = 'content_type');
+SET @ecapture_sql_content_type := IF(@ecapture_missing_content_type, 'ALTER TABLE ecapture_logs ADD COLUMN content_type VARCHAR(256) NULL AFTER response_body_preview', 'SELECT 1');
+PREPARE stmt_ecapture_content_type FROM @ecapture_sql_content_type;
+EXECUTE stmt_ecapture_content_type;
+DEALLOCATE PREPARE stmt_ecapture_content_type;
+
+SET @ecapture_missing_capture_source := (SELECT COUNT(*) = 0 FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'ecapture_logs' AND column_name = 'capture_source');
+SET @ecapture_sql_capture_source := IF(@ecapture_missing_capture_source, 'ALTER TABLE ecapture_logs ADD COLUMN capture_source VARCHAR(64) NOT NULL DEFAULT ''ecapture'' AFTER content_type', 'SELECT 1');
+PREPARE stmt_ecapture_capture_source FROM @ecapture_sql_capture_source;
+EXECUTE stmt_ecapture_capture_source;
+DEALLOCATE PREPARE stmt_ecapture_capture_source;
+
+SET @ecapture_missing_parse_status := (SELECT COUNT(*) = 0 FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'ecapture_logs' AND column_name = 'parse_status');
+SET @ecapture_sql_parse_status := IF(@ecapture_missing_parse_status, 'ALTER TABLE ecapture_logs ADD COLUMN parse_status VARCHAR(16) NOT NULL DEFAULT ''partial'' AFTER capture_source', 'SELECT 1');
+PREPARE stmt_ecapture_parse_status FROM @ecapture_sql_parse_status;
+EXECUTE stmt_ecapture_parse_status;
+DEALLOCATE PREPARE stmt_ecapture_parse_status;
+
+SET @ecapture_missing_is_complete := (SELECT COUNT(*) = 0 FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'ecapture_logs' AND column_name = 'is_complete');
+SET @ecapture_sql_is_complete := IF(@ecapture_missing_is_complete, 'ALTER TABLE ecapture_logs ADD COLUMN is_complete TINYINT(1) NOT NULL DEFAULT 0 AFTER parse_status', 'SELECT 1');
+PREPARE stmt_ecapture_is_complete FROM @ecapture_sql_is_complete;
+EXECUTE stmt_ecapture_is_complete;
+DEALLOCATE PREPARE stmt_ecapture_is_complete;
 
 -- Backward-compatible device quarantine and recovery states for existing tables.
 SET @devices_status_needs_recovery_states := (

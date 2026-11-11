@@ -212,6 +212,7 @@ def get_task_by_id(task_id: str) -> dict | None:
             t.error_message,
             t.apk_path,
             t.pcap_path,
+            t.ecapture_pcapng_path,
             t.report_path,
             t.run_log_path,
             t.device_id,
@@ -242,6 +243,7 @@ def get_task_by_md5(md5: str) -> dict | None:
             error_message,
             apk_path,
             pcap_path,
+            ecapture_pcapng_path,
             report_path,
             run_log_path,
             device_id,
@@ -564,6 +566,36 @@ def get_traffic_logs_by_dynamic_result_ids(task_id: str, dynamic_result_ids: lis
         ORDER BY seq ASC, id ASC
     """
     return fetch_all(sql, (task_id, *normalized_ids))
+
+
+def get_https_urls_for_operations(
+    task_id: str, dynamic_result_ids: list[str], seqs: list[int],
+) -> list[dict]:
+    ids = sorted({str(value).strip() for value in dynamic_result_ids if str(value).strip()})
+    seqs = sorted({value for value in seqs if isinstance(value, int) and value >= 0})
+    conditions, values = [], []
+    if ids:
+        conditions.append(f"dynamic_result_id IN ({','.join(['%s'] * len(ids))})")
+        values.extend(ids)
+    if seqs:
+        conditions.append(
+            "((dynamic_result_id IS NULL OR dynamic_result_id = '') "
+            f"AND seq IN ({','.join(['%s'] * len(seqs))}))"
+        )
+        values.extend(seqs)
+    if not conditions:
+        return []
+    # Source tables are fixed here; all task and operation values are parameters.
+    queries = [
+        f"SELECT dynamic_result_id, seq, url FROM {table} "
+        f"WHERE task_id = %s AND ({' OR '.join(conditions)}) "
+        "AND TRIM(url) LIKE 'https://%%'"
+        for table in ('ecapture_logs', 'frida_http_logs')
+    ]
+    return fetch_all(
+        " UNION ALL ".join(queries) + " ORDER BY seq, url",
+        tuple([task_id, *values] * 2),
+    )
 
 
 def get_dynamic_result_by_seq(task_id: str, seq: int) -> dict | None:

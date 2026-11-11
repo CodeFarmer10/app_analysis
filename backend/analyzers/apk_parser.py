@@ -4,11 +4,12 @@ import hashlib
 import logging
 import re
 import shutil
+import struct
 import subprocess
 import zipfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 from androguard.core.apk import APK
 try:
@@ -24,6 +25,14 @@ except Exception:  # pragma: no cover - optional runtime dependency behavior
     pass
 
 logger = logging.getLogger(__name__)
+
+_AXML_NO_INDEX = 0xFFFFFFFF
+_AXML_RES_STRING_POOL_TYPE = 0x0001
+_AXML_RES_XML_TYPE = 0x0003
+_AXML_RES_XML_START_ELEMENT_TYPE = 0x0102
+_AXML_TYPE_STRING = 0x03
+_AXML_ANDROID_NS = "http://schemas.android.com/apk/res/android"
+_AXML_COMPONENT_TAGS = {"activity", "activity-alias", "service", "receiver", "provider"}
 
 
 ANDROID_DANGEROUS_PERMISSIONS = {
@@ -917,6 +926,8 @@ def _normalize_component_name(name: str | None, package_name: str | None) -> str
     package = str(package_name or "").strip()
     if text.startswith(".") and package:
         return f"{package}{text}"
+    if "." not in text and package:
+        return f"{package}.{text}"
     return text
 
 
@@ -982,6 +993,239 @@ def _parse_manifest_with_apkinspector(apk_path: str, package_name: str | None) -
         "_libraries": sorted(set(library_names)),
         "_features": sorted(set(feature_names)),
         "_declared_permissions": sorted(set(declared_permission_names)),
+    }
+
+
+def _axml_valid_chunk(data: bytes, offset: int) -> tuple[int, int, int] | None:
+    if offset < 0 or offset + 8 > len(data):
+        return None
+    chunk_type, header_size, size = struct.unpack_from("<HHI", data, offset)
+    if header_size < 8 or size < header_size or offset + size > len(data):
+        return None
+    return chunk_type, header_size, size
+
+
+def _iter_axml_chunks_tolerant(data: bytes, start: int = 8) -> Iterable[tuple[int, int, int, int]]:
+    offset = start
+    while offset + 8 <= len(data):
+        chunk = _axml_valid_chunk(data, offset)
+        if chunk is not None:
+            chunk_type, header_size, size = chunk
+            yield offset, chunk_type, header_size, size
+            offset += size
+            continue
+
+        found_offset = None
+        scan = offset + 4
+        max_scan = min(len(data) - 8, offset + 0x10000)
+        while scan <= max_scan:
+            candidate = _axml_valid_chunk(data, scan)
+            if candidate and candidate[0] in {
+                _AXML_RES_STRING_POOL_TYPE,
+                0x0180,
+                0x0100,
+                0x0101,
+                0x0102,
+                0x0103,
+                0x0104,
+            }:
+                found_offset = scan
+                break
+            scan += 4
+        if found_offset is None:
+            return
+        offset = found_offset
+
+
+def _decode_axml_len8(data: bytes, offset: int) -> tuple[int, int]:
+    if offset >= len(data):
+        raise ValueError("bad UTF-8 length")
+    value = data[offset]
+    offset += 1
+    if value & 0x80:
+        if offset >= len(data):
+            raise ValueError("bad UTF-8 length")
+        value = ((value & 0x7F) << 8) | data[offset]
+        offset += 1
+    return value, offset
+
+
+def _decode_axml_len16(data: bytes, offset: int) -> tuple[int, int]:
+    if offset + 2 > len(data):
+        raise ValueError("bad UTF-16 length")
+    value = struct.unpack_from("<H", data, offset)[0]
+    offset += 2
+    if value & 0x8000:
+        if offset + 2 > len(data):
+            raise ValueError("bad UTF-16 length")
+        extra = struct.unpack_from("<H", data, offset)[0]
+        offset += 2
+        value = ((value & 0x7FFF) << 16) | extra
+    return value, offset
+
+
+def _parse_axml_string_pool(data: bytes, offset: int) -> list[str]:
+    chunk_type, header_size, size = struct.unpack_from("<HHI", data, offset)
+    if chunk_type != _AXML_RES_STRING_POOL_TYPE or header_size < 28:
+        raise ValueError("invalid string pool header")
+
+    string_count, _style_count, flags, strings_start, _styles_start = struct.unpack_from("<IIIII", data, offset + 8)
+    if string_count > 10_000_000:
+        raise ValueError("unreasonable string count")
+
+    offsets_pos = offset + header_size
+    offsets_end = offsets_pos + string_count * 4
+    if offsets_end > offset + size:
+        raise ValueError("string offsets exceed pool")
+
+    string_offsets = struct.unpack_from(f"<{string_count}I", data, offsets_pos) if string_count else ()
+    base = offset + strings_start
+    utf8 = bool(flags & 0x00000100)
+
+    strings: list[str] = []
+    for relative_offset in string_offsets:
+        pos = base + relative_offset
+        try:
+            if utf8:
+                _, pos = _decode_axml_len8(data, pos)
+                byte_length, pos = _decode_axml_len8(data, pos)
+                if pos + byte_length > offset + size:
+                    raise ValueError("UTF-8 string outside pool")
+                text = data[pos : pos + byte_length].decode("utf-8", errors="replace")
+            else:
+                char_length, pos = _decode_axml_len16(data, pos)
+                byte_length = char_length * 2
+                if pos + byte_length > offset + size:
+                    raise ValueError("UTF-16 string outside pool")
+                text = data[pos : pos + byte_length].decode("utf-16le", errors="replace")
+        except Exception:
+            text = ""
+        strings.append(text)
+    return strings
+
+
+def _axml_pool_get(strings: list[str], index: int) -> str | None:
+    if index == _AXML_NO_INDEX or index < 0 or index >= len(strings):
+        return None
+    return strings[index]
+
+
+def _format_axml_typed_value(strings: list[str], data_type: int, value: int) -> str | None:
+    if data_type == _AXML_TYPE_STRING:
+        return _axml_pool_get(strings, value)
+    if data_type == 0x12:
+        return "true" if value else "false"
+    if data_type in (0x10, 0x11):
+        return str(value)
+    return None
+
+
+def _parse_axml_start_element(
+    data: bytes,
+    offset: int,
+    strings: list[str],
+) -> tuple[str | None, list[tuple[str | None, str | None, str | None]]]:
+    chunk = _axml_valid_chunk(data, offset)
+    if not chunk or chunk[0] != _AXML_RES_XML_START_ELEMENT_TYPE:
+        raise ValueError("not a start element chunk")
+    _, node_header_size, chunk_size = chunk
+
+    ext = offset + max(node_header_size, 16)
+    if ext + 20 > offset + chunk_size:
+        return None, []
+
+    _ns_idx, name_idx, attr_start, attr_size, attr_count, _, _, _ = struct.unpack_from("<IIHHHHHH", data, ext)
+    tag = _axml_pool_get(strings, name_idx)
+    if attr_count == 0:
+        return tag, []
+    if attr_size < 20 or attr_size > 0x400:
+        return tag, []
+
+    attr_base = ext + attr_start
+    chunk_end = offset + chunk_size
+    if attr_base < ext or attr_base >= chunk_end:
+        return tag, []
+
+    attrs: list[tuple[str | None, str | None, str | None]] = []
+    for index in range(min(attr_count, 4096)):
+        pos = attr_base + index * attr_size
+        if pos + 20 > chunk_end:
+            break
+        namespace_idx, name_attr_idx, raw_idx = struct.unpack_from("<III", data, pos)
+        _value_size, _res0, data_type, value_data = struct.unpack_from("<HBBI", data, pos + 12)
+
+        namespace = _axml_pool_get(strings, namespace_idx)
+        name = _axml_pool_get(strings, name_attr_idx)
+        raw = _axml_pool_get(strings, raw_idx)
+        value = raw if raw is not None else _format_axml_typed_value(strings, data_type, value_data)
+        attrs.append((namespace, name, value))
+    return tag, attrs
+
+
+def _find_axml_string_pool(data: bytes) -> list[str]:
+    for offset, chunk_type, _, _ in _iter_axml_chunks_tolerant(data, 8):
+        if chunk_type == _AXML_RES_STRING_POOL_TYPE:
+            return _parse_axml_string_pool(data, offset)
+    raise ValueError("no string pool found")
+
+
+def _parse_manifest_with_tolerant_axml(apk_path: str, package_name: str | None) -> dict[str, Any]:
+    with zipfile.ZipFile(apk_path) as archive:
+        manifest = archive.read("AndroidManifest.xml")
+
+    if len(manifest) < 8 or struct.unpack_from("<H", manifest, 0)[0] != _AXML_RES_XML_TYPE:
+        return {}
+
+    strings = _find_axml_string_pool(manifest)
+    manifest_package: str | None = None
+    activity_names: list[str] = []
+    service_names: list[str] = []
+    provider_names: list[str] = []
+    receiver_names: list[str] = []
+
+    for offset, chunk_type, _, _ in _iter_axml_chunks_tolerant(manifest, 8):
+        if chunk_type != _AXML_RES_XML_START_ELEMENT_TYPE:
+            continue
+        try:
+            tag, attrs = _parse_axml_start_element(manifest, offset, strings)
+        except Exception:
+            continue
+        if not tag:
+            continue
+
+        if tag == "manifest":
+            for namespace, name, value in attrs:
+                if namespace is None and name == "package" and value:
+                    manifest_package = value.strip() or None
+                    break
+            continue
+        if tag not in _AXML_COMPONENT_TAGS:
+            continue
+
+        component_name = None
+        for namespace, name, value in attrs:
+            if namespace == _AXML_ANDROID_NS and name == "name" and value:
+                component_name = value
+                break
+        component_name = _normalize_component_name(component_name, manifest_package or package_name)
+        if not component_name:
+            continue
+
+        if tag in {"activity", "activity-alias"}:
+            activity_names.append(component_name)
+        elif tag == "service":
+            service_names.append(component_name)
+        elif tag == "provider":
+            provider_names.append(component_name)
+        elif tag == "receiver":
+            receiver_names.append(component_name)
+
+    return {
+        "package_name": manifest_package or package_name,
+        "activities": _build_activities(activity_names, set()),
+        "services": sorted({item for item in service_names if item}),
+        "providers": sorted({item for item in provider_names if item}),
+        "_receivers": sorted({item for item in receiver_names if item}),
     }
 
 
@@ -1053,6 +1297,13 @@ def parse_apk(apk_path: str) -> dict[str, Any]:
         except Exception as exc:
             logger.warning("certificate extract failed for %s: %s", path, exc)
 
+    if used_aapt2 and not _has_component_fields(result):
+        try:
+            tolerant_result = _parse_manifest_with_tolerant_axml(str(path), result.get("package_name"))
+            result = _merge_result(result, tolerant_result)
+        except Exception as fallback_exc:
+            logger.warning("tolerant axml parse failed for %s: %s", path, fallback_exc)
+
     need_androguard_fallback = (
         not _has_core_fields(result)
         or not result.get("icon_bytes")
@@ -1073,6 +1324,13 @@ def parse_apk(apk_path: str) -> dict[str, Any]:
             apkinspector_attempted = True
         except Exception as fallback_exc:
             logger.warning("apkinspector parse failed for %s: %s", path, fallback_exc)
+
+    if not _has_component_fields(result):
+        try:
+            tolerant_result = _parse_manifest_with_tolerant_axml(str(path), result.get("package_name"))
+            result = _merge_result(result, tolerant_result)
+        except Exception as fallback_exc:
+            logger.warning("tolerant axml parse failed for %s: %s", path, fallback_exc)
 
     if not _has_core_fields(result) and not apkinspector_attempted:
         try:

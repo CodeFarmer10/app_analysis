@@ -18,6 +18,10 @@ const props = defineProps({
     type: Object,
     default: () => ({}),
   },
+  stepHttpsUrls: {
+    type: Object,
+    default: () => ({}),
+  },
   dynamicSummary: {
     type: Object,
     default: () => ({}),
@@ -103,7 +107,12 @@ function getTrafficItemsByStep(record) {
 }
 
 function rowExpandable(record) {
-  return getScreenshotItems(record).length > 0 || getTrafficItemsByStep(record).length > 0
+  return getScreenshotItems(record).length > 0 || getTrafficItemsByStep(record).length > 0 || getHttpsUrlsByStep(record).length > 0
+}
+
+function getHttpsUrlsByStep(record) {
+  const urls = props.stepHttpsUrls?.[record?.seq]
+  return Array.isArray(urls) ? urls.map((url) => ({ url })) : []
 }
 
 function hasStepTraffic(record) {
@@ -270,12 +279,13 @@ const realControllerTargets = computed(() => props.dynamicSummary?.real_controll
         </template>
 
         <template #expandedRowRender="{ record }">
-          <div class="expanded-content parallel-layout">
-            <div class="expanded-panel screenshot-panel">
+          <div class="expanded-content parallel-layout" :class="{ 'without-screenshot': !getScreenshotItems(record).length }">
+            <div v-if="getScreenshotItems(record).length" class="expanded-panel screenshot-panel">
               <ScreenshotViewer :screenshots="getScreenshotItems(record)" />
             </div>
-            <div v-if="hasStepTraffic(record)" class="expanded-panel step-traffic-wrap">
+            <div v-if="hasStepTraffic(record) || getHttpsUrlsByStep(record).length" class="expanded-panel step-traffic-wrap">
               <a-table
+                v-if="hasStepTraffic(record)"
                 row-key="id"
                 size="small"
                 :columns="stepTrafficColumns"
@@ -307,6 +317,21 @@ const realControllerTargets = computed(() => props.dynamicSummary?.real_controll
                   </template>
                 </template>
               </a-table>
+              <section v-if="getHttpsUrlsByStep(record).length" class="step-https-urls">
+                <h3 class="https-title">HTTPS URL <span>{{ getHttpsUrlsByStep(record).length }}</span></h3>
+                <a-table
+                  row-key="url"
+                  size="small"
+                  table-layout="fixed"
+                  :columns="[{ title: 'URL', dataIndex: 'url', key: 'url' }]"
+                  :data-source="getHttpsUrlsByStep(record)"
+                  :pagination="{ pageSize: 10, hideOnSinglePage: true, showSizeChanger: false }"
+                >
+                  <template #bodyCell="{ text }">
+                    <a-typography-text class="https-url-text" :copyable="{ text }">{{ text }}</a-typography-text>
+                  </template>
+                </a-table>
+              </section>
             </div>
           </div>
         </template>
@@ -439,6 +464,10 @@ const realControllerTargets = computed(() => props.dynamicSummary?.real_controll
   row-gap: 0;
 }
 
+.parallel-layout.without-screenshot {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .expanded-panel {
   min-width: 0;
 }
@@ -458,6 +487,35 @@ const realControllerTargets = computed(() => props.dynamicSummary?.real_controll
   flex-direction: column;
   gap: 0;
   min-width: 0;
+}
+
+.step-https-urls {
+  min-width: 0;
+  margin-top: 16px;
+}
+
+.https-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: #cbd9ee;
+}
+
+.https-title span {
+  color: #94a3b8;
+  font-weight: 400;
+}
+
+.https-url-text {
+  display: block;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-all;
+  color: #f8fafc;
+  font-family: monospace;
 }
 
 .step-traffic-wrap :deep(.nowrap-header-cell) {
@@ -681,6 +739,13 @@ const realControllerTargets = computed(() => props.dynamicSummary?.real_controll
 
   .parallel-layout {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 600px) {
+  .step-https-urls {
+    width: calc(100vw - 160px);
+    max-width: 100%;
   }
 }
 </style>
