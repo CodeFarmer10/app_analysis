@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from threading import Lock
 from typing import Any
+from uuid import uuid4
 
 from phone_agent.frida.registry import build_frida_script, load_frida_rules
 
@@ -52,6 +53,7 @@ class FridaHelper:
         self._resume_pending = False
         self._lock = Lock()
         self._events: list[dict[str, Any]] = []
+        self._http_transactions: list[dict[str, Any]] = []
         self._diagnostics: list[dict[str, Any]] = []
         self._status = "disabled" if not self.config.enabled else "idle"
         self._frida_module = None
@@ -87,8 +89,6 @@ class FridaHelper:
         rules = load_frida_rules(self.config.rules_path)
         if not rules:
             self._record_diagnostic("no_rules", f"no frida rules loaded path={self.config.rules_path}")
-            self._status = "no_rules"
-            return False
 
         self.package_name = package_name
         try:
@@ -205,6 +205,10 @@ class FridaHelper:
         with self._lock:
             return [dict(item) for item in self._events]
 
+    def export_http_transactions(self) -> list[dict[str, Any]]:
+        with self._lock:
+            return [dict(item) for item in self._http_transactions]
+
     def export_diagnostics(self) -> list[dict[str, Any]]:
         with self._lock:
             return [dict(item) for item in self._diagnostics]
@@ -241,6 +245,7 @@ class FridaHelper:
             "device_id": self.device_id,
             "package_name": self.package_name,
             "events": self.export_events(),
+            "http_transactions": self.export_http_transactions(),
             "diagnostics": self.export_diagnostics(),
         }
         output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -275,6 +280,13 @@ class FridaHelper:
         if msg_type == "send":
             payload = message.get("payload") or {}
             payload_type = payload.get("type")
+            if payload_type == "http_transaction":
+                event = payload.get("payload") or {}
+                if isinstance(event, dict):
+                    normalized_event = self._normalize_http_transaction(event)
+                    with self._lock:
+                        self._http_transactions.append(normalized_event)
+                return
             if payload_type == "event":
                 event = payload.get("payload") or {}
                 if isinstance(event, dict):
@@ -303,6 +315,27 @@ class FridaHelper:
         normalized = dict(event)
         normalized["retval"] = self._strip_retval_class_prefix(normalized.get("retval"))
         return normalized
+
+    def _normalize_http_transaction(self, event: dict[str, Any]) -> dict[str, Any]:
+        normalized = dict(event)
+        normalized["timestamp"] = self._to_timestamp(normalized.get("timestamp"))
+        normalized["capture_source"] = "network_hook"
+        normalized.setdefault("frida_http_log_id", str(uuid4()))
+        normalized.setdefault("hook_library", "unknown")
+        normalized.setdefault("hook_class", None)
+        normalized.setdefault("hook_method", None)
+        normalized.setdefault("parse_status", "complete" if normalized.get("response_status") else "partial")
+        normalized["is_complete"] = bool(
+            normalized.get("is_complete", normalized.get("response_status") is not None)
+        )
+        return normalized
+
+    @staticmethod
+    def _to_timestamp(value: Any) -> float:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return time.time()
 
     def _strip_retval_class_prefix(self, value: Any) -> Any:
         if not isinstance(value, str):

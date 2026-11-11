@@ -25,6 +25,7 @@ from phone_agent.adb.input import (
     type_text,
 )
 from phone_agent.adb.screenshot import get_screenshot
+from phone_agent.adb.ecapture import ECaptureCapture
 from phone_agent.adb.traffic import TrafficCapture
 
 __all__ = [
@@ -47,6 +48,7 @@ __all__ = [
     "launch_app_by_package",
     # Traffic capture
     "TrafficCapture",
+    "ECaptureCapture",
     # Connection management
     "ADBConnection",
     "DeviceInfo",

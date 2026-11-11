@@ -18,10 +18,12 @@ except ImportError:  # pragma: no cover - depends on runtime system library
     magic = None
 
 from core.config import settings
+from analyzers.https_urls import collect_https_urls
 from repositories.task_repo import (
     create_task,
     get_dynamic_result_by_seq,
     get_dynamic_results,
+    get_https_urls_for_operations,
     get_static_result,
     get_task_by_id,
     get_traffic_logs_by_dynamic_result_ids,
@@ -768,6 +770,18 @@ def get_task_dynamic_result(
 
     step_traffic_items = get_traffic_logs_by_dynamic_result_ids(task_id, list(dynamic_id_to_seq.keys()))
     seq_fallback_items = get_traffic_logs_by_seqs(task_id, dynamic_seqs)
+    https_rows = get_https_urls_for_operations(task_id, list(dynamic_id_to_seq), dynamic_seqs)
+    step_https_events: dict[int, list[dict]] = {seq: [] for seq in dynamic_seqs}
+    for event in https_rows:
+        dynamic_id = str(event.get("dynamic_result_id") or "").strip()
+        seq = dynamic_id_to_seq.get(dynamic_id) if dynamic_id else event.get("seq")
+        try:
+            seq = int(seq)
+        except (TypeError, ValueError):
+            continue
+        if seq in step_https_events:
+            step_https_events[seq].append(event)
+    step_https_urls = {seq: collect_https_urls(events) for seq, events in step_https_events.items()}
 
     step_traffic_logs: dict[int, list[dict]] = {}
     for packet in step_traffic_items:
@@ -819,6 +833,7 @@ def get_task_dynamic_result(
         },
         "dynamic_summary": dynamic_summary,
         "step_traffic_logs": step_traffic_logs,
+        "step_https_urls": step_https_urls,
     }
 
 

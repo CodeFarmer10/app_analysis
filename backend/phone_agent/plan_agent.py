@@ -16,8 +16,11 @@ from phone_agent.frida import FridaHelper, FridaHelperConfig
 from phone_agent.model import ModelClient, ModelConfig
 from phone_agent.model.client import MessageBuilder
 from phone_agent.agent import PhoneAgent, AgentConfig
+from phone_agent.adb.ecapture import ECaptureCapture
 from phone_agent.adb.traffic import TrafficCapture
 from phone_agent.traffic_parser import TrafficParser, PacketInfo
+from analyzers.ecapture_parser import ECaptureEvent, ECaptureParser, is_https_transaction
+from core.config import settings
 
 
 @dataclass
@@ -46,11 +49,17 @@ class PlanResult:
     message: str | None = None
     start_time: datetime = datetime.now()
     traffic_logs: list[PacketInfo] = None  # 流量日志
+    ecapture_logs: list[ECaptureEvent] = None
+    frida_http_logs: list[dict[str, Any]] = None
     frida_events: list[dict[str, Any]] = None
     def __post_init__(self):
         # Initialize default list for traffic_logs
         if self.traffic_logs is None:
             self.traffic_logs = []
+        if self.ecapture_logs is None:
+            self.ecapture_logs = []
+        if self.frida_http_logs is None:
+            self.frida_http_logs = []
         if self.frida_events is None:
             self.frida_events = []
 
@@ -66,6 +75,8 @@ class PlanResult:
             "message": self.message,
             "start_time": self.start_time.strftime("%Y-%m-%d %H:%M:%S.%f") if self.start_time else None,
             "traffic_logs": [p.to_dict() for p in self.traffic_logs],
+            "ecapture_logs": [p.to_dict() for p in self.ecapture_logs],
+            "frida_http_logs": self.frida_http_logs,
             "frida_events": self.frida_events,
         }
 
@@ -117,6 +128,18 @@ class PlanAgent:
             host_filename="capture.pcap",
         )
         self.traffic_parser = TrafficParser()
+        self.ecapture_capture = ECaptureCapture(
+            device_id=phone_agent_config.device_id,
+            host_dir=plan_agent_config.result_dir,
+            binary_path=settings.ECAPTURE_BINARY_PATH,
+            device_binary_path=settings.ECAPTURE_DEVICE_PATH,
+            device_output_path=f"/data/local/tmp/decrypted-{capture_id}.pcapng" if capture_id else None,
+            host_filename="decrypted_capture.pcapng",
+            enabled=settings.ECAPTURE_ENABLED,
+            iface=settings.ECAPTURE_IFACE,
+            ssl_version=settings.ECAPTURE_SSL_VERSION,
+        )
+        self.ecapture_parser = ECaptureParser(body_preview_limit=settings.ECAPTURE_BODY_PREVIEW_LIMIT)
 
         self._context: list[dict[str, Any]] = []
         self._execution_results: list[PlanResult] = []
@@ -146,17 +169,8 @@ class PlanAgent:
         plan_result=PlanResult(step_num=self._step_count,step="打开应用")
         plan_result.start_time = datetime.now()
         self._execution_results.append(plan_result)
-        launch_handled_by_frida = False
-        if self.frida_helper and self.frida_helper.mode == "spawn":
-            launch_handled_by_frida = self.frida_helper.start(package)
-        if not launch_handled_by_frida:
-            device_factory.home(self.plan_agent_config.device_id)
-            device_factory.launch_app_by_package(package, self.plan_agent_config.device_id)
         plan_result.successed=True
-        self.traffic_capture.package_name=package
-        self.traffic_capture.start_capture()
-        if self.frida_helper and self.frida_helper.mode == "attach":
-            self.frida_helper.start(package)
+        self._start_collectors_and_app(package, device_factory)
 
         screenshot = device_factory.get_screenshot(self.plan_agent_config.device_id, self.plan_agent_config.result_dir)
         plan_result.after_screenshot_path=screenshot.path
@@ -417,14 +431,19 @@ class PlanAgent:
         return str(screenshot_path)
 
     def _save_results(self):
+        hook_transactions: list[dict[str, Any]] = []
         if self.frida_helper:
             self.frida_helper.stop()
+            hook_transactions = self.frida_helper.export_http_transactions()
+        ecapture_path = self.ecapture_capture.stop_capture()
         # Stop traffic capture before saving results and get pcap file path
         pcap_path = self.traffic_capture.stop_capture()
 
         # Parse pcap file and map traffic logs to operations if pcap exists
         if pcap_path:
             self._map_traffic_to_operations(pcap_path)
+        if ecapture_path or hook_transactions:
+            self._map_ecapture_to_operations(ecapture_path, hook_transactions)
         if self.frida_helper:
             self.frida_helper.map_events_to_results(self._execution_results)
 
@@ -437,9 +456,28 @@ class PlanAgent:
 
         print(f"Results saved to: {results_file}")
 
+    def _start_collectors_and_app(self, package: str, device_factory: Any) -> None:
+        """Start all collectors before the target process can emit network traffic."""
+        self.traffic_capture.package_name = package
+        self.traffic_capture.start_capture()
+        self.ecapture_capture.start_capture()
+
+        launch_handled_by_frida = False
+        if self.frida_helper and self.frida_helper.mode == "spawn":
+            launch_handled_by_frida = self.frida_helper.start(package, defer_resume=True)
+            if launch_handled_by_frida:
+                self.frida_helper.resume()
+
+        if not launch_handled_by_frida:
+            device_factory.home(self.plan_agent_config.device_id)
+            device_factory.launch_app_by_package(package, self.plan_agent_config.device_id)
+
+        if self.frida_helper and self.frida_helper.mode == "attach":
+            self.frida_helper.start(package)
+
     def _build_frida_helper(self) -> FridaHelper | None:
         helper_config = FridaHelperConfig(
-            enabled=False,
+            enabled=settings.NETWORK_HOOK_ENABLED,
             mode="spawn",
             result_dir=self.plan_agent_config.result_dir,
         )
@@ -503,6 +541,54 @@ class PlanAgent:
             result.traffic_logs = list(unique_packets.values())
 
             print(f"Step {result.step_num}: {len(window_packets)} packets in window, {len(result.traffic_logs)} after deduplication")
+
+    def _map_ecapture_to_operations(
+        self,
+        pcapng_path: str | None,
+        hook_transactions: list[dict[str, Any]] | None = None,
+    ) -> None:
+        all_events: list[ECaptureEvent] = []
+        hook_transactions = hook_transactions or []
+        if pcapng_path:
+            try:
+                all_events = self.ecapture_parser.parse_pcapng(
+                    pcapng_path,
+                    filter_expr="http or http2",
+                )
+            except Exception as exc:
+                print(f"Failed to parse eCapture PCAPNG {pcapng_path}: {exc}")
+        all_events = [event for event in all_events if is_https_transaction(event.url, event.protocol)]
+        https_hooks = []
+        for event in hook_transactions:
+            if not is_https_transaction(event.get("url"), event.get("protocol")):
+                continue
+            timestamp = ECaptureEvent.from_mapping(event).timestamp
+            https_hooks.append({**event, "timestamp": timestamp, "event_time": timestamp})
+
+        all_events.sort(key=lambda event: event.timestamp)
+        for i, result in enumerate(self._execution_results):
+            if not result.start_time:
+                continue
+            start_timestamp = result.start_time.timestamp()
+            if i < len(self._execution_results) - 1 and self._execution_results[i + 1].start_time:
+                end_timestamp = self._execution_results[i + 1].start_time.timestamp()
+            else:
+                end_timestamp = float("inf")
+
+            window_events = [
+                event
+                for event in all_events
+                if start_timestamp <= event.timestamp < end_timestamp
+            ]
+            result.ecapture_logs = list(window_events)
+            result.frida_http_logs = [
+                event for event in https_hooks
+                if start_timestamp <= event["event_time"] < end_timestamp
+            ]
+            print(
+                f"Step {result.step_num}: {len(result.ecapture_logs)} eCapture HTTPS logs, "
+                f"{len(result.frida_http_logs)} Hook HTTPS logs in window"
+            )
 
 
 

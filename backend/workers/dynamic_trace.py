@@ -10,6 +10,7 @@ from typing import Any
 from uuid import uuid4
 
 from analyzers.ioc_extractor import SourceIocResult
+from analyzers.ecapture_parser import is_https_transaction
 from analyzers.jadx_workspace import open_jadx_workspace
 from analyzers.sdk_detector import SdkDetectResult
 from analyzers.source_artifact_scanner import scan_source_artifacts
@@ -224,6 +225,13 @@ def _parse_frida_event_time(value: Any) -> datetime | None:
         return datetime.fromtimestamp(timestamp)
     except (OverflowError, OSError, ValueError):
         return None
+
+
+def _parse_transaction_time(value: Any) -> datetime | None:
+    """Parse either an epoch timestamp or an ISO/datetime transaction time."""
+    if isinstance(value, (int, float)):
+        return _parse_frida_event_time(value)
+    return _parse_frida_event_time(value) or _parse_action_time(value)
 
 
 def _to_json_text(value: Any) -> str | None:
@@ -539,12 +547,20 @@ def _persist_trace_results(
     task_id: str,
     device_id: str,
     pcap_path: str | None,
-    run_log_path: str | None,
-    dynamic_rows: list[dict],
-    traffic_rows: list[dict],
-    frida_rows: list[dict],
+    ecapture_pcapng_path: str | None = None,
+    run_log_path: str | None = None,
+    dynamic_rows: list[dict] | None = None,
+    traffic_rows: list[dict] | None = None,
+    frida_rows: list[dict] | None = None,
+    frida_http_rows: list[dict] | None = None,
+    ecapture_rows: list[dict] | None = None,
 ) -> None:
     """在单事务中写入动态结果、流量日志并更新任务状态。"""
+    dynamic_rows = dynamic_rows or []
+    traffic_rows = traffic_rows or []
+    frida_rows = frida_rows or []
+    frida_http_rows = frida_http_rows or []
+    ecapture_rows = ecapture_rows or []
     dynamic_insert_sql = """
         INSERT INTO dynamic_results (
             id,
@@ -596,6 +612,66 @@ def _persist_trace_results(
         )
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     """
+    frida_http_insert_sql = """
+        INSERT INTO frida_http_logs (
+            frida_http_log_id,
+            task_id,
+            dynamic_result_id,
+            seq,
+            event_time,
+            hook_library,
+            hook_class,
+            hook_method,
+            http_method,
+            http_path,
+            domain,
+            url,
+            request_headers_json,
+            request_body_preview,
+            response_status,
+            response_headers_json,
+            response_body_preview,
+            content_type,
+            parse_status,
+            is_complete
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+    """
+    ecapture_insert_sql = """
+        INSERT INTO ecapture_logs (
+            id,
+            task_id,
+            dynamic_result_id,
+            seq,
+            src_ip,
+            dst_ip,
+            src_port,
+            dst_port,
+            protocol,
+            domain,
+            url,
+            resolved_ip,
+            ip_country,
+            is_up,
+            is_real_controller,
+            http_method,
+            http_path,
+            event_time,
+            request_time,
+            response_time,
+            response_status,
+            request_headers_json,
+            request_body_preview,
+            response_headers_json,
+            response_body_preview,
+            content_type,
+            capture_source,
+            parse_status,
+            is_complete,
+            process_name
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+    """
     with get_connection() as conn:
         with conn.cursor() as cursor:
             try:
@@ -637,6 +713,8 @@ def _persist_trace_results(
                 cursor.execute("DELETE FROM dynamic_results WHERE task_id = %s", (task_id,))
                 cursor.execute("DELETE FROM traffic_logs WHERE task_id = %s", (task_id,))
                 cursor.execute("DELETE FROM frida_logs WHERE task_id = %s", (task_id,))
+                cursor.execute("DELETE FROM frida_http_logs WHERE task_id = %s", (task_id,))
+                cursor.execute("DELETE FROM ecapture_logs WHERE task_id = %s", (task_id,))
 
                 if dynamic_rows:
                     cursor.executemany(
@@ -701,18 +779,87 @@ def _persist_trace_results(
                             for item in frida_rows
                         ],
                     )
+                if frida_http_rows:
+                    cursor.executemany(
+                        frida_http_insert_sql,
+                        [
+                            (
+                                item["frida_http_log_id"],
+                                item["task_id"],
+                                item["dynamic_result_id"],
+                                item["seq"],
+                                item.get("event_time"),
+                                item.get("hook_library") or "unknown",
+                                item.get("hook_class"),
+                                item.get("hook_method"),
+                                item.get("http_method"),
+                                item.get("http_path"),
+                                item.get("domain"),
+                                item.get("url"),
+                                item.get("request_headers_json"),
+                                item.get("request_body_preview"),
+                                item.get("response_status"),
+                                item.get("response_headers_json"),
+                                item.get("response_body_preview"),
+                                item.get("content_type"),
+                                item.get("parse_status") or "partial",
+                                int(bool(item.get("is_complete", False))),
+                            )
+                            for item in frida_http_rows
+                        ],
+                    )
+                if ecapture_rows:
+                    cursor.executemany(
+                        ecapture_insert_sql,
+                        [
+                            (
+                                item["id"],
+                                item["task_id"],
+                                item["dynamic_result_id"],
+                                item["seq"],
+                                item["src_ip"],
+                                item["dst_ip"],
+                                item["src_port"],
+                                item["dst_port"],
+                                item["protocol"],
+                                item["domain"],
+                                item["url"],
+                                item["resolved_ip"],
+                                item["ip_country"],
+                                item["is_up"],
+                                item["is_real_controller"],
+                                item["http_method"],
+                                item["http_path"],
+                                item.get("event_time"),
+                                item.get("request_time"),
+                                item.get("response_time"),
+                                item.get("response_status"),
+                                item.get("request_headers_json", item.get("headers_json")),
+                                item.get("request_body_preview", item.get("body_preview")),
+                                item.get("response_headers_json"),
+                                item.get("response_body_preview"),
+                                item.get("content_type"),
+                                item.get("capture_source") or "ecapture",
+                                item.get("parse_status") or "partial",
+                                int(bool(item.get("is_complete", False))),
+                                item.get("process_name"),
+                            )
+                            for item in ecapture_rows
+                        ],
+                    )
                 updated_tasks = cursor.execute(
                     """
                     UPDATE tasks
                     SET status = 'completed',
                         pcap_path = %s,
+                        ecapture_pcapng_path = %s,
                         run_log_path = %s,
                         error_message = NULL
                     WHERE id = %s
                       AND status = 'dynamic_tracing'
                       AND device_id = %s
                     """,
-                    (pcap_path, run_log_path, task_id, device_id),
+                    (pcap_path, ecapture_pcapng_path, run_log_path, task_id, device_id),
                 )
                 if updated_tasks != 1:
                     raise TaskOwnershipLostError(
@@ -729,11 +876,13 @@ def _parse_operation_results(
     operation_results: list[dict],
     result_dir: Path,
     object_namespace: str,
-) -> tuple[list[dict], list[dict], list[dict]]:
-    """解析 operation_results 为 dynamic_rows、traffic_rows、frida_rows。"""
+) -> tuple[list[dict], list[dict], list[dict], list[dict], list[dict]]:
+    """解析 operation_results 为动态结果、普通 Hook、HTTP Hook 和 eCapture 结果。"""
     dynamic_rows: list[dict] = []
     traffic_rows: list[dict] = []
     frida_rows: list[dict] = []
+    frida_http_rows: list[dict] = []
+    ecapture_rows: list[dict] = []
 
     for index, item in enumerate(operation_results):
         if not isinstance(item, dict):
@@ -830,9 +979,115 @@ def _parse_operation_results(
                     }
                 )
 
+        frida_http_events = item.get("frida_http_logs") or []
+        if isinstance(frida_http_events, list):
+            for event in frida_http_events:
+                if not isinstance(event, dict):
+                    continue
+                if not is_https_transaction(event.get("url"), event.get("protocol")):
+                    continue
+                request_headers = event.get("request_headers_json") or event.get("headers_json")
+                if isinstance(request_headers, (dict, list)):
+                    request_headers = _to_json_text(request_headers)
+                response_headers = event.get("response_headers_json")
+                if isinstance(response_headers, (dict, list)):
+                    response_headers = _to_json_text(response_headers)
+                frida_http_rows.append(
+                    {
+                        "frida_http_log_id": _clip_text(event.get("frida_http_log_id"), 36) or str(uuid4()),
+                        "task_id": task_id,
+                        "dynamic_result_id": dynamic_result_id,
+                        "seq": seq,
+                        "event_time": _parse_transaction_time(
+                            event.get("event_time") or event.get("timestamp") or event.get("request_time")
+                        ),
+                        "hook_library": _clip_text(event.get("hook_library") or "unknown", 32) or "unknown",
+                        "hook_class": _clip_text(event.get("hook_class"), 256),
+                        "hook_method": _clip_text(event.get("hook_method"), 128),
+                        "http_method": _clip_text(event.get("http_method") or event.get("method"), 16),
+                        "http_path": _clip_text(event.get("http_path"), 4096),
+                        "domain": _clip_text(event.get("domain"), 512),
+                        "url": event.get("url"),
+                        "request_headers_json": _clip_text(request_headers, 65535),
+                        "request_body_preview": _clip_text(
+                            event.get("request_body_preview") or event.get("body_preview"), 65535
+                        ),
+                        "response_status": _to_port(event.get("response_status")),
+                        "response_headers_json": _clip_text(response_headers, 65535),
+                        "response_body_preview": _clip_text(event.get("response_body_preview"), 65535),
+                        "content_type": _clip_text(event.get("content_type"), 256),
+                        "parse_status": _clip_text(event.get("parse_status") or "partial", 16),
+                        "is_complete": 1 if bool(event.get("is_complete", False)) else 0,
+                    }
+                )
+
+        ecapture_events = item.get("ecapture_logs") or []
+        if isinstance(ecapture_events, list):
+            for event in ecapture_events:
+                if not isinstance(event, dict):
+                    continue
+                if event.get("capture_source", "ecapture") != "ecapture":
+                    continue
+                if not is_https_transaction(event.get("url"), event.get("protocol")):
+                    continue
+                src_ip = str(event.get("src_ip") or "").strip()
+                dst_ip = str(event.get("dst_ip") or "").strip()
+                if not (event.get("url") or event.get("http_method") or event.get("method")):
+                    continue
+                ip_country = resolve_non_local_ip_country(src_ip, dst_ip)
+                is_up = 1 if is_uplink_flow(src_ip, dst_ip) else 0
+                request_headers = event.get("request_headers_json") or event.get("headers_json")
+                if isinstance(request_headers, (dict, list)):
+                    request_headers = _to_json_text(request_headers)
+                response_headers = event.get("response_headers_json")
+                if isinstance(response_headers, (dict, list)):
+                    response_headers = _to_json_text(response_headers)
+                ecapture_rows.append(
+                    {
+                        "id": str(uuid4()),
+                        "task_id": task_id,
+                        "dynamic_result_id": dynamic_result_id,
+                        "seq": seq,
+                        "src_ip": _clip_text(src_ip, 45) or None,
+                        "dst_ip": _clip_text(dst_ip, 45) or None,
+                        "src_port": _to_port(event.get("src_port")),
+                        "dst_port": _to_port(event.get("dst_port")),
+                        "protocol": _clip_text(str(event.get("protocol") or "HTTPS"), 32) or "HTTPS",
+                        "domain": _clip_text(event.get("domain"), 512),
+                        "url": event.get("url"),
+                        "resolved_ip": _clip_text(event.get("resolved_ip") or event.get("dns_ip"), 45),
+                        "ip_country": _clip_text(ip_country, 128),
+                        "is_up": is_up,
+                        "is_real_controller": 0,
+                        "http_method": _clip_text(event.get("http_method") or event.get("method"), 16),
+                        "http_path": _clip_text(event.get("http_path"), 4096),
+                        "event_time": _parse_transaction_time(
+                            event.get("event_time") or event.get("timestamp") or event.get("request_time")
+                        ),
+                        "request_time": _parse_transaction_time(
+                            event.get("request_time") or event.get("timestamp")
+                        ),
+                        "response_time": _parse_transaction_time(
+                            event.get("response_time") or event.get("response_timestamp")
+                        ),
+                        "response_status": _to_port(event.get("response_status")),
+                        "request_headers_json": _clip_text(request_headers, 65535),
+                        "request_body_preview": _clip_text(
+                            event.get("request_body_preview") or event.get("body_preview"), 65535
+                        ),
+                        "response_headers_json": _clip_text(response_headers, 65535),
+                        "response_body_preview": _clip_text(event.get("response_body_preview"), 65535),
+                        "content_type": _clip_text(event.get("content_type"), 256),
+                        "capture_source": "ecapture",
+                        "parse_status": _clip_text(event.get("parse_status") or "partial", 16),
+                        "is_complete": 1 if bool(event.get("is_complete", False)) else 0,
+                        "process_name": _clip_text(event.get("process_name"), 256),
+                    }
+                )
+
     if not dynamic_rows:
         raise ValueError("未解析到动态操作记录")
-    return dynamic_rows, traffic_rows, frida_rows
+    return dynamic_rows, traffic_rows, frida_rows, frida_http_rows, ecapture_rows
 
 
 def _raise_if_launch_crash(dynamic_rows: list[dict]) -> None:
@@ -857,14 +1112,19 @@ def _raise_if_operation_device_failure(operation_results: list[dict]) -> None:
             raise DeviceUnavailableError(f"Phone Agent设备故障: {message}")
 
 
-def _upload_trace_files(object_namespace: str, result_dir: Path) -> tuple[str | None, str | None]:
+def _upload_trace_files(object_namespace: str, result_dir: Path) -> tuple[str | None, str | None, str | None]:
     """上传动态流程产物文件并返回关键对象路径。"""
     _upload_result_file(object_namespace, "dynamic", result_dir / "operation_results.json")
     _upload_result_file(object_namespace, "dynamic", result_dir / "frida_events.json")
     _upload_result_file(object_namespace, "dynamic", result_dir / "real_controller_tagging.json")
     pcap_path = _upload_result_file(object_namespace, "pcap", result_dir / "capture.pcap")
+    ecapture_pcapng_path = _upload_result_file(
+        object_namespace,
+        "ecapture",
+        result_dir / "decrypted_capture.pcapng",
+    )
     run_log_path = _upload_result_file(object_namespace, "log", result_dir / "run.log")
-    return pcap_path, run_log_path
+    return pcap_path, ecapture_pcapng_path, run_log_path
 
 
 def _run_task_with_log(
@@ -1260,31 +1520,49 @@ def trace_task(task_id: str, device_id: str):
 
         operation_results = _load_operation_results(result_dir)
         _raise_if_operation_device_failure(operation_results)
-        dynamic_rows, traffic_rows, frida_rows = _parse_operation_results(
+        parsed_rows = _parse_operation_results(
             task_id,
             operation_results,
             result_dir,
             object_namespace,
         )
+        if len(parsed_rows) == 3:
+            dynamic_rows, traffic_rows, frida_rows = parsed_rows
+            frida_http_rows = []
+            ecapture_rows = []
+        elif len(parsed_rows) == 4:
+            dynamic_rows, traffic_rows, frida_rows, ecapture_rows = parsed_rows
+            frida_http_rows = []
+        else:
+            dynamic_rows, traffic_rows, frida_rows, frida_http_rows, ecapture_rows = parsed_rows
         _raise_if_launch_crash(dynamic_rows)
         tagging_result, matched_traffic_count = run_real_controller_tagging(
             operation_results=operation_results,
             traffic_rows=traffic_rows,
+            ecapture_rows=ecapture_rows,
             result_dir=result_dir,
             enabled=settings.REAL_CONTROLLER_TAGGING_ENABLED,
             model_base_url=settings.REAL_CONTROLLER_TAGGING_BASE_URL,
             model_api_key=settings.REAL_CONTROLLER_TAGGING_API_KEY,
             model_name=settings.REAL_CONTROLLER_TAGGING_MODEL,
         )
-        pcap_path, run_log_path = _upload_trace_files(object_namespace, result_dir)
+        uploaded_paths = _upload_trace_files(object_namespace, result_dir)
+        if len(uploaded_paths) == 2:
+            pcap_path, run_log_path = uploaded_paths
+            ecapture_pcapng_path = None
+        else:
+            pcap_path, ecapture_pcapng_path, run_log_path = uploaded_paths
         _persist_trace_results(
             task_id=task_id,
             device_id=device_id,
             pcap_path=pcap_path,
+            ecapture_pcapng_path=ecapture_pcapng_path,
             run_log_path=run_log_path,
             dynamic_rows=dynamic_rows,
             traffic_rows=traffic_rows,
             frida_rows=frida_rows,
+            frida_http_rows=frida_http_rows,
+            ecapture_rows=ecapture_rows,
         )
         try:
             generate_report.delay(task_id)

@@ -69,6 +69,21 @@ class ModelMigrationTest(unittest.TestCase):
             with self.subTest(field=field):
                 self.assertNotIn(field, sql)
 
+    def test_https_capture_tables_have_precise_event_times_without_merge_markers(self) -> None:
+        sql = MIGRATION_SQL.read_text(encoding="utf-8")
+
+        self.assertIn("CREATE TABLE IF NOT EXISTS frida_http_logs", sql)
+        self.assertIn("frida_http_log_id VARCHAR(36) PRIMARY KEY", sql)
+        self.assertIn("hook_library VARCHAR(32)", sql)
+        self.assertIn("CREATE TABLE IF NOT EXISTS ecapture_logs", sql)
+        self.assertNotIn("frida_http_log_id VARCHAR(36) NULL", sql)
+        self.assertNotIn("frida_supplement_fields JSON NULL", sql)
+        self.assertIn("ALTER TABLE ecapture_logs ADD COLUMN event_time DATETIME(6) NULL", sql)
+        self.assertIn("ALTER TABLE frida_http_logs MODIFY COLUMN event_time DATETIME(6) NULL", sql)
+        for field in ("pid", "raw_event_json", "capture_file_path", "body_sha256"):
+            with self.subTest(field=field):
+                self.assertIsNone(re.search(rf"(?im)^\s*{re.escape(field)}\s+", sql))
+
 
 if __name__ == "__main__":
     unittest.main()

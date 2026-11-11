@@ -43,7 +43,8 @@ class TrafficCapture:
         device_path: Optional[str] = None,
         host_filename: Optional[str] = None,
         capture_filter: Optional[str] = None,
-        package_name: Optional[str] = None
+        package_name: Optional[str] = None,
+        include_browser_packages: bool = False,
     ):
         """
         Initialize TrafficCapture with device ID and capture settings.
@@ -62,6 +63,7 @@ class TrafficCapture:
         self.host_filename = host_filename or os.path.basename(self.device_path)
         self.capture_filter = capture_filter or ""
         self.package_name = package_name
+        self.include_browser_packages = include_browser_packages
         self.app_uids: set[int] = set()
         self._is_capturing = False
 
@@ -145,9 +147,10 @@ class TrafficCapture:
         packages: list[str] = []
         if self.package_name:
             packages.append(self.package_name.strip())
-        for package_name in DEFAULT_BROWSER_PACKAGES:
-            if package_name not in packages:
-                packages.append(package_name)
+        if self.include_browser_packages:
+            for package_name in DEFAULT_BROWSER_PACKAGES:
+                if package_name not in packages:
+                    packages.append(package_name)
         return packages
 
     def _collect_uids(self) -> set[int]:
@@ -336,12 +339,9 @@ class TrafficCapture:
                 )
                 print(f"Successfully set up NFLOG rule for package: {self.package_name}")
             else:
-                print("Failed to setup NFLOG rule, falling back to capture all traffic")
-                # Use regular tcpdump for all traffic
-                tcpdump_cmd = (
-                    f"shell su -c 'nohup tcpdump -i any -C 1024 -W 1 {self.capture_filter} -w {self.device_path} "
-                    f"> /dev/null 2>&1 &'"
-                )
+                print("Failed to setup NFLOG rule; refusing unscoped tcpdump capture")
+                self._is_capturing = False
+                return False
         else:
             # Capture all traffic with 1GB file size limit (1 file only)
             print("No package specified, capturing all traffic")
