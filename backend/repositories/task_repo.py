@@ -626,3 +626,19 @@ def list_dynamic_results(task_id: str) -> list[dict]:
 def list_traffic_logs(task_id: str) -> list[dict]:
     items, _ = get_traffic_logs(task_id, page=1, size=50_000)
     return items
+
+
+def list_real_controller_traffic(task_id: str) -> list[dict]:
+    return fetch_all(
+        """
+        SELECT id, seq, domain, resolved_ip, src_ip, dst_ip, src_port, dst_port, is_up
+        FROM traffic_logs
+        WHERE task_id = %s AND is_real_controller = 1
+        UNION ALL
+        SELECT id, seq, domain, resolved_ip, src_ip, dst_ip, src_port, dst_port, is_up
+        FROM ecapture_logs
+        WHERE task_id = %s AND is_real_controller = 1
+        ORDER BY seq ASC, id ASC
+        """,
+        (task_id, task_id),
+    )

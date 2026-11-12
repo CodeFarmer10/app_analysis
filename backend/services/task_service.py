@@ -29,6 +29,7 @@ from repositories.task_repo import (
     get_traffic_logs_by_dynamic_result_ids,
     get_traffic_logs_by_seqs,
     list_dynamic_results,
+    list_real_controller_traffic,
     list_tasks,
     list_traffic_logs,
     update_task,
@@ -321,7 +322,7 @@ def _build_dynamic_summary(
 
 def create_upload_tasks(
     files: list[UploadFile],
-    user_id: str,
+    user_id: str | None,
     task_description: str | None = None,
     priority: int | None = None,
 ) -> tuple[str, list[dict[str, Any]]]:
@@ -439,7 +440,7 @@ def create_upload_tasks(
 
 def create_url_tasks(
     urls: list[str],
-    user_id: str,
+    user_id: str | None,
     task_description: str | None = None,
     priority: int | None = None,
 ) -> tuple[str, list[dict[str, Any]]]:
@@ -692,6 +693,60 @@ def get_task_status(task_id: str) -> dict[str, Any]:
         "device_id": task.get("device_id"),
         "device_serial": task.get("device_serial"),
         "error_message": task.get("error_message"),
+    }
+
+
+def get_task_result(task_id: str) -> dict[str, Any]:
+    task = get_task_by_id(task_id)
+    if not task:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="任务不存在")
+
+    task_status = str(task["status"])
+    if task_status != "completed":
+        return {"status": task_status, "result": None}
+
+    static = get_static_result(task_id) or {}
+    controllers: list[dict[str, Any]] = []
+    seen: set[tuple[str | None, str | None, int | None]] = set()
+    for packet in list_real_controller_traffic(task_id):
+        domain = str(packet.get("domain") or "").strip() or None
+        ip = str(
+            packet.get("resolved_ip")
+            or pick_non_local_ip(packet.get("src_ip"), packet.get("dst_ip"))
+            or ""
+        ).strip() or None
+        raw_port = packet.get("dst_port") if _is_uplink_packet(packet) else packet.get("src_port")
+        try:
+            port = int(raw_port) if raw_port is not None else None
+        except (TypeError, ValueError):
+            port = None
+        if not any((domain, ip, port)):
+            continue
+        key = (domain, ip, port)
+        if key not in seen:
+            seen.add(key)
+            controllers.append({"controlDomain": domain, "controlIp": ip, "controlPort": port})
+
+    analyzed_at = task.get("updated_at") or task.get("created_at")
+    if isinstance(analyzed_at, datetime):
+        analyzed_at = analyzed_at.isoformat()
+
+    return {
+        "status": task_status,
+        "result": {
+            "appName": static.get("app_name"),
+            "downloadUrl": storage_service.get_download_url(task.get("apk_path")),
+            "size": task.get("file_size"),
+            "md5": task.get("file_md5"),
+            "packageName": static.get("package_name"),
+            "version": static.get("version_name"),
+            "controlList": controllers,
+            "fraudType": static.get("model_type_name"),
+            "analyseDate": analyzed_at,
+            "icon": storage_service.get_download_url(static.get("icon_path")),
+            "report": storage_service.get_download_url(task.get("report_path")),
+            "framework": static.get("framework_name"),
+        },
     }
 
 

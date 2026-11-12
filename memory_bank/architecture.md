@@ -93,7 +93,7 @@
 - `backend/api/users.py`
   - 用户管理路由：管理员查看用户列表、新增用户、删除用户。
 - `backend/api/tasks.py`
-  - 任务路由：`/upload`（APK 批量上传）、`/url`（URL 批量提交）、`/api/tasks`（列表检索）、`/{task_id}`（详情）、`/{task_id}/status`（状态查询）、`/{task_id}/static`（静态结果查询）、`/{task_id}/dynamic`（动态结果分页查询）、`/{task_id}/screenshots/{seq}`（截图预签名重定向）、`/{task_id}/apk`、`/{task_id}/report`、`/{task_id}/pcap`（下载预签名 URL），均受登录鉴权保护。
+  - 任务路由：`/upload`（APK 批量上传）和 `/url`（URL 批量提交）允许无 Token 提交；携带有效 Token 时任务仍归属当前用户，匿名任务的 `user_id` 为空。`/api/tasks`（列表检索）、`/{task_id}`（详情）、`/{task_id}/status`（状态查询）、`/{task_id}/static`（静态结果查询）、`/{task_id}/dynamic`（动态结果分页查询）、`/{task_id}/screenshots/{seq}`（截图预签名重定向）、`/{task_id}/apk`、`/{task_id}/report`、`/{task_id}/pcap`（下载预签名 URL）仍受登录鉴权保护。
 - `backend/api/devices.py`
   - 设备管理路由：`/ping`、设备列表、设备详情、新增设备、更新设备名、删除设备；统一接入登录鉴权并调用 `device_service` 完成业务校验。
 - `backend/api/dashboard.py`

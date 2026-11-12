@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
 from fastapi.responses import RedirectResponse
 
 from core.response import success_response
-from core.security import get_current_user
+from core.security import get_current_user, get_optional_current_user
 from schemas.task import TaskListResponse, TaskStatusResponse, UrlSubmitRequest
 from services.task_service import (
     assert_task_access,
@@ -12,6 +12,7 @@ from services.task_service import (
     create_url_tasks,
     get_task_detail,
     get_task_list,
+    get_task_result,
     get_task_screenshot_redirect_url,
     get_task_static_result,
     get_task_status,
@@ -33,11 +34,11 @@ async def upload_tasks(
     files: list[UploadFile] = File(...),
     task_description: str = Form(default=""),
     priority: int = Form(default=1, ge=1, le=1_000_000),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict | None = Depends(get_optional_current_user),
 ):
     batch_id, results = create_upload_tasks(
         files,
-        current_user["id"],
+        current_user["id"] if current_user else None,
         task_description=task_description,
         priority=priority,
     )
@@ -47,19 +48,17 @@ async def upload_tasks(
 @router.post("/url")
 async def submit_task_urls(
     payload: UrlSubmitRequest,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict | None = Depends(get_optional_current_user),
 ):
     batch_id, results = create_url_tasks(
         payload.urls,
-        current_user["id"],
+        current_user["id"] if current_user else None,
         task_description=payload.task_description,
         priority=payload.priority,
     )
-    task_ids = [item["task_id"] for item in results if item.get("success")]
     return success_response(
         {
             "batch_id": batch_id,
-            "task_ids": task_ids,
             "items": results,
             "total": len(results),
         }
@@ -115,6 +114,11 @@ async def get_task_current_status(task_id: str, current_user: dict = Depends(get
     assert_task_access(task_id, current_user)
     data = TaskStatusResponse(**get_task_status(task_id)).model_dump()
     return success_response(data)
+
+
+@router.get("/{task_id}/result")
+async def get_task_analysis_result(task_id: str):
+    return success_response(get_task_result(task_id))
 
 
 @router.get("/{task_id}/dynamic")
