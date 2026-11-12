@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import unittest
 import sys
+import shutil
+import subprocess
 from datetime import datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -296,41 +298,19 @@ class NetworkHookCollectionTest(unittest.TestCase):
 
         self.assertEqual(payload["frida_http_logs"][0]["hook_library"], "okhttp")
 
-    def test_frida_source_contains_supported_network_stack_adapters(self) -> None:
-        source = (BACKEND_DIR / "phone_agent" / "frida" / "agent_src" / "index.js").read_text()
-
-        for class_name in (
-            "okhttp3.Response$Builder",
-            "java.net.HttpURLConnection",
-            "android.webkit.WebView",
-            "org.chromium.net.UrlRequest$Builder",
-        ):
-            self.assertIn(class_name, source)
-        self.assertIn("postUrl", source)
+    @unittest.skipUnless(shutil.which("node"), "Node.js is required for Frida behavior tests")
+    def test_frida_network_adapter_behavior_regressions(self) -> None:
+        result = subprocess.run(
+            [shutil.which("node"), "--test", str(BACKEND_DIR / "tests" / "frida_http_hooks.test.cjs")],
+            capture_output=True, text=True, timeout=30,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_retrofit_does_not_register_a_second_http_hook(self) -> None:
         source = (BACKEND_DIR / "phone_agent" / "frida" / "agent_src" / "index.js").read_text()
 
         self.assertNotIn("retrofit2.OkHttpCall", source)
         self.assertNotIn("installRetrofitHooks", source)
-
-    def test_static_response_body_is_skipped_before_peek_body(self) -> None:
-        source = (BACKEND_DIR / "phone_agent" / "frida" / "agent_src" / "index.js").read_text()
-
-        self.assertIn("function isStaticResponse", source)
-        self.assertIn("image/", source)
-        self.assertIn("video/", source)
-        self.assertIn("text/css", source)
-        self.assertIn("responseBody = isStaticResponse", source)
-        self.assertIn("response.peekBody(65536)", source)
-        self.assertIn("safeToString(responseHeaders && responseHeaders['content-type']) || ''", source)
-
-    def test_identical_okhttp_events_are_coalesced_in_a_short_window(self) -> None:
-        source = (BACKEND_DIR / "phone_agent" / "frida" / "agent_src" / "index.js").read_text()
-
-        self.assertIn("HTTP_DUPLICATE_WINDOW_MS", source)
-        self.assertIn("recentHttpFingerprints", source)
-        self.assertIn("http_transaction_duplicate", source)
 
     @patch("phone_agent.frida.helper.load_frida_rules", return_value=[])
     def test_frida_starts_network_hooks_when_no_generic_rules_remain(self, _load_rules) -> None:
