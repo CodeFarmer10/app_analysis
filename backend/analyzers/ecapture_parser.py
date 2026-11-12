@@ -13,6 +13,8 @@ from datetime import datetime
 from typing import Any, Iterable, Iterator
 from urllib.parse import urlsplit
 
+from analyzers.pcapng_secrets import prepared_pcapng
+
 logger = logging.getLogger(__name__)
 _TSHARK_AVAILABILITY_CACHE: dict[str, bool] = {}
 
@@ -183,6 +185,12 @@ class ECaptureParser:
     ) -> Iterator[ECaptureEvent]:
         if not self._check_tshark():
             raise RuntimeError(f"tshark executable not found: {self.tshark_path}")
+        with prepared_pcapng(pcapng_path) as prepared_path:
+            yield from self._parse_prepared_stream(prepared_path, filter_expr)
+
+    def _parse_prepared_stream(
+        self, pcapng_path: str, filter_expr: str | None
+    ) -> Iterator[ECaptureEvent]:
         process = subprocess.Popen(
             self._build_command(pcapng_path, filter_expr),
             stdout=subprocess.PIPE,

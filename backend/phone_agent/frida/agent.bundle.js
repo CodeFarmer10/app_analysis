@@ -781,7 +781,7 @@
             byteOffset /= 2;
           }
         }
-        function read(buf, i2) {
+        function read2(buf, i2) {
           if (indexSize === 1) {
             return buf[i2];
           } else {
@@ -792,7 +792,7 @@
         if (dir) {
           let foundIndex = -1;
           for (i = byteOffset; i < arrLength; i++) {
-            if (read(arr, i) === read(val, foundIndex === -1 ? 0 : i - foundIndex)) {
+            if (read2(arr, i) === read2(val, foundIndex === -1 ? 0 : i - foundIndex)) {
               if (foundIndex === -1) foundIndex = i;
               if (i - foundIndex + 1 === valLength) return foundIndex * indexSize;
             } else {
@@ -805,7 +805,7 @@
           for (i = byteOffset; i >= 0; i--) {
             let found = true;
             for (let j = 0; j < valLength; j++) {
-              if (read(arr, i + j) !== read(val, j)) {
+              if (read2(arr, i + j) !== read2(val, j)) {
                 found = false;
                 break;
               }
@@ -5616,8 +5616,8 @@ std_string_get_data (StdString * str)
     for (const interceptor of artQuickInterceptors.splice(0)) {
       interceptor.deactivate();
     }
-    for (const hook of inlineHooks.splice(0)) {
-      hook.revert();
+    for (const hook2 of inlineHooks.splice(0)) {
+      hook2.revert();
     }
   }
   function unwrapMethodId(methodId) {
@@ -5897,8 +5897,8 @@ std_string_get_data (StdString * str)
         do {
           const nextOffset = relocator.readOne();
           const nextScratchRegs = new Set(availableScratchRegs);
-          const { read, written } = relocator.input.regsAccessed;
-          for (const regs of [read, written]) {
+          const { read: read2, written } = relocator.input.regsAccessed;
+          for (const regs of [read2, written]) {
             for (const reg of regs) {
               let name;
               if (reg.startsWith("w")) {
@@ -6054,8 +6054,8 @@ std_string_get_data (StdString * str)
         return original;
       }
       const address = methodId.add(offset);
-      const read = name === "accessFlags" ? readU32 : readPointer;
-      original[name] = read.call(address);
+      const read2 = name === "accessFlags" ? readU32 : readPointer;
+      original[name] = read2.call(address);
       return original;
     }, {});
   }
@@ -6137,15 +6137,15 @@ std_string_get_data (StdString * str)
         };
         patchedClasses.set(classKey, entry);
       }
-      const methodKey = this.methodId.toString(16);
-      let targetMethod = entry.targetMethods.get(methodKey);
+      const methodKey2 = this.methodId.toString(16);
+      let targetMethod = entry.targetMethods.get(methodKey2);
       if (targetMethod === void 0) {
         targetMethod = Memory.dup(this.originalMethod, DVM_METHOD_SIZE);
         const methodIndex = entry.shadowVtableCount++;
         entry.shadowVtable.add(methodIndex * pointerSize5).writePointer(targetMethod);
         targetMethod.add(DVM_METHOD_OFFSET_METHOD_INDEX).writeU16(methodIndex);
         entry.vtableCountPtr.writeS32(entry.shadowVtableCount);
-        entry.targetMethods.set(methodKey, targetMethod);
+        entry.targetMethods.set(methodKey2, targetMethod);
       }
       return targetMethod;
     }
@@ -11055,11 +11055,11 @@ std_string_c_str (StdString * self)
     toJSON: {
       value() {
         const { length, $t: type } = this;
-        const { byteSize: elementSize, fromJni, read } = type;
+        const { byteSize: elementSize, fromJni, read: read2 } = type;
         return this.withElements((elements) => {
           const values = [];
           for (let i = 0; i !== length; i++) {
-            const value = fromJni(read(elements.add(i * elementSize)));
+            const value = fromJni(read2(elements.add(i * elementSize)));
             values.push(value);
           }
           return values;
@@ -13664,30 +13664,36 @@ std_string_c_str (StdString * self)
     }
     return result;
   }
-  function bodyPreview(body, limit) {
-    if (!body) {
-      return null;
-    }
+  var BODY_LIMIT = 65536;
+  function byteArrayPreview(value, limit) {
+    if (!value || value.length > limit) return null;
     try {
-      const Buffer3 = frida_java_bridge_default.use("okio.Buffer");
-      const buffer = Buffer3.$new();
-      body.writeTo(buffer);
-      const text = safeToString(buffer.readUtf8());
-      return text ? text.slice(0, limit) : null;
+      const JavaString = frida_java_bridge_default.use("java.lang.String");
+      return safeToString(JavaString.$new(value, "UTF-8"));
     } catch (_error) {
       return null;
     }
   }
-  function byteArrayPreview(value, limit) {
-    if (!value) {
-      return null;
-    }
+  var observing = false;
+  function observe(fn) {
+    if (observing) return;
+    observing = true;
     try {
-      const JavaString = frida_java_bridge_default.use("java.lang.String");
-      const text = safeToString(JavaString.$new(value, "UTF-8"));
-      return text ? text.slice(0, limit) : null;
+      fn();
+    } catch (error) {
+      try {
+        sendState("http_hook_error", { error: safeToString(error) });
+      } catch (_ignored) {
+      }
+    } finally {
+      observing = false;
+    }
+  }
+  function read(fn, fallback = null) {
+    try {
+      return fn();
     } catch (_error) {
-      return null;
+      return fallback;
     }
   }
   function isStaticResponse(responseHeaders, url) {
@@ -13722,290 +13728,355 @@ std_string_c_str (StdString * self)
     recentHttpFingerprints.set(fingerprint, now);
     return previous !== void 0 && now - previous <= HTTP_DUPLICATE_WINDOW_MS;
   }
+  function passiveRequestBodyPreview(body, url, headers) {
+    if (!body || isStaticResponse(headers, url)) return null;
+    return read(() => {
+      const target = instanceTarget(body);
+      if (!/^okhttp3\.RequestBody\$(?:Companion\$toRequestBody\$)?[0-9]+$/.test(target.name)) return null;
+      if (body.isOneShot() !== false || body.isDuplex() !== false) return null;
+      const size = Number(body.contentLength());
+      if (!Number.isInteger(size) || size < 0 || size > BODY_LIMIT) return null;
+      const concrete = frida_java_bridge_default.cast(body, target.context.factory.use(target.name));
+      const kotlin = target.name.includes("$Companion$");
+      const bytes = concrete[kotlin ? "_$this_toRequestBody" : "val$content"].value;
+      const offset = Number(concrete[kotlin ? "_$offset" : "val$offset"].value);
+      const count = Number(concrete[kotlin ? "_$byteCount" : "val$byteCount"].value);
+      if (!Number.isInteger(offset) || offset < 0 || count !== size || offset + count > bytes.length) return null;
+      return safeToString(frida_java_bridge_default.use("java.lang.String").$new(bytes, offset, count, "UTF-8"));
+    });
+  }
+  function requestMetadata(request, metadata) {
+    const url = read(() => safeToString(request.url()));
+    const headers = read(() => headersToObject(request.headers()));
+    return Object.assign({}, metadata, {
+      url,
+      method: read(() => safeToString(request.method())),
+      request_headers: headers,
+      request_body: passiveRequestBodyPreview(read(() => request.body()), url, headers)
+    });
+  }
   function emitHttpTransaction(response, metadata) {
-    try {
-      const request = response.request();
-      const url = safeToString(request.url());
-      const responseHeaders = headersToObject(response.headers());
-      const contentType = responseHeaders["content-type"] || null;
-      const responseBody = isStaticResponse(responseHeaders, url) ? null : response.peekBody(65536);
-      const payload = {
-        timestamp: Date.now() / 1e3,
-        capture_source: "network_hook",
-        hook_library: metadata && metadata.hook_library ? metadata.hook_library : "okhttp3/4",
-        hook_class: metadata && metadata.hook_class ? metadata.hook_class : "okhttp3.Response$Builder",
-        hook_method: metadata && metadata.hook_method ? metadata.hook_method : "build",
-        parse_status: "complete",
-        is_complete: true,
-        method: safeToString(request.method()),
-        url,
-        request_headers_json: safeJson(headersToObject(request.headers())),
-        request_body_preview: bodyPreview(request.body(), 65536),
-        response_status: response.code(),
-        response_headers_json: safeJson(responseHeaders),
-        response_body_preview: responseBody ? bodyPreview(responseBody, 65536) : null,
-        content_type: contentType
-      };
-      if (isDuplicateHttpTransaction(payload)) {
-        sendState("http_transaction_duplicate", {
-          method: payload.method,
-          url: payload.url
-        });
-        return;
-      }
-      send({
-        type: "http_transaction",
-        payload
+    const request = read(() => response.request());
+    if (!request) return;
+    const details = requestMetadata(request, metadata);
+    const responseHeaders = read(() => headersToObject(response.headers()));
+    const payload = partialPayload(Object.assign(details, {
+      response_status: read(() => response.code()),
+      response_headers: responseHeaders,
+      content_type: responseHeaders && responseHeaders["content-type"]
+    }));
+    if (!payload.url) return;
+    if (!isDuplicateHttpTransaction(payload)) send({ type: "http_transaction", payload });
+    const contentType = (payload.content_type || "").split(";", 1)[0].trim().toLowerCase();
+    const streaming = contentType === "text/event-stream" || contentType.startsWith("application/grpc");
+    let declaredLength = null;
+    let copiedLength = 0;
+    if (!streaming && !isStaticResponse(responseHeaders, details.url)) {
+      payload.response_body_preview = read(() => {
+        const body = response.body();
+        const buffered = body.source().buffer();
+        const available = Number(buffered.size());
+        if (!Number.isFinite(available) || available <= 0) return null;
+        copiedLength = Math.min(available, BODY_LIMIT);
+        const context = read(() => instanceTarget(buffered).context, defaultContext);
+        const copy = context.factory.use("okio.Buffer").$new();
+        buffered.copyTo(copy, 0, copiedLength);
+        declaredLength = read(() => Number(body.contentLength()));
+        return safeToString(copy.readUtf8());
       });
-    } catch (error) {
-      sendState("http_hook_error", { error: safeToString(error) });
     }
+    const requestBody = read(() => request.body(), void 0);
+    payload.is_complete = payload.response_body_preview !== null && declaredLength !== null && declaredLength >= 0 && copiedLength === declaredLength && responseHeaders !== null && payload.response_status !== null && (requestBody === null || payload.request_body_preview !== null);
+    payload.parse_status = payload.is_complete ? "complete" : "partial";
+    if (payload.response_body_preview !== null && !isDuplicateHttpTransaction(payload)) send({ type: "http_transaction", payload });
+  }
+  function partialPayload(payload) {
+    return {
+      timestamp: Date.now() / 1e3,
+      capture_source: "network_hook",
+      hook_library: payload.hook_library || "unknown",
+      hook_class: payload.hook_class || null,
+      hook_method: payload.hook_method || null,
+      parse_status: "partial",
+      is_complete: false,
+      method: payload.method || null,
+      url: payload.url,
+      request_headers_json: payload.request_headers ? safeJson(payload.request_headers) : null,
+      // RequestBody.writeTo can consume even apparently repeatable bodies. Do not replay it.
+      request_body_preview: payload.request_body ?? null,
+      response_status: payload.response_status ?? null,
+      response_headers_json: payload.response_headers ? safeJson(payload.response_headers) : null,
+      response_body_preview: null,
+      content_type: payload.content_type || null
+    };
   }
   function emitPartialHttpTransaction(metadata) {
-    const payload = metadata || {};
-    if (!payload.url) {
-      return;
-    }
-    send({
-      type: "http_transaction",
-      payload: {
-        timestamp: Date.now() / 1e3,
-        capture_source: "network_hook",
-        hook_library: payload.hook_library || "unknown",
-        hook_class: payload.hook_class || null,
-        hook_method: payload.hook_method || null,
-        parse_status: "partial",
-        is_complete: false,
-        method: payload.method || "GET",
-        url: payload.url,
-        request_headers_json: payload.request_headers ? safeJson(payload.request_headers) : null,
-        request_body_preview: payload.request_body || null,
-        response_status: payload.response_status || null,
-        response_headers_json: payload.response_headers ? safeJson(payload.response_headers) : null,
-        response_body_preview: payload.response_body || null,
-        content_type: payload.content_type || null
+    if (metadata && metadata.url) send({ type: "http_transaction", payload: partialPayload(metadata) });
+  }
+  var installedMethods = /* @__PURE__ */ new Set();
+  var methodHandlers = /* @__PURE__ */ new Map();
+  function methodKey(context, name, methodName, overload) {
+    return overload.handle ? String(overload.handle) : [context.id, name, methodName, ...(overload.argumentTypes || []).map((t) => t.className)].join(":");
+  }
+  var objectIds = /* @__PURE__ */ new WeakMap();
+  var nextObjectId = 1;
+  function identity2(value) {
+    return read(() => String(frida_java_bridge_default.use("java.lang.System").identityHashCode(value)), null) || read(() => {
+      if (!objectIds.has(value)) objectIds.set(value, nextObjectId++);
+      return String(objectIds.get(value));
+    }, safeToString(value));
+  }
+  function boundedSet(map, key, value) {
+    if (!map.has(key) && map.size >= 1024) map.delete(map.keys().next().value);
+    map.set(key, value);
+  }
+  var defaultContext = { factory: frida_java_bridge_default, id: "default" };
+  function instanceTarget(instance, fallback) {
+    const cls = instance.getClass();
+    const loader = cls.getClassLoader();
+    return { name: safeToString(cls.getName()), context: loader ? { factory: frida_java_bridge_default.ClassFactory.get(loader), id: identity2(loader) } : fallback || defaultContext };
+  }
+  function hook(context, name, methodName, before, after, accepts) {
+    const cls = read(() => context.factory.use(name));
+    if (!cls) return;
+    const method = read(() => cls[methodName]);
+    if (!method) return;
+    (method.overloads || []).forEach((overload) => {
+      if (accepts && !accepts(overload.argumentTypes || [])) return;
+      const key = methodKey(context, name, methodName, overload);
+      if (installedMethods.has(key)) return;
+      try {
+        const previousImplementation = methodHandlers.get(key);
+        const handler = function() {
+          const args = Array.prototype.slice.call(arguments);
+          if (before) observe(() => before(this, args));
+          const result = previousImplementation ? previousImplementation.apply(this, args) : overload.call.apply(overload, [this].concat(args));
+          if (after) observe(() => after(this, args, result));
+          return result;
+        };
+        overload.implementation = handler;
+        methodHandlers.set(key, handler);
+        installedMethods.add(key);
+        sendState("network_hooked", { class_name: name, method_name: methodName, loader: context.id });
+      } catch (error) {
+        sendState("http_hook_error", { class_name: name, method_name: methodName, error: safeToString(error) });
       }
     });
   }
-  function installOkHttpHooks() {
-    try {
-      const ResponseBuilder = frida_java_bridge_default.use("okhttp3.Response$Builder");
-      const overloads = ResponseBuilder.build.overloads || [];
-      overloads.forEach(function(overload) {
-        if ((overload.argumentTypes || []).length !== 0) {
-          return;
-        }
-        overload.implementation = function() {
-          const response = overload.call(this);
-          emitHttpTransaction(response, {
-            hook_library: "okhttp3/4",
-            hook_class: "okhttp3.Response$Builder",
-            hook_method: "build"
-          });
-          return response;
-        };
-      });
-      sendState("network_hooked", { class_name: "okhttp3.Response$Builder", method_name: "build" });
-    } catch (error) {
-      if (!isClassNotFoundError(error)) {
-        sendState("http_hook_error", { error: safeToString(error) });
-      }
-    }
-  }
-  function installHttpURLConnectionHooks() {
-    try {
-      const HttpURLConnection = frida_java_bridge_default.use("java.net.HttpURLConnection");
-      const overloads = HttpURLConnection.getResponseCode.overloads || [];
-      overloads.forEach(function(overload) {
-        if ((overload.argumentTypes || []).length !== 0) {
-          return;
-        }
-        overload.implementation = function() {
-          const responseCode = overload.call(this);
-          try {
-            const url = safeToString(this.getURL());
-            let method = "GET";
-            try {
-              method = safeToString(this.getRequestMethod()) || method;
-            } catch (_error) {
-            }
-            let requestHeaders = null;
-            let responseHeaders = null;
-            try {
-              requestHeaders = mapToObject(this.getRequestProperties());
-            } catch (_error) {
-              requestHeaders = null;
-            }
-            try {
-              responseHeaders = mapToObject(this.getHeaderFields());
-            } catch (_error) {
-              responseHeaders = null;
-            }
-            emitPartialHttpTransaction({
-              hook_library: "httpurlconnection",
-              hook_class: "java.net.HttpURLConnection",
-              hook_method: "getResponseCode",
-              method,
-              url,
-              request_headers: requestHeaders,
-              response_headers: responseHeaders,
-              response_status: responseCode
-            });
-          } catch (error) {
-            sendState("http_hook_error", {
-              hook_library: "httpurlconnection",
-              error: safeToString(error)
-            });
-          }
-          return responseCode;
-        };
-      });
-      sendState("network_hooked", {
-        class_name: "java.net.HttpURLConnection",
-        method_name: "getResponseCode"
-      });
-    } catch (error) {
-      if (!isClassNotFoundError(error)) {
-        sendState("http_hook_error", { error: safeToString(error) });
-      }
-    }
-  }
-  function installWebViewHooks() {
-    try {
-      const WebView = frida_java_bridge_default.use("android.webkit.WebView");
-      const overloads = WebView.loadUrl.overloads || [];
-      overloads.forEach(function(overload) {
-        const argTypes = overload.argumentTypes || [];
-        if (argTypes.length === 0 || argTypes[0].className !== "java.lang.String") {
-          return;
-        }
-        overload.implementation = function() {
-          const url = safeToString(arguments[0]);
-          let headers = null;
-          if (arguments.length > 1) {
-            headers = mapToObject(arguments[1]);
-          }
-          emitPartialHttpTransaction({
-            hook_library: "webview",
-            hook_class: "android.webkit.WebView",
-            hook_method: "loadUrl",
-            method: "GET",
-            url,
-            request_headers: headers
-          });
-          return overload.call.apply(overload, [this].concat(Array.prototype.slice.call(arguments)));
-        };
-      });
-      const postOverloads = WebView.postUrl && WebView.postUrl.overloads ? WebView.postUrl.overloads : [];
-      postOverloads.forEach(function(overload) {
-        const argTypes = overload.argumentTypes || [];
-        if (argTypes.length < 2 || argTypes[0].className !== "java.lang.String") {
-          return;
-        }
-        overload.implementation = function() {
-          emitPartialHttpTransaction({
-            hook_library: "webview",
-            hook_class: "android.webkit.WebView",
-            hook_method: "postUrl",
-            method: "POST",
-            url: safeToString(arguments[0]),
-            request_body: byteArrayPreview(arguments[1], 65536)
-          });
-          return overload.call.apply(overload, [this].concat(Array.prototype.slice.call(arguments)));
-        };
-      });
-      sendState("network_hooked", { class_name: "android.webkit.WebView", method_name: "loadUrl" });
-      sendState("network_hooked", { class_name: "android.webkit.WebView", method_name: "postUrl" });
-    } catch (error) {
-      if (!isClassNotFoundError(error)) {
-        sendState("http_hook_error", { error: safeToString(error) });
-      }
-    }
-  }
-  function installCronetHooks() {
-    const builders = /* @__PURE__ */ new Map();
-    try {
-      const Builder = frida_java_bridge_default.use("org.chromium.net.UrlRequest$Builder");
-      const builderKey = function(instance) {
-        return safeToString(instance);
-      };
-      if (Builder.$init && Builder.$init.overloads) {
-        Builder.$init.overloads.forEach(function(overload) {
-          overload.implementation = function() {
-            const result = overload.call.apply(
-              overload,
-              [this].concat(Array.prototype.slice.call(arguments))
-            );
-            let url = null;
-            for (let index = 0; index < arguments.length; index += 1) {
-              const candidate = safeToString(arguments[index]);
-              if (candidate && candidate.includes("://")) {
-                url = candidate;
-                break;
-              }
-            }
-            builders.set(builderKey(this), { url, method: "GET", headers: {} });
-            return result;
-          };
+  var noArgs = (types) => types.length === 0;
+  var meta = (library, name, method) => ({ hook_library: library, hook_class: name, hook_method: method });
+  function installOkHttpCall(context, name) {
+    ["execute", "enqueue"].forEach((method) => hook(context, name, method, (self, args) => {
+      emitPartialHttpTransaction(requestMetadata(self.request(), meta("okhttp3/4", name, method)));
+      if (method === "enqueue" && args[0]) {
+        const target = instanceTarget(args[0], context);
+        hook(target.context, target.name, "onResponse", (_cb, _args) => {
+          emitHttpTransaction(_args[1], meta("okhttp3/4", target.name, "onResponse"));
         });
       }
-      const setHttpMethod = Builder.setHttpMethod.overloads || [];
-      setHttpMethod.forEach(function(overload) {
-        overload.implementation = function(method) {
-          const key = builderKey(this);
-          const state = builders.get(key) || { url: null, method: "GET", headers: {} };
-          state.method = safeToString(method) || state.method;
-          builders.set(key, state);
-          return overload.call(this, method);
-        };
-      });
-      const addHeader = Builder.addHeader.overloads || [];
-      addHeader.forEach(function(overload) {
-        overload.implementation = function(name, value) {
-          const key = builderKey(this);
-          const state = builders.get(key) || { url: null, method: "GET", headers: {} };
-          const headerName = safeToString(name);
-          if (headerName) {
-            state.headers[headerName.toLowerCase()] = safeToString(value);
-          }
-          builders.set(key, state);
-          return overload.call(this, name, value);
-        };
-      });
-      const build = Builder.build.overloads || [];
-      build.forEach(function(overload) {
-        if ((overload.argumentTypes || []).length !== 0) {
-          return;
-        }
-        overload.implementation = function() {
-          const result = overload.call(this);
-          const state = builders.get(builderKey(this));
-          if (state && state.url) {
-            emitPartialHttpTransaction({
-              hook_library: "cronet",
-              hook_class: "org.chromium.net.UrlRequest$Builder",
-              hook_method: "build",
-              method: state.method,
-              url: state.url,
-              request_headers: state.headers
-            });
-          }
-          return result;
-        };
-      });
-      sendState("network_hooked", { class_name: "org.chromium.net.UrlRequest$Builder", method_name: "build" });
-    } catch (error) {
-      if (!isClassNotFoundError(error)) {
-        sendState("http_hook_error", { error: safeToString(error) });
+    }, method === "execute" ? (_self, _args, result) => emitHttpTransaction(result, meta("okhttp3/4", name, method)) : null));
+  }
+  function installOkHttpHooks(context) {
+    const name = "okhttp3.OkHttpClient";
+    hook(context, name, "newCall", null, (_self, _args, result) => {
+      const target = instanceTarget(result, context);
+      installOkHttpCall(target.context, target.name);
+    });
+    ["okhttp3.RealCall", "okhttp3.internal.connection.RealCall"].forEach((name2) => installOkHttpCall(context, name2));
+  }
+  function connectionMetadata(self, name, method) {
+    return Object.assign(meta("httpurlconnection", name, method), {
+      url: read(() => safeToString(self.getURL())),
+      method: read(() => safeToString(self.getRequestMethod())),
+      request_headers: read(() => mapToObject(self.getRequestProperties()))
+    });
+  }
+  function installConnection(context, name) {
+    ["connect", "getResponseCode", "getInputStream", "getOutputStream"].forEach((method) => {
+      hook(
+        context,
+        name,
+        method,
+        (self) => emitPartialHttpTransaction(connectionMetadata(self, name, method)),
+        method === "getResponseCode" ? (self, _args, result) => {
+          emitPartialHttpTransaction(Object.assign(connectionMetadata(self, name, method), { response_status: result }));
+        } : null,
+        noArgs
+      );
+    });
+  }
+  function installHttpURLConnectionHooks(context) {
+    [
+      "java.net.HttpURLConnection",
+      "javax.net.ssl.HttpsURLConnection",
+      "com.android.okhttp.internal.huc.HttpURLConnectionImpl",
+      "com.android.okhttp.internal.huc.HttpsURLConnectionImpl",
+      "com.android.okhttp.internal.http.HttpURLConnectionImpl",
+      "com.android.okhttp.internal.http.HttpsURLConnectionImpl",
+      "libcore.net.http.HttpURLConnectionImpl",
+      "libcore.net.http.HttpsURLConnectionImpl"
+    ].forEach((name) => installConnection(context, name));
+    hook(context, "java.net.URL", "openConnection", null, (_self, _args, connection) => {
+      const target = instanceTarget(connection, context);
+      installConnection(target.context, target.name);
+    });
+  }
+  function installWebClient(context, name, serviceWorker = false) {
+    ["shouldInterceptRequest", "onLoadResource"].forEach((method) => hook(context, name, method, (_self, args) => {
+      const value = args[serviceWorker ? 0 : 1];
+      const details = meta(serviceWorker ? "webview_service_worker" : "webview", name, method);
+      if (typeof value === "string" || read(() => value.$className) === "java.lang.String") {
+        details.url = safeToString(value);
+      } else {
+        details.url = read(() => safeToString(value.getUrl()));
+        details.method = read(() => safeToString(value.getMethod()));
+        details.request_headers = read(() => mapToObject(value.getRequestHeaders()));
       }
+      emitPartialHttpTransaction(details);
+    }));
+  }
+  function installWebViewHooks(context) {
+    const name = "android.webkit.WebView";
+    ["loadUrl", "postUrl"].forEach((method) => hook(context, name, method, (_self, args) => {
+      const url = safeToString(args[0]);
+      emitPartialHttpTransaction(Object.assign(meta("webview", name, method), {
+        url,
+        method: method === "postUrl" ? "POST" : "GET",
+        request_headers: method === "loadUrl" && args[1] ? mapToObject(args[1]) : null,
+        request_body: method === "postUrl" && !isStaticResponse(null, url) ? byteArrayPreview(args[1], BODY_LIMIT) : null
+      }));
+    }, null, (types) => types.length > 0 && types[0].className === "java.lang.String"));
+    hook(context, name, "setWebViewClient", (_self, args) => {
+      if (!args[0]) return;
+      const target = instanceTarget(args[0], context);
+      installWebClient(target.context, target.name);
+    });
+    const installController = (ctx, className) => hook(ctx, className, "setServiceWorkerClient", (_self, args) => {
+      if (!args[0]) return;
+      const target = instanceTarget(args[0], ctx);
+      installWebClient(target.context, target.name, true);
+    });
+    installController(context, "android.webkit.ServiceWorkerController");
+    hook(context, "android.webkit.ServiceWorkerController", "getInstance", null, (_self, _args, controller) => {
+      const target = instanceTarget(controller, context);
+      installController(target.context, target.name);
+    });
+  }
+  var cronetBuilders = /* @__PURE__ */ new Map();
+  var cronetRequests = /* @__PURE__ */ new Map();
+  function installCronetCallback(context, name) {
+    ["onResponseStarted", "onRedirectReceived", "onSucceeded", "onFailed", "onCanceled"].forEach((method) => {
+      hook(context, name, method, (_self, args) => {
+        const requestKey = identity2(args[0]);
+        const state = cronetRequests.get(requestKey) || {};
+        const info = args[1];
+        emitPartialHttpTransaction(Object.assign({}, state, meta("cronet", name, method), {
+          url: read(() => safeToString(info.getUrl()), state.url),
+          response_status: read(() => info.getHttpStatusCode()),
+          response_headers: read(() => mapToObject(info.getAllHeaders()))
+        }));
+        if (["onSucceeded", "onFailed", "onCanceled"].includes(method)) cronetRequests.delete(requestKey);
+      });
+    });
+  }
+  function installCronetBuilder(context, name) {
+    hook(context, name, "setHttpMethod", null, (self, args) => {
+      const state = cronetBuilders.get(identity2(self));
+      if (state) state.method = safeToString(args[0]);
+    });
+    hook(context, name, "addHeader", null, (self, args) => {
+      const state = cronetBuilders.get(identity2(self));
+      if (state) state.request_headers[safeToString(args[0]).toLowerCase()] = safeToString(args[1]);
+    });
+    hook(context, name, "build", null, (self, _args, request) => {
+      const key = identity2(self);
+      const state = cronetBuilders.get(key);
+      if (!state) return;
+      boundedSet(cronetRequests, identity2(request), Object.assign({}, state));
+      const target = instanceTarget(request, context);
+      hook(target.context, target.name, "start", (self2) => {
+        emitPartialHttpTransaction(Object.assign({}, cronetRequests.get(identity2(self2)), meta("cronet", target.name, "start")));
+      });
+    }, noArgs);
+  }
+  function installCronetEngine(context, name) {
+    hook(context, name, "newUrlRequestBuilder", (_self, args) => {
+      if (args[1]) {
+        const target = instanceTarget(args[1], context);
+        installCronetCallback(target.context, target.name);
+      }
+    }, (_self, args, builder) => {
+      boundedSet(cronetBuilders, identity2(builder), { url: safeToString(args[0]), method: null, request_headers: {} });
+      const target = instanceTarget(builder, context);
+      installCronetBuilder(target.context, target.name);
+    }, (types) => types.length === 3 && types[0].className === "java.lang.String");
+  }
+  function installCronetHooks(context) {
+    [
+      "org.chromium.net.CronetEngine$Builder",
+      "org.chromium.net.ExperimentalCronetEngine$Builder",
+      "org.chromium.net.impl.NativeCronetEngineBuilderImpl",
+      "org.chromium.net.impl.JavaCronetEngineBuilderImpl"
+    ].forEach((name) => hook(context, name, "build", null, (_self, _args, engine) => {
+      const target = instanceTarget(engine, context);
+      installCronetEngine(target.context, target.name);
+    }, noArgs));
+    [
+      "org.chromium.net.CronetEngine",
+      "org.chromium.net.ExperimentalCronetEngine",
+      "org.chromium.net.impl.CronetUrlRequestContext",
+      "org.chromium.net.impl.JavaCronetEngine"
+    ].forEach((name) => installCronetEngine(context, name));
+    installCronetBuilder(context, "org.chromium.net.impl.UrlRequestBuilderImpl");
+  }
+  var networkAttempt = 0;
+  function installNetworkHooks() {
+    networkAttempt++;
+    const contexts = [defaultContext];
+    const seenLoaders = /* @__PURE__ */ new Set();
+    const names = read(() => frida_java_bridge_default.enumerateLoadedClassesSync(), []);
+    const install = (context) => {
+      [installOkHttpHooks, installHttpURLConnectionHooks, installWebViewHooks, installCronetHooks].forEach((fn) => observe(() => fn(context)));
+      names.filter((name) => /(?:HttpURLConnection|HttpsURLConnection|Cronet.*(?:Engine|Context))/.test(name)).slice(0, 256).forEach((name) => observe(() => {
+        if (/URLConnection/.test(name)) installConnection(context, name);
+        else installCronetEngine(context, name);
+      }));
+    };
+    install(defaultContext);
+    read(() => frida_java_bridge_default.enumerateClassLoaders({
+      onMatch(loader) {
+        if (contexts.length >= 33) return;
+        const id = identity2(loader);
+        if (seenLoaders.has(id)) return;
+        seenLoaders.add(id);
+        read(() => {
+          const context = { factory: frida_java_bridge_default.ClassFactory.get(loader), id };
+          contexts.push(context);
+          install(context);
+        });
+      },
+      onComplete() {
+      }
+    }));
+    sendState("network_install_attempt", { attempt: networkAttempt, installed_methods: installedMethods.size, loaders: contexts.length });
+    if (networkAttempt < 8) {
+      setTimeout(() => {
+        try {
+          frida_java_bridge_default.perform(installNetworkHooks);
+        } catch (error) {
+          sendState("http_hook_error", { error: safeToString(error) });
+        }
+      }, Math.min(1e3 * Math.pow(2, networkAttempt - 1), 8e3));
+    } else {
+      sendState("network_install_complete", { attempts: networkAttempt, installed_methods: installedMethods.size, coverage: "bounded; classes loaded after retry window may be missed" });
     }
   }
+  var hooksInstalled = false;
   function installHooks() {
+    if (hooksInstalled) return;
+    hooksInstalled = true;
     sendState("script_loaded", { rule_count: rules.length });
-    installOkHttpHooks();
-    installHttpURLConnectionHooks();
-    installWebViewHooks();
-    installCronetHooks();
+    installNetworkHooks();
     rules.forEach(function(rule) {
       try {
         let targetClass;
@@ -14036,7 +14107,9 @@ std_string_c_str (StdString * self)
             const signature = argTypes.map(function(item) {
               return item.className || item.name || "unknown";
             }).join(",");
-            overload.implementation = function() {
+            const handlerKey = methodKey(defaultContext, rule.class_name, rule.method_name, overload);
+            const previousImplementation = methodHandlers.get(handlerKey);
+            const handler = function() {
               let argIndex = null;
               let args = null;
               if (rule.stringify_args) {
@@ -14053,10 +14126,8 @@ std_string_c_str (StdString * self)
                   args = safeToString(arguments[targetIndex]);
                 }
               }
-              const retval = overload.call.apply(
-                overload,
-                [this].concat(Array.prototype.slice.call(arguments))
-              );
+              const callArgs = Array.prototype.slice.call(arguments);
+              const retval = previousImplementation ? previousImplementation.apply(this, callArgs) : overload.call.apply(overload, [this].concat(callArgs));
               send({
                 type: "event",
                 payload: {
@@ -14072,6 +14143,8 @@ std_string_c_str (StdString * self)
               });
               return retval;
             };
+            overload.implementation = handler;
+            methodHandlers.set(handlerKey, handler);
             boundCount += 1;
           } catch (hookError) {
             sendState("hook_error", {
@@ -14092,16 +14165,26 @@ std_string_c_str (StdString * self)
       }
     });
   }
+  var javaReady = false;
+  var initChecks = 0;
+  function watchJavaInitialization() {
+    if (javaReady) return;
+    initChecks++;
+    sendState("java_init_pending", { check: initChecks, java_available: read(() => Boolean(frida_java_bridge_default.available)) });
+    if (initChecks < 8) setTimeout(watchJavaInitialization, 2e3);
+    else sendState("java_init_timeout", { checks: initChecks, java_available: read(() => Boolean(frida_java_bridge_default.available)), coverage: "Java hooks pending; no Java capture confirmed" });
+  }
   function startJavaHooks() {
+    setTimeout(watchJavaInitialization, 2e3);
     try {
       frida_java_bridge_default.perform(function() {
+        if (javaReady) return;
+        javaReady = true;
         sendState("java_ready");
         installHooks();
       });
     } catch (error) {
-      sendState("java_bridge_error", {
-        error: safeToString(error)
-      });
+      sendState("java_bridge_error", { error: safeToString(error) });
     }
   }
   setImmediate(startJavaHooks);
